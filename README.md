@@ -10,4 +10,18 @@
   Run `npm run dev` to start the desktop app with the local backend.
 
   The renderer runs on Vite at `http://127.0.0.1:5173`, and the Electron backend listens on `http://127.0.0.1:3001`.
+
+
+Still needs your intervention:
+
+PostgreSQL/PostGIS runtime setup and confirmation.
+Redis runtime setup for cache and Channels/Celery.
+Celery worker and beat processes.
+Real external API keys for TomTom, OpenWeatherMap, and PAGASA.
+Final auth policy for desktop mode versus full JWT enforcement.
+WebSocket auth policy for desktop mode versus token-required connections.
+Production env values, including secrets, database URL, Redis URL, and VITE_API_BASE_URL if you want to override the default.
+Docker/production deployment target and host/port mapping.
+Real performance validation on your dataset and infra.
+Full smoke test of login/logout, WebSockets, and Docker compose in your environment.
   
