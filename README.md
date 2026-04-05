@@ -25,3 +25,32 @@ Docker/production deployment target and host/port mapping.
 Real performance validation on your dataset and infra.
 Full smoke test of login/logout, WebSockets, and Docker compose in your environment.
   
+List of Items added to gitignore:
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build outputs
+dist/
+build/
+coverage/
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.sqlite3
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.vscode/settings.json
