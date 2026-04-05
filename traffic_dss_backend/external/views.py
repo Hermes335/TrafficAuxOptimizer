@@ -1,8 +1,11 @@
 from django.core.cache import cache
+from django.conf import settings
+import requests
 from django.utils import timezone
 from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.http import HttpResponse
 
 from core.models import TrafficData, WeatherData
 from core.serializers import TrafficDataSerializer, WeatherDataSerializer
@@ -86,3 +89,53 @@ class AnalyticsTrendsView(APIView):
 				}
 			)
 		return Response({"trends": list(series)})
+
+
+class TomTomTileProxyView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def get(self, request, z: int, x: int, y: int):
+		api_key = getattr(settings, "TOMTOM_API_KEY", "")
+		if not api_key:
+			return Response({"detail": "TOMTOM_API_KEY is not configured."}, status=503)
+
+		style = request.query_params.get("style", "basic/main")
+		url = f"https://api.tomtom.com/map/1/tile/{style}/{z}/{x}/{y}.png"
+
+		try:
+			response = requests.get(url, params={"key": api_key}, timeout=10)
+		except Exception as exc:
+			return Response({"detail": f"TomTom tile request failed: {exc}"}, status=502)
+
+		if response.status_code != 200:
+			return Response({"detail": "TomTom tile provider error."}, status=response.status_code)
+
+		content_type = response.headers.get("Content-Type", "image/png")
+		proxy_response = HttpResponse(response.content, content_type=content_type)
+		proxy_response["Cache-Control"] = "public, max-age=300"
+		return proxy_response
+
+
+class TomTomTrafficTileProxyView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def get(self, request, z: int, x: int, y: int):
+		api_key = getattr(settings, "TOMTOM_API_KEY", "")
+		if not api_key:
+			return Response({"detail": "TOMTOM_API_KEY is not configured."}, status=503)
+
+		style = request.query_params.get("style", "relative0")
+		url = f"https://api.tomtom.com/traffic/map/4/tile/flow/{style}/{z}/{x}/{y}.png"
+
+		try:
+			response = requests.get(url, params={"key": api_key}, timeout=10)
+		except Exception as exc:
+			return Response({"detail": f"TomTom traffic tile request failed: {exc}"}, status=502)
+
+		if response.status_code != 200:
+			return Response({"detail": "TomTom traffic tile provider error."}, status=response.status_code)
+
+		content_type = response.headers.get("Content-Type", "image/png")
+		proxy_response = HttpResponse(response.content, content_type=content_type)
+		proxy_response["Cache-Control"] = "public, max-age=120"
+		return proxy_response

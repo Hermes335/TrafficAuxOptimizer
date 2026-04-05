@@ -91,7 +91,7 @@ const fallbackDashboardSnapshot: DashboardSnapshot = {
   },
 };
 
-function getApiBaseUrl() {
+export function getApiBaseUrl() {
   if (typeof window !== "undefined" && window.desktopConfig?.backendUrl) {
     return window.desktopConfig.backendUrl;
   }
