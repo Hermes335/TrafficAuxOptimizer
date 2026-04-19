@@ -24,6 +24,16 @@ interface Point {
   avgFitness: number;
 }
 
+function upsertPoint(prev: Point[], nextPoint: Point) {
+  const index = prev.findIndex((item) => item.generation === nextPoint.generation);
+  if (index >= 0) {
+    const next = [...prev];
+    next[index] = nextPoint;
+    return next;
+  }
+  return [...prev, nextPoint].slice(-200);
+}
+
 export function OptimizationEngine() {
   const runId = useMemo(() => new URLSearchParams(window.location.search).get("run_id"), []);
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
@@ -47,22 +57,37 @@ export function OptimizationEngine() {
           return;
         }
         setStatus(latestStatus);
-        setConvergenceData((prev) => {
-          const point: Point = {
+        setConvergenceData((prev) =>
+          upsertPoint(prev, {
             id: `status-${latestStatus.current_generation}`,
             generation: latestStatus.current_generation,
             bestFitness: latestStatus.current_fitness,
             avgFitness: Math.max(0, latestStatus.current_fitness * 0.82),
-          };
-          const next = [...prev, point];
-          return next.slice(-200);
-        });
+          }),
+        );
 
         const latestResults = await fetchOptimizationResults(runId);
         if (!active) {
           return;
         }
         setResults(latestResults);
+
+        if (Array.isArray(latestResults.fitness_scores) && latestResults.fitness_scores.length > 0) {
+          const rebuilt = latestResults.fitness_scores.map((score, index) => ({
+            id: `result-${index + 1}`,
+            generation: index + 1,
+            bestFitness: score,
+            avgFitness: Math.max(0, score * 0.82),
+          }));
+          setConvergenceData(rebuilt.slice(-200));
+        }
+
+        if (latestStatus.status === "completed" || latestStatus.status === "failed") {
+          if (timer) {
+            window.clearInterval(timer);
+            timer = undefined;
+          }
+        }
       } catch (syncError: unknown) {
         if (!active) {
           return;

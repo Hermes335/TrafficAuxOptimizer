@@ -47,6 +47,25 @@ export function OptimizationRunning() {
   const currentGen = status?.current_generation ?? 0;
   const totalGenerations = status?.total_generations ?? 0;
   const fitnessScore = status?.current_fitness ?? 0;
+  const averageFitness = useMemo(() => {
+    if (convergenceData.length === 0) {
+      return 0;
+    }
+    const total = convergenceData.reduce((sum, point) => sum + point.best, 0);
+    return total / convergenceData.length;
+  }, [convergenceData]);
+
+  const fitnessDeltaFromStart = useMemo(() => {
+    if (convergenceData.length < 2) {
+      return 0;
+    }
+    return convergenceData[convergenceData.length - 1].best - convergenceData[0].best;
+  }, [convergenceData]);
+
+  const candidatePlans = useMemo(() => {
+    const generated = config.populationSize * Math.max(1, currentGen);
+    return generated.toLocaleString();
+  }, [config.populationSize, currentGen]);
 
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const config = useMemo(
@@ -313,7 +332,13 @@ export function OptimizationRunning() {
               </div>
               <div>
                 <h1 className="text-2xl font-bold">{progress}% Optimization Progress</h1>
-                <p className="text-gray-600">{status?.status === "completed" ? "Optimization complete." : "Running live optimization against backend..."}</p>
+                <p className="text-gray-600">
+                  {status?.status === "completed"
+                    ? "Optimization complete."
+                    : status?.status === "failed"
+                      ? "Optimization failed. Check backend logs and retry."
+                      : "Running live optimization against backend..."}
+                </p>
               </div>
             </div>
           </div>
@@ -391,7 +416,7 @@ export function OptimizationRunning() {
                 <Users className="h-5 w-5 text-blue-600" />
                 <span className="font-medium">CANDIDATE PLANS</span>
               </div>
-              <p className="text-sm text-gray-600">100,000+</p>
+              <p className="text-sm text-gray-600">{candidatePlans}</p>
             </div>
           </div>
         </div>
@@ -421,18 +446,19 @@ export function OptimizationRunning() {
             </div>
             <div className="mt-2 flex items-center gap-1 text-sm text-green-600">
               <TrendingUp className="h-4 w-4" />
-              +12.2% from Gen 1
+              {fitnessDeltaFromStart >= 0 ? "+" : ""}
+              {fitnessDeltaFromStart.toFixed(2)} from Gen 1
             </div>
           </div>
 
           <div className="rounded-lg bg-gray-50 p-4">
             <div className="mb-1 text-xs text-gray-600">Average Fitness</div>
             <div className="flex items-end gap-2">
-              <div className="text-2xl font-bold">68.3</div>
+              <div className="text-2xl font-bold">{averageFitness.toFixed(1)}</div>
               <div className="mb-1 text-sm text-gray-600">SCORE</div>
             </div>
             <div className="mt-2 flex items-center gap-1 text-sm text-gray-600">
-              Population diversity stable
+              Based on {convergenceData.length} streamed generations
             </div>
           </div>
 

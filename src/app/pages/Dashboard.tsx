@@ -135,6 +135,17 @@ export function Dashboard() {
     .replace(/_/g, " ")
     .replace(/\b\w/g, (char) => char.toUpperCase());
 
+  const coverageEfficiency = Math.max(0, Math.min(100, dashboardSnapshot.metrics.coverageEfficiency));
+  const avgResponseTimeMinutes = dashboardSnapshot.metrics.avgResponseTimeMinutes;
+  const resourceUtilization = Math.max(0, Math.min(100, dashboardSnapshot.metrics.resourceUtilization));
+  const weatherCorrelation = dashboardSnapshot.metrics.weatherCorrelation;
+
+  const coverageCircumference = 2 * Math.PI * 16;
+  const responseTargetMinutes = 15;
+  const responseDeltaMinutes = Number((responseTargetMinutes - avgResponseTimeMinutes).toFixed(1));
+  const weatherImpactText =
+    weatherCorrelation >= 1.7 ? "Severe impact today" : weatherCorrelation >= 1.3 ? "Moderate impact today" : "Low impact today";
+
   const weatherStatusTone =
     weatherSnapshot.weather_impact_factor >= 1.7
       ? "Severe"
@@ -316,16 +327,16 @@ export function Dashboard() {
                     stroke="#FBBF24"
                     strokeWidth="3"
                     fill="none"
-                    strokeDasharray={`${2 * Math.PI * 16 * 0.85} ${2 * Math.PI * 16}`}
+                    strokeDasharray={`${coverageCircumference * (coverageEfficiency / 100)} ${coverageCircumference}`}
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center text-xs font-bold">
-                  85%
+                  {Math.round(coverageEfficiency)}%
                 </div>
               </div>
               <div className="flex items-center gap-1 text-xs text-green-600">
                 <TrendingUp className="h-3 w-3" />
-                <span>+3%</span>
+                <span>{coverageEfficiency >= 80 ? "Good" : "Watch"}</span>
               </div>
             </div>
           </div>
@@ -337,10 +348,10 @@ export function Dashboard() {
               <Clock className="h-3 w-3 text-gray-600" />
             </div>
             <div className="flex items-center gap-2">
-              <div className="text-xl font-bold">12m</div>
-              <div className="flex items-center gap-1 text-xs text-green-600">
+              <div className="text-xl font-bold">{avgResponseTimeMinutes}m</div>
+              <div className={`flex items-center gap-1 text-xs ${responseDeltaMinutes >= 0 ? "text-green-600" : "text-red-600"}`}>
                 <ArrowDown className="h-3 w-3" />
-                <span>-2m</span>
+                <span>{responseDeltaMinutes >= 0 ? `-${responseDeltaMinutes}m` : `+${Math.abs(responseDeltaMinutes)}m`}</span>
               </div>
             </div>
             <div className="text-xs text-gray-500">Target: &lt;15m</div>
@@ -352,11 +363,11 @@ export function Dashboard() {
               <div className="text-xs font-medium text-gray-600">RESOURCE UTILIZATION</div>
               <TrendingUp className="h-3 w-3 text-gray-600" />
             </div>
-            <div className="mb-1 text-xl font-bold">78%</div>
+            <div className="mb-1 text-xl font-bold">{Math.round(resourceUtilization)}%</div>
             <div className="h-1 overflow-hidden rounded-full bg-gray-200">
-              <div className="h-full bg-yellow-400" style={{ width: "78%" }} />
+              <div className="h-full bg-yellow-400" style={{ width: `${resourceUtilization}%` }} />
             </div>
-            <div className="mt-1 text-xs text-gray-500">28/30 officers active</div>
+            <div className="mt-1 text-xs text-gray-500">Live utilization from deployment data</div>
           </div>
 
           {/* Weather Correlation */}
@@ -365,17 +376,23 @@ export function Dashboard() {
               <div className="text-xs font-medium text-gray-600">WEATHER CORRELATION</div>
               <CloudRain className="h-3 w-3 text-gray-600" />
             </div>
-            <div className="mb-1 text-xl font-bold">0.82</div>
+            <div className="mb-1 text-xl font-bold">{weatherCorrelation.toFixed(2)}</div>
             {/* Simple sparkline */}
             <svg className="h-4 w-full" viewBox="0 0 100 20">
               <polyline
                 fill="none"
                 stroke="#FBBF24"
                 strokeWidth="2"
-                points="0,15 20,12 40,10 60,8 80,6 100,5"
+                points={
+                  weatherCorrelation >= 1.7
+                    ? "0,16 20,14 40,12 60,9 80,6 100,3"
+                    : weatherCorrelation >= 1.3
+                      ? "0,15 20,12 40,10 60,8 80,6 100,5"
+                      : "0,14 20,13 40,12 60,11 80,10 100,9"
+                }
               />
             </svg>
-            <div className="text-xs text-gray-500">Moderate impact today</div>
+            <div className="text-xs text-gray-500">{weatherImpactText}</div>
           </div>
         </div>
       </div>

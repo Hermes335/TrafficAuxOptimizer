@@ -5,7 +5,7 @@ from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from core.models import Bottleneck, Incident, OptimizationRun, TrafficData, WeatherData
+from core.models import Bottleneck, Incident, Officer, OptimizationRun, TrafficData, WeatherData
 from core.utils import write_audit_log
 
 
@@ -14,13 +14,15 @@ class DashboardKPIsView(APIView):
 
 	def get(self, request):
 		active_deployments = Bottleneck.objects.filter(is_deleted=False).count()
+		total_officers = Officer.objects.filter(is_deleted=False).count()
+		active_officers = Officer.objects.filter(is_deleted=False, status="deployed").count()
 		critical_incidents = Incident.objects.filter(is_deleted=False, status="active", severity="critical").count()
 		recent_weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
 		avg_tsi = TrafficData.objects.filter(is_deleted=False).aggregate(value=Avg("traffic_severity_index"))["value"] or 0.0
 
 		coverage_efficiency = max(0, min(100, 90 - (critical_incidents * 5)))
 		avg_response_time = round(8 + (avg_tsi * 10), 1)
-		resource_utilization = max(0, min(100, int((active_deployments / max(1, active_deployments)) * 78)))
+		resource_utilization = 0 if total_officers == 0 else round((active_officers / total_officers) * 100, 1)
 		weather_correlation = float(getattr(recent_weather, "weather_impact_factor", 1.0))
 
 		return Response(
@@ -29,6 +31,8 @@ class DashboardKPIsView(APIView):
 				"avg_response_time": avg_response_time,
 				"resource_utilization": resource_utilization,
 				"weather_correlation": weather_correlation,
+				"active_officers": active_officers,
+				"total_officers": total_officers,
 			}
 		)
 
