@@ -10,7 +10,7 @@ from core.models import Bottleneck, TrafficData, WeatherData
 
 from .clients import (
     ProviderError,
-    fetch_openweather_weather,
+    fetch_openmeteo_weather,
     fetch_osm_overpass_traffic,
     fetch_pagasa_weather,
     fetch_tomtom_traffic,
@@ -102,8 +102,8 @@ def fetch_weather_data():
         source = "pagasa"
     except ProviderError:
         try:
-            snapshot = fetch_openweather_weather()
-            source = "openweathermap"
+            snapshot = fetch_openmeteo_weather()
+            source = "openmeteo"
         except ProviderError:
             snapshot = cache.get(WEATHER_CACHE_KEY)
             source = "cache" if snapshot else "none"

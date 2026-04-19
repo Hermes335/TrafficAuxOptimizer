@@ -116,6 +116,8 @@ class OptimizationResultsView(APIView):
 			{
 				"run_id": run.run_id,
 				"status": run.status,
+				"fitness_scores": run.fitness_scores or [],
+				"total_generations": int((run.parameters or {}).get("generations", 300)),
 				"top_solutions": run.result_data.get("top_solutions", []),
 			}
 		)

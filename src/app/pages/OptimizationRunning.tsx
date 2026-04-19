@@ -11,17 +11,30 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import {
+  fetchOptimizationResults,
   fetchOptimizationStatus,
   runOptimization,
   subscribeToOptimizationStream,
   type OptimizationStatus,
 } from "../services/backend";
 
+type ConvergencePoint = { id: string; x: number; best: number; avg: number };
+
+function upsertConvergencePoint(prev: ConvergencePoint[], nextPoint: ConvergencePoint) {
+  const existingIndex = prev.findIndex((item) => item.x === nextPoint.x);
+  if (existingIndex >= 0) {
+    const next = [...prev];
+    next[existingIndex] = nextPoint;
+    return next;
+  }
+  return [...prev, nextPoint].slice(-120);
+}
+
 export function OptimizationRunning() {
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [convergenceData, setConvergenceData] = useState<Array<{ id: string; x: number; best: number; avg: number }>>([]);
+  const [convergenceData, setConvergenceData] = useState<ConvergencePoint[]>([]);
   const startedRef = useRef(false);
 
   const progress = useMemo(() => {
@@ -69,34 +82,60 @@ export function OptimizationRunning() {
 
         unsubscribe = subscribeToOptimizationStream(run.run_id, (event) => {
           if (event.current_generation !== undefined) {
-            setConvergenceData((prev) => {
-              const point = {
+            setConvergenceData((prev) =>
+              upsertConvergencePoint(prev, {
                 id: `point-${event.current_generation}`,
                 x: event.current_generation,
                 best: event.current_fitness ?? 0,
                 avg: Math.max(0, (event.current_fitness ?? 0) * 0.82),
-              };
-              const next = [...prev, point];
-              return next.slice(-120);
-            });
+              }),
+            );
           }
           setStatus((prev) => ({ ...prev, ...event }));
+
+          if (event.status === "completed" || event.status === "failed") {
+            if (pollTimer) {
+              window.clearInterval(pollTimer);
+              pollTimer = undefined;
+            }
+          }
         });
 
         pollTimer = window.setInterval(() => {
           fetchOptimizationStatus(run.run_id)
             .then((latest) => {
               setStatus(latest);
-              setConvergenceData((prev) => {
-                const point = {
+              setConvergenceData((prev) =>
+                upsertConvergencePoint(prev, {
                   id: `poll-${latest.current_generation}`,
                   x: latest.current_generation,
                   best: latest.current_fitness,
                   avg: Math.max(0, latest.current_fitness * 0.82),
-                };
-                const next = [...prev, point];
-                return next.slice(-120);
-              });
+                }),
+              );
+
+              if (latest.status === "completed" || latest.status === "failed") {
+                if (pollTimer) {
+                  window.clearInterval(pollTimer);
+                  pollTimer = undefined;
+                }
+                fetchOptimizationResults(run.run_id)
+                  .then((result) => {
+                    if (!Array.isArray(result.fitness_scores) || result.fitness_scores.length === 0) {
+                      return;
+                    }
+                    const rebuilt = result.fitness_scores.map((score, index) => ({
+                      id: `final-${index + 1}`,
+                      x: index + 1,
+                      best: score,
+                      avg: Math.max(0, score * 0.82),
+                    }));
+                    setConvergenceData(rebuilt.slice(-120));
+                  })
+                  .catch(() => {
+                    return;
+                  });
+              }
             })
             .catch(() => {
               // keep UI alive while websocket updates are active

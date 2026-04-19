@@ -11,7 +11,7 @@ from external.tasks import fetch_traffic_data, fetch_weather_data
 @pytest.mark.django_db
 def test_fetch_weather_data_uses_fallback_and_persists():
     with patch("external.tasks.fetch_pagasa_weather", side_effect=ProviderError("pagasa down")), patch(
-        "external.tasks.fetch_openweather_weather",
+        "external.tasks.fetch_openmeteo_weather",
         return_value={
             "condition": "moderate_rain",
             "temperature": 27.2,

@@ -32,4 +32,4 @@ Django + DRF backend for the Traffic Deployment DSS.
 
 ## Notes
 
-- GA, external integrations (TomTom/PAGASA/OpenWeather), and richer websocket broadcasting are scaffolded and ready for deeper implementation in Phases 2-4.
+- GA, external integrations (TomTom/PAGASA/Open-Meteo), and richer websocket broadcasting are scaffolded and ready for deeper implementation in Phases 2-4.

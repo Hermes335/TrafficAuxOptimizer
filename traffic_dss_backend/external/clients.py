@@ -46,6 +46,41 @@ def _weather_condition_to_wif(condition: str) -> tuple[str, float]:
     return "clear", 1.0
 
 
+def _open_meteo_code_to_weather(code: int) -> tuple[str, float]:
+    mapping: dict[int, tuple[str, float]] = {
+        0: ("clear", 1.0),
+        1: ("partly_cloudy", 1.02),
+        2: ("partly_cloudy", 1.03),
+        3: ("cloudy", 1.05),
+        45: ("fog", 1.12),
+        48: ("fog", 1.14),
+        51: ("light_rain", 1.1),
+        53: ("light_rain", 1.12),
+        55: ("moderate_rain", 1.22),
+        56: ("freezing_drizzle", 1.18),
+        57: ("freezing_drizzle", 1.25),
+        61: ("light_rain", 1.2),
+        63: ("moderate_rain", 1.35),
+        65: ("heavy_rain", 1.65),
+        66: ("freezing_rain", 1.4),
+        67: ("freezing_rain", 1.55),
+        71: ("light_snow", 1.2),
+        73: ("snow", 1.35),
+        75: ("heavy_snow", 1.55),
+        77: ("snow_grains", 1.25),
+        80: ("shower_rain", 1.18),
+        81: ("shower_rain", 1.32),
+        82: ("heavy_shower_rain", 1.5),
+        85: ("shower_snow", 1.28),
+        86: ("heavy_shower_snow", 1.45),
+        95: ("severe", 2.0),
+        96: ("severe", 2.15),
+        99: ("severe", 2.25),
+    }
+
+    return mapping.get(code, ("clear", 1.0))
+
+
 def fetch_pagasa_weather() -> dict:
     endpoint = getattr(settings, "PAGASA_API_ENDPOINT", "")
     if not endpoint:
@@ -64,33 +99,28 @@ def fetch_pagasa_weather() -> dict:
     }
 
 
-def fetch_openweather_weather() -> dict:
-    api_key = getattr(settings, "OPENWEATHERMAP_API_KEY", "")
+def fetch_openmeteo_weather() -> dict:
     lat = float(getattr(settings, "ILOILO_LATITUDE", 10.7202))
     lng = float(getattr(settings, "ILOILO_LONGITUDE", 122.5621))
-    if not api_key:
-        raise ProviderError("OPENWEATHERMAP_API_KEY is not configured")
 
     payload = request_with_backoff(
-        "https://api.openweathermap.org/data/3.0/onecall",
+        "https://api.open-meteo.com/v1/forecast",
         params={
-            "lat": lat,
-            "lon": lng,
-            "exclude": "minutely,hourly,daily,alerts",
-            "appid": api_key,
-            "units": "metric",
+            "latitude": lat,
+            "longitude": lng,
+            "current": "temperature_2m,precipitation,weather_code",
+            "timezone": "auto",
         },
     )
     current = payload.get("current", {})
-    weather = current.get("weather", [])
-    weather_text = weather[0].get("description", "clear") if weather else "clear"
-    condition, wif = _weather_condition_to_wif(weather_text)
+    weather_code = int(current.get("weather_code", -1))
+    condition, wif = _open_meteo_code_to_weather(weather_code)
 
     return {
-        "source": "openweathermap",
+        "source": "openmeteo",
         "condition": condition,
-        "temperature": float(current.get("temp", 30.0)),
-        "precipitation": float(current.get("rain", {}).get("1h", 0.0)) if isinstance(current.get("rain"), dict) else 0.0,
+        "temperature": float(current.get("temperature_2m", 30.0)),
+        "precipitation": float(current.get("precipitation", 0.0)),
         "weather_impact_factor": wif,
         "raw": payload,
     }

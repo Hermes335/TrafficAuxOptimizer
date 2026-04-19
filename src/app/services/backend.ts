@@ -28,6 +28,14 @@ export interface DashboardSnapshot {
   };
 }
 
+export interface WeatherCurrentSnapshot {
+  timestamp: string;
+  condition: string;
+  temperature: number;
+  precipitation: number;
+  weather_impact_factor: number;
+}
+
 export interface LiveDashboardEvent {
   event: string;
   timestamp?: string;
@@ -245,6 +253,14 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
   };
 }
 
+export async function fetchCurrentWeather(): Promise<WeatherCurrentSnapshot> {
+  const response = await fetch(`${getApiBaseUrl()}/api/weather/current/`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch weather data: ${response.status}`);
+  }
+  return response.json() as Promise<WeatherCurrentSnapshot>;
+}
+
 export interface OptimizationRunRequest {
   shift?: string;
   population_size?: number;
@@ -292,6 +308,8 @@ export async function fetchOptimizationStatus(runId: string): Promise<Optimizati
 export interface OptimizationResults {
   run_id: string;
   status: string;
+  fitness_scores?: number[];
+  total_generations?: number;
   top_solutions: Array<{
     score?: number;
     efficiency?: number;

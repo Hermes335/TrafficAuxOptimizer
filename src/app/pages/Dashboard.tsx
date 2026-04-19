@@ -21,16 +21,27 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   fetchDashboardSnapshot,
+  fetchCurrentWeather,
   getApiBaseUrl,
   getFallbackDashboardSnapshot,
   subscribeToDashboardStream,
   type DashboardSnapshot,
+  type WeatherCurrentSnapshot,
 } from "../services/backend";
 
 export function Dashboard() {
+  const fallbackWeather: WeatherCurrentSnapshot = {
+    timestamp: new Date().toISOString(),
+    condition: "clear",
+    temperature: 30,
+    precipitation: 0,
+    weather_impact_factor: 1,
+  };
+
   const [dashboardSnapshot, setDashboardSnapshot] = useState<DashboardSnapshot>(
     getFallbackDashboardSnapshot(),
   );
+  const [weatherSnapshot, setWeatherSnapshot] = useState<WeatherCurrentSnapshot>(fallbackWeather);
   const [selectedView, setSelectedView] = useState("Congestion");
   const [showIncidentModal, setShowIncidentModal] = useState(true);
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(false);
@@ -97,6 +108,18 @@ export function Dashboard() {
         }
       });
 
+    fetchCurrentWeather()
+      .then((weather) => {
+        if (active) {
+          setWeatherSnapshot(weather);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setWeatherSnapshot(fallbackWeather);
+        }
+      });
+
     return () => {
       active = false;
       stopStream();
@@ -106,8 +129,54 @@ export function Dashboard() {
   const bottlenecks = dashboardSnapshot.bottlenecks;
   const incidents = dashboardSnapshot.incidents;
   const mapCenter: [number, number] = [122.5621, 10.7202];
-  const tomTomTileUrl = `${getApiBaseUrl()}/api/maps/tomtom/{z}/{x}/{y}.png`;
   const tomTomTrafficTileUrl = `${getApiBaseUrl()}/api/maps/tomtom-traffic/{z}/{x}/{y}.png?style=relative0`;
+
+  const weatherLabel = weatherSnapshot.condition
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+  const weatherStatusTone =
+    weatherSnapshot.weather_impact_factor >= 1.7
+      ? "Severe"
+      : weatherSnapshot.weather_impact_factor >= 1.3
+        ? "Moderate"
+        : "Clear";
+
+  const weatherStyle =
+    weatherStatusTone === "Severe"
+      ? {
+          overlayClass: "bg-slate-700/18",
+          blurClass: "backdrop-blur-[0.8px]",
+          gradient:
+            "radial-gradient(circle at 30% 35%, rgba(71, 85, 105, 0.40) 0%, transparent 52%), radial-gradient(circle at 70% 65%, rgba(30, 41, 59, 0.32) 0%, transparent 54%)",
+          chipClass: "bg-rose-500 text-white",
+          bannerClass: "bg-rose-500 text-white",
+          iconClass: "text-rose-100",
+          icon: CloudRain,
+        }
+      : weatherStatusTone === "Moderate"
+        ? {
+            overlayClass: "bg-blue-500/14",
+            blurClass: "backdrop-blur-[0.5px]",
+            gradient:
+              "radial-gradient(circle at 30% 40%, rgba(59, 130, 246, 0.28) 0%, transparent 50%), radial-gradient(circle at 70% 60%, rgba(29, 78, 216, 0.20) 0%, transparent 52%)",
+            chipClass: "bg-yellow-400 text-white",
+            bannerClass: "bg-yellow-400 text-white",
+            iconClass: "text-yellow-100",
+            icon: CloudRain,
+          }
+        : {
+            overlayClass: "bg-emerald-400/3",
+            blurClass: "backdrop-blur-0",
+            gradient:
+              "radial-gradient(circle at 30% 35%, rgba(16, 185, 129, 0.08) 0%, transparent 50%), radial-gradient(circle at 75% 60%, rgba(52, 211, 153, 0.06) 0%, transparent 52%)",
+            chipClass: "bg-emerald-500 text-white",
+            bannerClass: "bg-emerald-500 text-white",
+            iconClass: "text-emerald-100",
+            icon: Cloud,
+          };
+
+  const WeatherIndicatorIcon = weatherStyle.icon;
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) {
@@ -128,12 +197,6 @@ export function Dashboard() {
             tileSize: 256,
             attribution: "© OpenStreetMap contributors",
           },
-          tomtom: {
-            type: "raster",
-            tiles: [tomTomTileUrl],
-            tileSize: 256,
-            attribution: "© TomTom",
-          },
           tomtomTraffic: {
             type: "raster",
             tiles: [tomTomTrafficTileUrl],
@@ -143,7 +206,6 @@ export function Dashboard() {
         },
         layers: [
           { id: "osm-base", type: "raster", source: "osm" },
-          { id: "tomtom-base", type: "raster", source: "tomtom", paint: { "raster-opacity": 0.35 } },
           {
             id: "tomtom-traffic-flow",
             type: "raster",
@@ -164,7 +226,7 @@ export function Dashboard() {
       map.remove();
       mapRef.current = null;
     };
-  }, [tomTomTileUrl, tomTomTrafficTileUrl]);
+  }, [tomTomTrafficTileUrl]);
 
   useEffect(() => {
     if (!mapRef.current || !mapRef.current.getLayer("tomtom-traffic-flow")) {
@@ -411,18 +473,16 @@ export function Dashboard() {
 
             {/* Weather Overlay */}
             {showWeatherOverlay && (
-              <div className="pointer-events-none absolute inset-0 bg-blue-500/20 backdrop-blur-[1px]">
+              <div className={`pointer-events-none absolute inset-0 ${weatherStyle.blurClass} ${weatherStyle.overlayClass}`}>
                 <div
                   className="absolute inset-0"
                   style={{
-                    backgroundImage: `radial-gradient(circle at 30% 40%, rgba(59, 130, 246, 0.35) 0%, transparent 50%),
-                                     radial-gradient(circle at 70% 60%, rgba(59, 130, 246, 0.25) 0%, transparent 50%),
-                                     radial-gradient(circle at 50% 80%, rgba(59, 130, 246, 0.25) 0%, transparent 50%)`,
+                    backgroundImage: weatherStyle.gradient,
                   }}
                 />
-                <div className="absolute left-1/2 top-20 -translate-x-1/2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-white shadow-lg">
-                  <CloudRain className="mr-2 inline h-4 w-4" />
-                  Moderate rain in District 3 • WIF updated to 1.25x
+                <div className={`absolute left-1/2 top-28 z-20 -translate-x-1/2 rounded-lg px-4 py-2 text-sm font-medium shadow-lg ${weatherStyle.bannerClass}`}>
+                  <WeatherIndicatorIcon className={`mr-2 inline h-4 w-4 ${weatherStyle.iconClass}`} />
+                  {weatherLabel} • {weatherStatusTone} impact • WIF {weatherSnapshot.weather_impact_factor.toFixed(2)}x
                 </div>
               </div>
             )}
@@ -442,23 +502,45 @@ export function Dashboard() {
               </div>
             </div>
 
-            {/* Congestion Legend */}
+            {/* Context Legend */}
             <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-lg bg-white p-3 shadow-md">
-              <div className="mb-2 text-xs font-semibold text-gray-700">CONGESTION LEGEND</div>
-              <div className="flex gap-3 text-xs">
-                <div className="flex items-center gap-1">
-                  <div className="h-3 w-3 rounded-full bg-green-500"></div>
-                  <span>&lt;40%</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="h-3 w-3 rounded-full bg-yellow-400"></div>
-                  <span>40-60%</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="h-3 w-3 rounded-full bg-red-500"></div>
-                  <span>&gt;80%</span>
-                </div>
-              </div>
+              {selectedView === "Weather" ? (
+                <>
+                  <div className="mb-2 text-xs font-semibold text-gray-700">WEATHER LEGEND</div>
+                  <div className="flex gap-3 text-xs">
+                    <div className="flex items-center gap-1">
+                      <div className="h-3 w-3 rounded-full bg-emerald-500"></div>
+                      <span>Clear (WIF &lt; 1.30)</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="h-3 w-3 rounded-full bg-yellow-400"></div>
+                      <span>Moderate (1.30-1.69)</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="h-3 w-3 rounded-full bg-rose-500"></div>
+                      <span>Severe (≥ 1.70)</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="mb-2 text-xs font-semibold text-gray-700">CONGESTION LEGEND</div>
+                  <div className="flex gap-3 text-xs">
+                    <div className="flex items-center gap-1">
+                      <div className="h-3 w-3 rounded-full bg-green-500"></div>
+                      <span>&lt;40%</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="h-3 w-3 rounded-full bg-yellow-400"></div>
+                      <span>40-60%</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="h-3 w-3 rounded-full bg-red-500"></div>
+                      <span>&gt;80%</span>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
 
             <div className="pointer-events-none absolute bottom-1 right-2 z-20 rounded bg-white/85 px-2 py-0.5 text-xs text-gray-700">
@@ -466,7 +548,7 @@ export function Dashboard() {
             </div>
 
             {/* Location Label */}
-              <div className="pointer-events-none absolute left-1/2 top-16 z-20 -translate-x-1/2 rounded-full bg-white/90 px-4 py-2 text-sm font-medium shadow-md backdrop-blur-sm">
+              <div className="pointer-events-none absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full bg-white/90 px-4 py-2 text-sm font-medium shadow-md backdrop-blur-sm">
               📍 {dashboardSnapshot.cityLabel}
             </div>
           </div>
@@ -594,10 +676,10 @@ export function Dashboard() {
             <div className="mb-4">
               <label className="mb-2 block text-xs font-medium text-gray-600">WEATHER MODE</label>
               <div className="flex items-center gap-2 rounded-lg bg-white p-2">
-                <CloudRain className="h-4 w-4 text-yellow-600" />
+                <WeatherIndicatorIcon className={`h-4 w-4 ${weatherStyle.iconClass}`} />
                 <span className="flex-1 text-sm">Auto-detected</span>
-                <span className="rounded-full bg-yellow-400 px-2 py-0.5 text-xs font-medium text-white">
-                  Moderate Rain
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${weatherStyle.chipClass}`}>
+                  {weatherLabel}
                 </span>
               </div>
             </div>

@@ -541,7 +541,7 @@ Commercial alternatives (e.g., INRIX, TomTom Traffic) provide data but not optim
 
 ### 8.1 Immediate Enhancements (3-6 months)
 - **Backend integration**: Supabase or Firebase for real data persistence
-- **Live weather API**: OpenWeatherMap or AccuWeather integration for real-time WIF
+- **Live weather API**: Open-Meteo or PAGASA integration for real-time WIF
 - **GPS tracking**: Officer location verification via mobile app
 - **Push notifications**: Deployment change alerts to officers
 - **Historical data analysis**: Month-over-month performance trends

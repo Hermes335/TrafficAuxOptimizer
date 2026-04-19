@@ -113,6 +113,20 @@ def run_optimization(run_id: str):
     run.status = result.status
     run.save(update_fields=["fitness_scores", "result_data", "status", "updated_at"])
 
+    if result.status != "completed":
+        failed_payload = {
+            "event": "optimization_failed",
+            "run_id": run_id,
+            "status": "failed",
+            "current_generation": len(result.generation_fitness),
+            "total_generations": total_generations,
+            "current_fitness": round(result.best_fitness, 4),
+            "updated_at": timezone.now().isoformat(),
+        }
+        save_progress(run_id, failed_payload)
+        _broadcast_progress(run_id, failed_payload)
+        return {"run_id": run_id, "best_fitness": result.best_fitness, "status": result.status}
+
     completed_payload = {
         "event": "optimization_complete",
         "run_id": run_id,

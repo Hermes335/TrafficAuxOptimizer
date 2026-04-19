@@ -49,8 +49,9 @@ Create `traffic_dss_backend/.env` from `.env.example` (if present), then set:
 - `CELERY_BROKER_URL`
 - `CELERY_RESULT_BACKEND`
 - `TOMTOM_API_KEY`
-- `OPENWEATHERMAP_API_KEY`
 - `PAGASA_API_ENDPOINT`
+
+Use Open-Meteo for weather. No weather API key is needed.
 
 1) TomTom API key
 Go to the TomTom developer portal and create an account.
@@ -58,25 +59,26 @@ Confirm your email.
 Create a new project or application in the dashboard.
 Find the API key under the project credentials.
 Copy that key.
-Put it in traffic_dss_backend/.env as:
-Restart the backend.
-2) OpenWeatherMap API key
-Go to the OpenWeatherMap website and create an account.
-Verify your email.
-Open the API keys section in your account dashboard.
-Generate a new key if one does not already exist.
-Copy the key.
-Put it in traffic_dss_backend/.env as:
-Restart the backend.
+2) Weather provider
+The backend now uses Open-Meteo for free weather data.
+No API key is required.
+If you want fallback national weather data, continue with PAGASA below.
 3) PAGASA endpoint
-PAGASA usually is not a normal “API key” flow like TomTom or OpenWeatherMap.
+PAGASA usually is not a normal “API key” flow like TomTom or Open-Meteo.
 
 Check whether you have an approved PAGASA data endpoint from your organization or from PAGASA itself.
 If you do, copy the endpoint URL.
 Put it in traffic_dss_backend/.env as:
 If you do not have one, leave it blank for now. The backend will fall back to cached or default weather data where supported.
 4) Add them to the backend env file
-Open traffic_dss_backend/.env and set:
+Open `traffic_dss_backend/.env` and set:
+
+```env
+TOMTOM_API_KEY=your_tomtom_key
+PAGASA_API_ENDPOINT=https://api.pagasa.dost.gov.ph
+ILOILO_LATITUDE=10.7202
+ILOILO_LONGITUDE=122.5621
+```
 
 5) Restart the app
 Stop the backend.
@@ -101,7 +103,6 @@ DEBUG=True
 ALLOWED_HOSTS=localhost,127.0.0.1
 CORS_ALLOW_ALL_ORIGINS=True
 TOMTOM_API_KEY=your_tomtom_key
-OPENWEATHERMAP_API_KEY=your_weather_key
 PAGASA_API_ENDPOINT=https://api.pagasa.dost.gov.ph
 ILOILO_LATITUDE=10.7202
 ILOILO_LONGITUDE=122.5621
