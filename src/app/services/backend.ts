@@ -424,3 +424,79 @@ export async function createScenario(payload: {
   }
   return response.json() as Promise<ScenarioRecord>;
 }
+
+export interface AnalyticsTrendPoint {
+  timestamp: string;
+  traffic_severity_index: number;
+  avg_speed: number;
+}
+
+export async function fetchAnalyticsTrends(): Promise<AnalyticsTrendPoint[]> {
+  const response = await fetch(`${getApiBaseUrl()}/api/analytics/trends/`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch analytics trends: ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { trends?: AnalyticsTrendPoint[] };
+  return Array.isArray(payload.trends) ? payload.trends : [];
+}
+
+export interface AuditLogRecord {
+  id: number;
+  user: number;
+  action: string;
+  resource: string;
+  changes: Record<string, unknown>;
+  timestamp: string;
+}
+
+export async function fetchAuditLogs(): Promise<AuditLogRecord[]> {
+  const response = await fetch(`${getApiBaseUrl()}/api/admin/audit-logs/`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch audit logs: ${response.status}`);
+  }
+  return response.json() as Promise<AuditLogRecord[]>;
+}
+
+export interface AdminSystemHealthSnapshot {
+  status: string;
+  timestamp: string;
+  database: string;
+  queue: string;
+}
+
+export interface SystemHealthSnapshot {
+  apiStatus: string;
+  adminHealth: AdminSystemHealthSnapshot | null;
+  adminForbidden: boolean;
+}
+
+export async function fetchSystemHealthSnapshot(): Promise<SystemHealthSnapshot> {
+  const apiResponse = await fetch(`${getApiBaseUrl()}/api/health/`);
+  if (!apiResponse.ok) {
+    throw new Error(`Failed to fetch public health: ${apiResponse.status}`);
+  }
+
+  const apiPayload = (await apiResponse.json()) as { status?: string };
+  const apiStatus = apiPayload.status ?? "unknown";
+
+  const adminResponse = await fetch(`${getApiBaseUrl()}/api/admin/system-health/`);
+  if (adminResponse.status === 403) {
+    return {
+      apiStatus,
+      adminHealth: null,
+      adminForbidden: true,
+    };
+  }
+
+  if (!adminResponse.ok) {
+    throw new Error(`Failed to fetch admin system health: ${adminResponse.status}`);
+  }
+
+  const adminPayload = (await adminResponse.json()) as AdminSystemHealthSnapshot;
+  return {
+    apiStatus,
+    adminHealth: adminPayload,
+    adminForbidden: false,
+  };
+}
