@@ -62,11 +62,6 @@ export function OptimizationRunning() {
     return convergenceData[convergenceData.length - 1].best - convergenceData[0].best;
   }, [convergenceData]);
 
-  const candidatePlans = useMemo(() => {
-    const generated = config.populationSize * Math.max(1, currentGen);
-    return generated.toLocaleString();
-  }, [config.populationSize, currentGen]);
-
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const config = useMemo(
     () => ({
@@ -76,6 +71,11 @@ export function OptimizationRunning() {
     }),
     [query],
   );
+
+  const candidatePlans = useMemo(() => {
+    const generated = config.populationSize * Math.max(1, currentGen);
+    return generated.toLocaleString();
+  }, [config.populationSize, currentGen]);
 
   useEffect(() => {
     if (startedRef.current) {
