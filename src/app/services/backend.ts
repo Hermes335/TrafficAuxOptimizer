@@ -421,6 +421,25 @@ export interface IncidentReportPayload {
   description: string;
 }
 
+export interface IncidentMetaOption {
+  value: string;
+  label: string;
+}
+
+export interface IncidentMetaSnapshot {
+  incident_types: IncidentMetaOption[];
+  severities: IncidentMetaOption[];
+  statuses: IncidentMetaOption[];
+}
+
+export async function fetchIncidentMeta(): Promise<IncidentMetaSnapshot> {
+  const response = await fetch(`${getApiBaseUrl()}/api/incidents/meta/`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch incident metadata: ${response.status}`);
+  }
+  return response.json() as Promise<IncidentMetaSnapshot>;
+}
+
 export async function reportIncident(payload: IncidentReportPayload): Promise<void> {
   const body = new FormData();
   body.append("bottleneck", payload.bottleneck);

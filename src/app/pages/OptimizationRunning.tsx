@@ -95,6 +95,15 @@ export function OptimizationRunning() {
     return "Processing generations";
   }, [status]);
 
+  const latestEventLabel = runEvents[runEvents.length - 1]?.label ?? "Waiting for optimization events...";
+
+  const statusToneClass =
+    status?.status === "completed"
+      ? "bg-green-100 text-green-700"
+      : status?.status === "failed"
+        ? "bg-red-100 text-red-700"
+        : "bg-yellow-100 text-yellow-700";
+
   const currentEventIcon = useMemo(() => {
     if (!status) {
       return Activity;
@@ -107,6 +116,15 @@ export function OptimizationRunning() {
     }
     return Clock;
   }, [status]);
+
+  const isRunActive = status?.status !== "completed" && status?.status !== "failed";
+  const ProgressStatusIcon = currentEventIcon;
+  const progressIconClass =
+    status?.status === "completed"
+      ? "text-green-700"
+      : status?.status === "failed"
+        ? "text-red-700"
+        : "text-white";
 
   useEffect(() => {
     if (startedRef.current) {
@@ -143,16 +161,18 @@ export function OptimizationRunning() {
             );
           }
           setStatus((prev) => ({ ...prev, ...event }));
+          const eventTone: RunEvent["tone"] =
+            event.status === "completed"
+              ? "success"
+              : event.status === "failed"
+                ? "danger"
+                : "neutral";
+
           setRunEvents((prev) => [
             ...prev,
             {
               label: `${event.event ?? "optimization_event"} • gen ${event.current_generation ?? 0}`,
-              tone:
-                event.status === "completed"
-                  ? "success"
-                  : event.status === "failed"
-                    ? "danger"
-                    : "neutral",
+              tone: eventTone,
             },
           ].slice(-8));
 
@@ -167,12 +187,15 @@ export function OptimizationRunning() {
         pollTimer = window.setInterval(() => {
           fetchOptimizationStatus(run.run_id)
             .then((latest) => {
+              const pollTone: RunEvent["tone"] =
+                latest.status === "completed" ? "success" : latest.status === "failed" ? "danger" : "neutral";
+
               setStatus(latest);
               setRunEvents((prev) => [
                 ...prev,
                 {
                   label: `Polled status: ${latest.status} • gen ${latest.current_generation}/${latest.total_generations}`,
-                  tone: latest.status === "completed" ? "success" : latest.status === "failed" ? "danger" : "neutral",
+                  tone: pollTone,
                 },
               ].slice(-8));
               setConvergenceData((prev) =>
@@ -232,8 +255,8 @@ export function OptimizationRunning() {
       {/* Left Panel - Configuration */}
       <div className="w-80 border-r bg-white p-6">
         <div className="mb-6">
-          <div className="mb-2 inline-block rounded bg-yellow-400 px-3 py-1 text-sm font-medium text-white">
-            ⚡ OPTIMIZATION RUNNING
+          <div className={`mb-2 inline-block rounded px-3 py-1 text-sm font-medium ${statusToneClass}`}>
+            {status?.status ? status.status.toUpperCase() : "STARTING"}
           </div>
             <h2 className="text-lg font-bold">Session ID: {runId ?? "Starting..."}</h2>
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
@@ -360,6 +383,9 @@ export function OptimizationRunning() {
                 <Activity className="h-3.5 w-3.5" />
                 Recent backend events
               </div>
+              <div className="mb-2 rounded bg-gray-100 px-2 py-1 text-[11px] text-gray-600">
+                Latest: {latestEventLabel}
+              </div>
               <div className="space-y-1">
                 {runEvents.length === 0 ? (
                   <div className="text-gray-500">Waiting for stream data...</div>
@@ -404,7 +430,7 @@ export function OptimizationRunning() {
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-white border-t-transparent" />
+                <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
               </div>
               <div>
                 <h1 className="text-2xl font-bold">{progress}% Optimization Progress</h1>
@@ -435,10 +461,10 @@ export function OptimizationRunning() {
                 <TrendingUp className="h-5 w-5 text-yellow-500" />
                 <h2 className="font-semibold">Fitness Convergence Curve</h2>
               </div>
-              <p className="text-sm text-gray-600">TRACKING ALGORITHM EFFICIENCY OVER TIME</p>
+              <p className="text-sm text-gray-600">{latestFitnessLabel}</p>
             </div>
-            <div className="rounded-full bg-yellow-100 px-3 py-1">
-              <span className="text-sm font-medium text-yellow-700">LIVE STREAM</span>
+            <div className={`rounded-full px-3 py-1 ${statusToneClass}`}>
+              <span className="text-sm font-medium">{status?.status ? `${status.status} stream` : "LIVE STREAM"}</span>
             </div>
           </div>
 
@@ -485,7 +511,11 @@ export function OptimizationRunning() {
                 <TrendingUp className="h-5 w-5 text-yellow-600" />
                 <span className="font-medium">GEN {currentGen} / {totalGenerations}</span>
               </div>
-              <p className="text-sm text-gray-600">Simulating backend-scored deployment scenarios...</p>
+              <p className="text-sm text-gray-600">
+                {status?.estimated_completion
+                  ? `Estimated completion ${new Date(status.estimated_completion).toLocaleTimeString()}`
+                  : "Estimating completion from backend stream..."}
+              </p>
             </div>
             <div className="rounded-lg bg-blue-50 p-4">
               <div className="mb-2 flex items-center gap-2">
@@ -501,7 +531,7 @@ export function OptimizationRunning() {
           <span>{runId ? `Run ${runId}` : "Awaiting run start"}</span>
           <div className="flex gap-6">
             <span>{status?.status ?? "starting"}</span>
-            <span>{status?.current_generation ? `${status.current_generation} generations streamed` : "System live"}</span>
+            <span>{status?.current_generation ? `${status.current_generation} generations streamed` : "Awaiting first generation"}</span>
           </div>
         </div>
       </div>
@@ -551,13 +581,13 @@ export function OptimizationRunning() {
         </div>
 
         <div className="rounded-lg bg-gray-50 p-4 text-center">
-          <div className="mb-2 text-sm text-gray-600">OPEN BACKEND RESULT VIEW</div>
+          <div className="mb-2 text-sm text-gray-600">BACKEND RESULT VIEW</div>
           <Link
             to={runId ? `/optimization-engine?run_id=${encodeURIComponent(runId)}` : "/optimization-engine"}
             className="flex items-center justify-center gap-2 rounded-lg bg-yellow-400 py-3 font-medium text-white hover:bg-yellow-500"
           >
             <span className="rotate-90">⟳</span>
-            View Optimization Output
+            Open Result Details
           </Link>
         </div>
       </div>

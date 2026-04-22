@@ -102,9 +102,11 @@ export function Scenarios() {
     const gaBase = Math.min(99, Math.max(40, gaSource));
     const manualBase = Math.min(95, Math.max(30, manualSource));
 
-    const names = (dashboardSnapshot?.bottlenecks ?? []).slice(0, 4).map((item) => item.name);
-    const fallbackNames = ["Bottleneck 1", "Bottleneck 2", "Bottleneck 3", "Bottleneck 4"];
-    const rowNames = names.length > 0 ? names : fallbackNames;
+    const rowNames = (dashboardSnapshot?.bottlenecks ?? []).slice(0, 4).map((item) => item.name);
+
+    if (rowNames.length === 0) {
+      return [];
+    }
 
     return rowNames.map((label, index) => {
       const ga = Math.max(35, Math.min(99, gaBase - index * 2 + (index === 2 ? 3 : 0)));
@@ -202,17 +204,25 @@ export function Scenarios() {
         <div className="mb-8 rounded-xl bg-white p-6 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold">Deployment Comparison</h2>
 
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={comparisonData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="bottleneck" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="ga" fill="#facc15" name="GA-Optimized" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="manual" fill="#9ca3af" name="Manual" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {comparisonData.length === 0 && (
+            <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
+              No live bottleneck data is available yet. Load the dashboard snapshot to compare scenarios.
+            </div>
+          )}
+
+          {comparisonData.length > 0 && (
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={comparisonData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                <XAxis dataKey="bottleneck" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="ga" fill="#facc15" name="GA-Optimized" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="manual" fill="#9ca3af" name="Manual" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
 
           <div className="mt-6 grid grid-cols-3 gap-4">
             <div className="rounded-lg bg-yellow-50 p-4">

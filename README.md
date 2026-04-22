@@ -94,6 +94,15 @@ Verify the port is free:
 netstat -ano | findstr :6379
 You want no LISTENING line anymore.
 
+Start Redis
+Start-Service Redis
+
+Confirm it is running
+Get-Service Redis
+
+Confirm port 6379 is listening
+netstat -ano | findstr :6379
+
 Go back to Ubuntu and make sure WSL Redis is still running:
 sudo service redis-server start
 redis-cli ping

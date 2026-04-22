@@ -1,22 +1,29 @@
 import { ChevronLeft, MapPin, Camera } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { fetchBottlenecks, reportIncident, type BottleneckOption } from "../services/backend";
+import {
+  fetchBottlenecks,
+  fetchIncidentMeta,
+  reportIncident,
+  type BottleneckOption,
+  type IncidentMetaOption,
+} from "../services/backend";
 
-const incidentTypeOptions = [
-  { name: "collision", label: "Collision", icon: "⚠️" },
-  { name: "road_closure", label: "Road Closure", icon: "🚫" },
-  { name: "construction", label: "Construction", icon: "🚧" },
-  { name: "flooding", label: "Flooding", icon: "🌧️" },
-];
-
-const severityOptions = ["critical", "major", "minor"];
+const incidentTypeIcons: Record<string, string> = {
+  collision: "⚠️",
+  road_closure: "🚫",
+  construction: "🚧",
+  flooding: "🌧️",
+  other: "📍",
+};
 
 export function IncidentReport() {
   const [incidentType, setIncidentType] = useState("collision");
   const [severity, setSeverity] = useState("major");
   const [description, setDescription] = useState("");
   const [bottlenecks, setBottlenecks] = useState<BottleneckOption[]>([]);
+  const [incidentTypes, setIncidentTypes] = useState<IncidentMetaOption[]>([]);
+  const [severities, setSeverities] = useState<IncidentMetaOption[]>([]);
   const [selectedBottleneck, setSelectedBottleneck] = useState("");
   const [saving, setSaving] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
@@ -39,6 +46,29 @@ export function IncidentReport() {
           return;
         }
         const message = loadError instanceof Error ? loadError.message : "Failed to load bottlenecks";
+        setError(message);
+      });
+
+    fetchIncidentMeta()
+      .then((meta) => {
+        if (!active) {
+          return;
+        }
+        setIncidentTypes(meta.incident_types);
+        setSeverities(meta.severities);
+        if (meta.incident_types.length > 0) {
+          setIncidentType(meta.incident_types[0].value);
+        }
+        if (meta.severities.length > 0) {
+          const preferred = meta.severities.find((item) => item.value === "major");
+          setSeverity(preferred?.value ?? meta.severities[0].value);
+        }
+      })
+      .catch((loadError: unknown) => {
+        if (!active) {
+          return;
+        }
+        const message = loadError instanceof Error ? loadError.message : "Failed to load incident metadata";
         setError(message);
       });
 
@@ -113,35 +143,38 @@ export function IncidentReport() {
         <div className="mb-6">
           <label className="mb-3 block text-sm font-medium text-gray-700">TYPE OF INCIDENT</label>
           <div className="grid grid-cols-2 gap-3">
-            {incidentTypeOptions.map((type) => (
+            {incidentTypes.map((type) => (
               <button
-                key={type.name}
-                onClick={() => setIncidentType(type.name)}
+                key={type.value}
+                onClick={() => setIncidentType(type.value)}
                 className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
-                  incidentType === type.name ? "border-red-500 bg-red-50" : "border-gray-200 hover:border-gray-300"
+                  incidentType === type.value ? "border-red-500 bg-red-50" : "border-gray-200 hover:border-gray-300"
                 }`}
               >
-                <span className="text-2xl">{type.icon}</span>
-                <span className={`text-sm font-medium ${incidentType === type.name ? "text-red-700" : ""}`}>
+                <span className="text-2xl">{incidentTypeIcons[type.value] ?? "📍"}</span>
+                <span className={`text-sm font-medium ${incidentType === type.value ? "text-red-700" : ""}`}>
                   {type.label}
                 </span>
               </button>
             ))}
+            {incidentTypes.length === 0 && (
+              <p className="col-span-2 text-sm text-gray-500">No incident types available.</p>
+            )}
           </div>
         </div>
 
         <div className="mb-6">
           <label className="mb-3 block text-sm font-medium text-gray-700">PRIORITY LEVEL</label>
           <div className="flex gap-2">
-            {severityOptions.map((level) => (
+            {severities.map((level) => (
               <button
-                key={level}
-                onClick={() => setSeverity(level)}
+                key={level.value}
+                onClick={() => setSeverity(level.value)}
                 className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
-                  severity === level ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  severity === level.value ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
               >
-                {level.toUpperCase()}
+                {level.label.toUpperCase()}
               </button>
             ))}
           </div>

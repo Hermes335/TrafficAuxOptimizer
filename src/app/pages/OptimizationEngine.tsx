@@ -117,6 +117,12 @@ export function OptimizationEngine() {
 
   const bestSolution = results?.top_solutions?.[0];
   const assignments = bestSolution?.assignments ?? [];
+  const statusToneClass =
+    status?.status === "completed"
+      ? "bg-green-100 text-green-700"
+      : status?.status === "failed"
+        ? "bg-red-100 text-red-700"
+        : "bg-yellow-100 text-yellow-700";
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50 p-8">
@@ -128,7 +134,7 @@ export function OptimizationEngine() {
           </div>
           <div className="text-right">
             <div className="text-sm text-gray-600">RUN ID</div>
-            <div className="text-lg font-semibold">{runId ?? "N/A"}</div>
+            <div className="text-lg font-semibold">{runId ?? "Pending"}</div>
           </div>
         </div>
 
@@ -138,9 +144,9 @@ export function OptimizationEngine() {
           </div>
         )}
 
-        <div className="mb-6 inline-flex items-center gap-2 rounded-lg bg-green-100 px-4 py-2">
+        <div className={`mb-6 inline-flex items-center gap-2 rounded-lg px-4 py-2 ${statusToneClass}`}>
           <CheckCircle className="h-5 w-5 text-green-600" />
-          <span className="font-medium text-green-900">Status: {status?.status ?? "loading"}</span>
+          <span className="font-medium">Status: {status?.status ?? "loading"}</span>
         </div>
 
         <div className="mb-8 rounded-xl bg-white p-6 shadow-sm">
@@ -158,7 +164,7 @@ export function OptimizationEngine() {
             />
             <StatCard
               label="Predicted Efficiency"
-              value={bestSolution?.efficiency ? `${bestSolution.efficiency.toFixed(1)}%` : "N/A"}
+              value={bestSolution?.efficiency ? `${bestSolution.efficiency.toFixed(1)}%` : "pending"}
               icon={<TrendingDown className="h-4 w-4" />}
             />
           </div>
@@ -180,7 +186,7 @@ export function OptimizationEngine() {
             <h2 className="mb-4 text-xl font-semibold">Top Solution Assignments</h2>
             {assignments.length === 0 && (
               <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
-                No assignment data yet. Keep this page open while optimization completes.
+                Awaiting backend solution assignments.
               </div>
             )}
             <div className="space-y-3">
@@ -200,9 +206,9 @@ export function OptimizationEngine() {
             <div className="rounded-xl bg-white p-6 shadow-sm">
               <h3 className="mb-3 font-semibold">Solution Summary</h3>
               <div className="space-y-2 text-sm text-gray-700">
-                <div>Coverage: {bestSolution?.coverage ? `${bestSolution.coverage}%` : "N/A"}</div>
-                <div>Congestion Reduction: {bestSolution?.congestion_reduction ? `${bestSolution.congestion_reduction}%` : "N/A"}</div>
-                <div>Officer Utilization: {bestSolution?.officer_utilization ? `${bestSolution.officer_utilization}%` : "N/A"}</div>
+                <div>Coverage: {bestSolution?.coverage ? `${bestSolution.coverage}%` : "pending"}</div>
+                <div>Congestion Reduction: {bestSolution?.congestion_reduction ? `${bestSolution.congestion_reduction}%` : "pending"}</div>
+                <div>Officer Utilization: {bestSolution?.officer_utilization ? `${bestSolution.officer_utilization}%` : "pending"}</div>
               </div>
             </div>
 

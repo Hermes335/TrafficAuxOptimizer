@@ -17,6 +17,19 @@ from core.serializers import IncidentSerializer
 from core.utils import write_audit_log
 
 
+class IncidentMetaView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def get(self, request):
+		return Response(
+			{
+				"incident_types": [{"value": value, "label": label} for value, label in Incident.TYPES],
+				"severities": [{"value": value, "label": label} for value, label in Incident.SEVERITIES],
+				"statuses": [{"value": value, "label": label} for value, label in Incident.STATUSES],
+			}
+		)
+
+
 class IncidentReportView(APIView):
 	permission_classes = [permissions.AllowAny]
 	parser_classes = [MultiPartParser, FormParser]

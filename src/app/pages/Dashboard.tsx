@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   TrendingDown,
@@ -46,6 +46,8 @@ export function Dashboard() {
   const [showIncidentModal, setShowIncidentModal] = useState(true);
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(false);
   const [selectedShift, setSelectedShift] = useState("Afternoon");
+  const [filterTerm, setFilterTerm] = useState("");
+  const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -128,6 +130,33 @@ export function Dashboard() {
 
   const bottlenecks = dashboardSnapshot.bottlenecks;
   const incidents = dashboardSnapshot.incidents;
+  const filteredBottlenecks = useMemo(() => {
+    const term = filterTerm.trim().toLowerCase();
+    if (!term) {
+      return bottlenecks;
+    }
+
+    return bottlenecks.filter(
+      (item) =>
+        item.id.toLowerCase().includes(term) ||
+        item.name.toLowerCase().includes(term) ||
+        item.status.toLowerCase().includes(term),
+    );
+  }, [bottlenecks, filterTerm]);
+
+  const selectedIncident = useMemo(() => {
+    if (incidents.length === 0) {
+      return null;
+    }
+    return incidents.find((item) => item.id === selectedIncidentId) ?? incidents[0];
+  }, [incidents, selectedIncidentId]);
+
+  useEffect(() => {
+    if (selectedIncidentId === null && incidents.length > 0) {
+      setSelectedIncidentId(incidents[0].id);
+    }
+  }, [incidents, selectedIncidentId]);
+
   const mapCenter: [number, number] = [122.5621, 10.7202];
   const tomTomTrafficTileUrl = `${getApiBaseUrl()}/api/maps/tomtom-traffic/{z}/{x}/{y}.png?style=relative0`;
 
@@ -262,7 +291,7 @@ export function Dashboard() {
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
 
-    for (const bottleneck of bottlenecks) {
+    for (const bottleneck of filteredBottlenecks) {
       const markerEl = document.createElement("div");
       markerEl.className = "h-4 w-4 rounded-full border-2 border-white shadow";
       markerEl.style.backgroundColor =
@@ -284,18 +313,43 @@ export function Dashboard() {
       markersRef.current.push(marker);
     }
 
-    if (!hasFittedRef.current && bottlenecks.length > 1 && mapRef.current) {
+    if (!hasFittedRef.current && filteredBottlenecks.length > 1 && mapRef.current) {
       const bounds = new maplibregl.LngLatBounds(
-        [bottlenecks[0].longitude, bottlenecks[0].latitude],
-        [bottlenecks[0].longitude, bottlenecks[0].latitude],
+        [filteredBottlenecks[0].longitude, filteredBottlenecks[0].latitude],
+        [filteredBottlenecks[0].longitude, filteredBottlenecks[0].latitude],
       );
-      for (const point of bottlenecks) {
+      for (const point of filteredBottlenecks) {
         bounds.extend([point.longitude, point.latitude]);
       }
       mapRef.current.fitBounds(bounds, { padding: 80, duration: 600, maxZoom: 14 });
       hasFittedRef.current = true;
     }
-  }, [bottlenecks]);
+  }, [filteredBottlenecks]);
+
+  const selectedShiftKey = selectedShift.toLowerCase();
+  const shiftPressure = selectedShiftKey === "morning" ? 0.92 : 1.08;
+  const incidentImpact = selectedIncident?.type === "critical" ? 1.4 : selectedIncident?.type === "major" ? 1.15 : 1.0;
+  const impactRadiusKm = Number((Math.max(0.8, Math.min(4.2, (selectedIncident ? incidentImpact * shiftPressure * 1.4 : 1.2)))).toFixed(1));
+  const estimatedClearMinutes = Math.max(15, Math.round(avgResponseTimeMinutes * impactRadiusKm * weatherCorrelation * 0.6));
+  const networkHealthLabel =
+    coverageEfficiency >= 80 && resourceUtilization < 85
+      ? "HEALTHY"
+      : coverageEfficiency >= 65
+        ? "MARGINAL"
+        : "CRITICAL";
+  const networkHealthClass =
+    networkHealthLabel === "HEALTHY"
+      ? "text-green-600"
+      : networkHealthLabel === "MARGINAL"
+        ? "text-orange-600"
+        : "text-red-600";
+
+  const cityFlowValue = Math.max(0, Math.min(100, Math.round(coverageEfficiency - (selectedShiftKey === "afternoon" ? 6 : 2))));
+  const cityFlowDelta = Math.round(cityFlowValue - coverageEfficiency);
+  const delayDeltaMinutes = Math.round(avgResponseTimeMinutes - 15);
+
+  const incidentHeadline = selectedIncident?.text?.split(" - ")[0] ?? "No active incident";
+  const incidentLocation = selectedIncident?.text?.split(" - ")[1] ?? "Monitor dashboard telemetry for updates";
 
   return (
     <div className="flex h-full flex-col">
@@ -405,17 +459,19 @@ export function Dashboard() {
             <div className="mb-4 flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-yellow-500" />
               <h2 className="text-lg font-semibold">Bottlenecks</h2>
-              <span className="ml-auto rounded-full bg-gray-100 px-3 py-1 text-sm">22 UNITS</span>
+              <span className="ml-auto rounded-full bg-gray-100 px-3 py-1 text-sm">{filteredBottlenecks.length} UNITS</span>
             </div>
             <input
               type="text"
               placeholder="Filter stations..."
+              value={filterTerm}
+              onChange={(event) => setFilterTerm(event.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm"
             />
           </div>
 
           <div className="overflow-y-auto" style={{ height: "calc(100% - 120px)" }}>
-            {bottlenecks.map((item) => (
+            {filteredBottlenecks.map((item) => (
               <div
                 key={item.id}
                 className="flex items-center gap-3 border-b px-4 py-3 hover:bg-gray-50"
@@ -581,12 +637,12 @@ export function Dashboard() {
               </button>
 
               <div className="mb-2 inline-block rounded bg-red-500 px-2 py-1 text-xs font-medium text-white">
-                CRITICAL INCIDENT
+                {selectedIncident ? selectedIncident.type.toUpperCase() : "NO ACTIVE INCIDENT"}
               </div>
-              <h3 className="mb-1 text-xl font-bold">Vehicle Collision</h3>
+              <h3 className="mb-1 text-xl font-bold">{incidentHeadline}</h3>
               <p className="mb-3 text-sm text-gray-600">
                 <MapPin className="mr-1 inline h-3 w-3" />
-                B-012 • General Luna St. Bridge (Northbound)
+                {incidentLocation}
               </p>
 
               <div className="relative mb-4 overflow-hidden rounded-lg">
@@ -604,10 +660,12 @@ export function Dashboard() {
                   className="h-10 w-10 rounded-full"
                 />
                 <div className="flex-1">
-                  <div className="font-medium">Officer M. Reyes</div>
-                  <div className="text-xs text-gray-500">Reported 4m ago</div>
+                  <div className="font-medium">Live dashboard feed</div>
+                  <div className="text-xs text-gray-500">
+                    {selectedIncident ? `Reported via ${selectedIncident.type} channel` : "Awaiting incident selection"}
+                  </div>
                 </div>
-                <div className="text-sm text-gray-600">ID: ICT-9921</div>
+                <div className="text-sm text-gray-600">{selectedIncident ? `ID: ${selectedIncident.id}` : "ID: --"}</div>
               </div>
 
               <div className="flex gap-2">
@@ -705,15 +763,15 @@ export function Dashboard() {
             <div className="mb-4 space-y-2 text-sm">
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Impact Radius</span>
-                <span className="font-medium">2.4 KM</span>
+                <span className="font-medium">{impactRadiusKm} KM</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Estimated Clear Time</span>
-                <span className="font-medium">45 MIN</span>
+                <span className="font-medium">{estimatedClearMinutes} MIN</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-gray-600">Network Health</span>
-                <span className="font-medium text-orange-600">MARGINAL</span>
+                <span className={`font-medium ${networkHealthClass}`}>{networkHealthLabel}</span>
               </div>
             </div>
 
@@ -726,7 +784,13 @@ export function Dashboard() {
             </Link>
             
             <p className="mt-3 text-center text-xs text-gray-600">
-              Incident detected at <strong>B-012</strong>. System recommends recalculating deployment.
+              {selectedIncident ? (
+                <>
+                  Incident detected at <strong>{selectedIncident.text.split(" - ")[1] ?? selectedIncident.text}</strong>. System recommends recalculating deployment.
+                </>
+              ) : (
+                <>No active incident currently selected.</>
+              )}
             </p>
           </div>
 
@@ -735,10 +799,10 @@ export function Dashboard() {
             <div className="rounded-lg bg-gray-50 p-3">
               <div className="mb-1 text-xs text-gray-600">OVERALL CITY FLOW</div>
               <div className="flex items-end gap-2">
-                <div className="text-2xl font-bold">42%</div>
-                <div className="mb-1 flex items-center text-sm text-red-500">
+                <div className="text-2xl font-bold">{cityFlowValue}%</div>
+                <div className={`mb-1 flex items-center text-sm ${cityFlowDelta <= 0 ? "text-green-500" : "text-red-500"}`}>
                   <TrendingDown className="h-3 w-3" />
-                  12%
+                  {Math.abs(cityFlowDelta)}%
                 </div>
               </div>
             </div>
@@ -746,10 +810,10 @@ export function Dashboard() {
             <div className="rounded-lg bg-gray-50 p-3">
               <div className="mb-1 text-xs text-gray-600">AVG. DELAY TIME</div>
               <div className="flex items-end gap-2">
-                <div className="text-2xl font-bold">14m</div>
-                <div className="mb-1 flex items-center text-sm text-red-500">
+                <div className="text-2xl font-bold">{avgResponseTimeMinutes}m</div>
+                <div className={`mb-1 flex items-center text-sm ${delayDeltaMinutes <= 0 ? "text-green-500" : "text-red-500"}`}>
                   <TrendingDown className="h-3 w-3" />
-                  13.2m
+                  {Math.abs(delayDeltaMinutes)}m
                 </div>
               </div>
             </div>
