@@ -14,17 +14,30 @@ import {
   CloudRain,
   Target,
   Clock,
+  Plus,
+  Trash2,
+  Pencil,
+  UserPlus,
+  UserRound,
 } from "lucide-react";
 import { Link } from "react-router";
 import incidentImage from "../../assets/57fa97e8c83f22033790625605fab5b96dfc2d8b.png";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
+  createDashboardBottleneck,
+  createDashboardOfficer,
+  deleteDashboardBottleneck,
+  deleteDashboardOfficer,
   fetchDashboardSnapshot,
+  fetchDashboardOfficers,
   fetchCurrentWeather,
   getApiBaseUrl,
   getFallbackDashboardSnapshot,
   subscribeToDashboardStream,
+  updateDashboardBottleneck,
+  updateDashboardOfficer,
+  type DashboardOfficerRecord,
   type DashboardSnapshot,
   type WeatherCurrentSnapshot,
 } from "../services/backend";
@@ -48,6 +61,38 @@ export function Dashboard() {
   const [selectedShift, setSelectedShift] = useState("Afternoon");
   const [filterTerm, setFilterTerm] = useState("");
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
+  const [isAddMode, setIsAddMode] = useState(false);
+  const [pendingPoint, setPendingPoint] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [newBottleneckId, setNewBottleneckId] = useState("");
+  const [newBottleneckName, setNewBottleneckName] = useState("");
+  const [newBottleneckDistrict, setNewBottleneckDistrict] = useState("Iloilo City");
+  const [newBottleneckType, setNewBottleneckType] = useState("intersection");
+  const [newBottleneckWeight, setNewBottleneckWeight] = useState("1.0");
+  const [editingBottleneckId, setEditingBottleneckId] = useState<string | null>(null);
+  const [editBottleneckName, setEditBottleneckName] = useState("");
+  const [editBottleneckDistrict, setEditBottleneckDistrict] = useState("Iloilo City");
+  const [editBottleneckType, setEditBottleneckType] = useState("intersection");
+  const [editBottleneckWeight, setEditBottleneckWeight] = useState("1.0");
+  const [editLatitude, setEditLatitude] = useState("");
+  const [editLongitude, setEditLongitude] = useState("");
+  const [editPickFromMap, setEditPickFromMap] = useState(false);
+  const [savingEditBottleneck, setSavingEditBottleneck] = useState(false);
+  const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
+  const [officerError, setOfficerError] = useState<string | null>(null);
+  const [officerNotice, setOfficerNotice] = useState<string | null>(null);
+  const [addingOfficer, setAddingOfficer] = useState(false);
+  const [editingOfficerId, setEditingOfficerId] = useState<number | null>(null);
+  const [savingOfficer, setSavingOfficer] = useState(false);
+  const [deletingOfficerId, setDeletingOfficerId] = useState<number | null>(null);
+  const [officerName, setOfficerName] = useState("");
+  const [officerBadge, setOfficerBadge] = useState("");
+  const [officerShift, setOfficerShift] = useState<"morning" | "afternoon" | "night">("afternoon");
+  const [officerStatus, setOfficerStatus] = useState<"available" | "deployed" | "off_duty" | "unavailable">("available");
+  const [officerSkillsInput, setOfficerSkillsInput] = useState("");
+  const [bottleneckActionError, setBottleneckActionError] = useState<string | null>(null);
+  const [bottleneckActionNotice, setBottleneckActionNotice] = useState<string | null>(null);
+  const [savingBottleneck, setSavingBottleneck] = useState(false);
+  const [deletingBottleneckId, setDeletingBottleneckId] = useState<string | null>(null);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -119,6 +164,18 @@ export function Dashboard() {
       .catch(() => {
         if (active) {
           setWeatherSnapshot(fallbackWeather);
+        }
+      });
+
+    fetchDashboardOfficers()
+      .then((rows) => {
+        if (active) {
+          setOfficers(rows);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setOfficers([]);
         }
       });
 
@@ -288,6 +345,39 @@ export function Dashboard() {
       return;
     }
 
+    const map = mapRef.current;
+    const onMapClick = (event: maplibregl.MapMouseEvent) => {
+      const latitude = Number(event.lngLat.lat.toFixed(6));
+      const longitude = Number(event.lngLat.lng.toFixed(6));
+      if (isAddMode) {
+        setPendingPoint({ latitude, longitude });
+      }
+      if (editPickFromMap) {
+        setEditLatitude(String(latitude));
+        setEditLongitude(String(longitude));
+      }
+      setBottleneckActionError(null);
+      setBottleneckActionNotice(null);
+    };
+
+    const enableClickCapture = isAddMode || editPickFromMap;
+    map.getCanvas().style.cursor = enableClickCapture ? "crosshair" : "";
+
+    if (enableClickCapture) {
+      map.on("click", onMapClick);
+    }
+
+    return () => {
+      map.getCanvas().style.cursor = "";
+      map.off("click", onMapClick);
+    };
+  }, [isAddMode, editPickFromMap]);
+
+  useEffect(() => {
+    if (!mapRef.current) {
+      return;
+    }
+
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = [];
 
@@ -350,6 +440,249 @@ export function Dashboard() {
 
   const incidentHeadline = selectedIncident?.text?.split(" - ")[0] ?? "No active incident";
   const incidentLocation = selectedIncident?.text?.split(" - ")[1] ?? "Monitor dashboard telemetry for updates";
+
+  const reloadDashboard = async () => {
+    const snapshot = await fetchDashboardSnapshot();
+    setDashboardSnapshot(snapshot);
+  };
+
+  const reloadOfficers = async () => {
+    const rows = await fetchDashboardOfficers();
+    setOfficers(rows);
+  };
+
+  const onCreateBottleneck = async () => {
+    if (!pendingPoint) {
+      setBottleneckActionError("Click a point on the map first.");
+      return;
+    }
+    if (!newBottleneckName.trim()) {
+      setBottleneckActionError("Bottleneck name is required.");
+      return;
+    }
+
+    setSavingBottleneck(true);
+    setBottleneckActionError(null);
+    setBottleneckActionNotice(null);
+    try {
+      await createDashboardBottleneck({
+        id: newBottleneckId.trim() || undefined,
+        name: newBottleneckName.trim(),
+        latitude: pendingPoint.latitude,
+        longitude: pendingPoint.longitude,
+        district: newBottleneckDistrict.trim() || "Iloilo City",
+        bottleneck_type: newBottleneckType as "intersection" | "bridge" | "school_zone" | "market" | "terminal" | "other",
+        road_priority_weight: Number(newBottleneckWeight),
+      });
+      await reloadDashboard();
+      setPendingPoint(null);
+      setNewBottleneckId("");
+      setNewBottleneckName("");
+      setBottleneckActionNotice("Bottleneck added successfully.");
+      setIsAddMode(false);
+    } catch (actionError: unknown) {
+      setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to create bottleneck.");
+    } finally {
+      setSavingBottleneck(false);
+    }
+  };
+
+  const onDeleteBottleneck = async (bottleneckId: string) => {
+    const confirmed = window.confirm(`Remove ${bottleneckId} from active bottlenecks?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingBottleneckId(bottleneckId);
+    setBottleneckActionError(null);
+    setBottleneckActionNotice(null);
+    try {
+      await deleteDashboardBottleneck(bottleneckId);
+      await reloadDashboard();
+      setBottleneckActionNotice(`${bottleneckId} removed.`);
+    } catch (actionError: unknown) {
+      setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to remove bottleneck.");
+    } finally {
+      setDeletingBottleneckId(null);
+    }
+  };
+
+  const startEditingBottleneck = (bottleneckId: string) => {
+    const target = dashboardSnapshot.bottlenecks.find((item) => item.id === bottleneckId);
+    if (!target) {
+      return;
+    }
+
+    setEditingBottleneckId(target.id);
+    setEditBottleneckName(target.name);
+    setEditBottleneckDistrict("Iloilo City");
+    setEditBottleneckType("intersection");
+    setEditBottleneckWeight("1.0");
+    setEditLatitude(String(target.latitude));
+    setEditLongitude(String(target.longitude));
+    setEditPickFromMap(false);
+    setIsAddMode(false);
+    setBottleneckActionError(null);
+    setBottleneckActionNotice(null);
+  };
+
+  const onSaveEditedBottleneck = async () => {
+    if (!editingBottleneckId) {
+      return;
+    }
+
+    if (!editBottleneckName.trim()) {
+      setBottleneckActionError("Bottleneck name is required.");
+      return;
+    }
+
+    const latitude = Number(editLatitude);
+    const longitude = Number(editLongitude);
+    const weight = Number(editBottleneckWeight);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setBottleneckActionError("Latitude and longitude must be valid numbers.");
+      return;
+    }
+    if (!Number.isFinite(weight) || weight <= 0) {
+      setBottleneckActionError("Priority weight must be greater than 0.");
+      return;
+    }
+
+    setSavingEditBottleneck(true);
+    setBottleneckActionError(null);
+    setBottleneckActionNotice(null);
+    try {
+      await updateDashboardBottleneck(editingBottleneckId, {
+        name: editBottleneckName.trim(),
+        district: editBottleneckDistrict.trim() || "Iloilo City",
+        bottleneck_type: editBottleneckType as "intersection" | "bridge" | "school_zone" | "market" | "terminal" | "other",
+        road_priority_weight: weight,
+        latitude,
+        longitude,
+      });
+      await reloadDashboard();
+      setEditingBottleneckId(null);
+      setEditPickFromMap(false);
+      setBottleneckActionNotice("Bottleneck updated successfully.");
+    } catch (actionError: unknown) {
+      setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to update bottleneck.");
+    } finally {
+      setSavingEditBottleneck(false);
+    }
+  };
+
+  const resetOfficerForm = () => {
+    setOfficerName("");
+    setOfficerBadge("");
+    setOfficerShift("afternoon");
+    setOfficerStatus("available");
+    setOfficerSkillsInput("");
+  };
+
+  const onAddOfficer = async () => {
+    if (!officerName.trim() || !officerBadge.trim()) {
+      setOfficerError("Officer name and badge number are required.");
+      return;
+    }
+
+    const skills = officerSkillsInput
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    setSavingOfficer(true);
+    setOfficerError(null);
+    setOfficerNotice(null);
+    try {
+      await createDashboardOfficer({
+        name: officerName.trim(),
+        badge_number: officerBadge.trim(),
+        shift: officerShift,
+        status: officerStatus,
+        skills,
+      });
+      await reloadOfficers();
+      resetOfficerForm();
+      setAddingOfficer(false);
+      setOfficerNotice("Officer added successfully.");
+    } catch (actionError: unknown) {
+      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to add officer.");
+    } finally {
+      setSavingOfficer(false);
+    }
+  };
+
+  const startEditingOfficer = (officer: DashboardOfficerRecord) => {
+    setEditingOfficerId(officer.id);
+    setOfficerName(officer.name);
+    setOfficerBadge(officer.badge_number);
+    setOfficerShift(officer.shift);
+    setOfficerStatus(officer.status);
+    setOfficerSkillsInput((officer.skills ?? []).join(", "));
+    setAddingOfficer(false);
+    setOfficerError(null);
+    setOfficerNotice(null);
+  };
+
+  const onUpdateOfficer = async () => {
+    if (!editingOfficerId) {
+      return;
+    }
+    if (!officerName.trim() || !officerBadge.trim()) {
+      setOfficerError("Officer name and badge number are required.");
+      return;
+    }
+
+    const skills = officerSkillsInput
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+    setSavingOfficer(true);
+    setOfficerError(null);
+    setOfficerNotice(null);
+    try {
+      await updateDashboardOfficer(editingOfficerId, {
+        name: officerName.trim(),
+        badge_number: officerBadge.trim(),
+        shift: officerShift,
+        status: officerStatus,
+        skills,
+      });
+      await reloadOfficers();
+      setEditingOfficerId(null);
+      resetOfficerForm();
+      setOfficerNotice("Officer updated successfully.");
+    } catch (actionError: unknown) {
+      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to update officer.");
+    } finally {
+      setSavingOfficer(false);
+    }
+  };
+
+  const onDeleteOfficer = async (officerId: number, badge: string) => {
+    const confirmed = window.confirm(`Remove officer ${badge}?`);
+    if (!confirmed) {
+      return;
+    }
+
+    setDeletingOfficerId(officerId);
+    setOfficerError(null);
+    setOfficerNotice(null);
+    try {
+      await deleteDashboardOfficer(officerId);
+      await reloadOfficers();
+      if (editingOfficerId === officerId) {
+        setEditingOfficerId(null);
+        resetOfficerForm();
+      }
+      setOfficerNotice(`Officer ${badge} removed.`);
+    } catch (actionError: unknown) {
+      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to remove officer.");
+    } finally {
+      setDeletingOfficerId(null);
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -461,6 +794,22 @@ export function Dashboard() {
               <h2 className="text-lg font-semibold">Bottlenecks</h2>
               <span className="ml-auto rounded-full bg-gray-100 px-3 py-1 text-sm">{filteredBottlenecks.length} UNITS</span>
             </div>
+            <div className="mb-3 flex items-center gap-2">
+              <button
+                onClick={() => {
+                  setIsAddMode((current) => !current);
+                  setPendingPoint(null);
+                  setBottleneckActionError(null);
+                  setBottleneckActionNotice(null);
+                }}
+                className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  isAddMode ? "bg-yellow-400 text-white" : "border text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                {isAddMode ? "Cancel Add Mode" : "Add from Map"}
+              </button>
+            </div>
             <input
               type="text"
               placeholder="Filter stations..."
@@ -468,6 +817,8 @@ export function Dashboard() {
               onChange={(event) => setFilterTerm(event.target.value)}
               className="w-full rounded-lg border px-3 py-2 text-sm"
             />
+            {bottleneckActionError && <p className="mt-2 text-xs text-red-600">{bottleneckActionError}</p>}
+            {bottleneckActionNotice && <p className="mt-2 text-xs text-green-700">{bottleneckActionNotice}</p>}
           </div>
 
           <div className="overflow-y-auto" style={{ height: "calc(100% - 120px)" }}>
@@ -490,6 +841,21 @@ export function Dashboard() {
                   </div>
                   <div className="font-medium">{item.name}</div>
                 </div>
+                <button
+                  onClick={() => onDeleteBottleneck(item.id)}
+                  disabled={deletingBottleneckId === item.id}
+                  className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="Remove bottleneck"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => startEditingBottleneck(item.id)}
+                  className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600"
+                  title="Edit bottleneck"
+                >
+                  <Pencil className="h-4 w-4" />
+                </button>
                 <ChevronRight className="h-4 w-4 text-gray-400" />
               </div>
             ))}
@@ -543,6 +909,193 @@ export function Dashboard() {
           {/* Map Container */}
           <div className="relative h-full w-full overflow-hidden bg-gray-100">
             <div ref={mapContainerRef} className="h-full w-full" />
+
+            {isAddMode && (
+              <div className="absolute right-4 top-20 z-30 w-80 rounded-xl border bg-white p-4 shadow-xl">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">Add Bottleneck</h3>
+                  <button
+                    onClick={() => {
+                      setIsAddMode(false);
+                      setPendingPoint(null);
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="mb-3 text-xs text-gray-600">Click on the map to place the bottleneck, then complete details.</p>
+                <div className="mb-3 rounded bg-gray-50 p-2 text-xs text-gray-700">
+                  {pendingPoint
+                    ? `Point selected: ${pendingPoint.latitude}, ${pendingPoint.longitude}`
+                    : "No point selected yet."}
+                </div>
+                <div className="space-y-2">
+                  <input
+                    value={newBottleneckName}
+                    onChange={(event) => setNewBottleneckName(event.target.value)}
+                    placeholder="Name *"
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    value={newBottleneckId}
+                    onChange={(event) => setNewBottleneckId(event.target.value)}
+                    placeholder="Code (optional, e.g. B-031)"
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    value={newBottleneckDistrict}
+                    onChange={(event) => setNewBottleneckDistrict(event.target.value)}
+                    placeholder="District"
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={newBottleneckType}
+                      onChange={(event) => setNewBottleneckType(event.target.value)}
+                      className="rounded border px-2 py-1.5 text-sm"
+                    >
+                      <option value="intersection">Intersection</option>
+                      <option value="bridge">Bridge</option>
+                      <option value="school_zone">School Zone</option>
+                      <option value="market">Market</option>
+                      <option value="terminal">Terminal</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <input
+                      value={newBottleneckWeight}
+                      onChange={(event) => setNewBottleneckWeight(event.target.value)}
+                      placeholder="Priority Weight"
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      className="rounded border px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setPendingPoint(null);
+                      setIsAddMode(false);
+                    }}
+                    className="flex-1 rounded border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={onCreateBottleneck}
+                    disabled={savingBottleneck}
+                    className="flex-1 rounded bg-yellow-400 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
+                  >
+                    {savingBottleneck ? "Saving..." : "Save Bottleneck"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {editingBottleneckId && (
+              <div className="absolute right-4 top-20 z-30 w-80 rounded-xl border bg-white p-4 shadow-xl">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold">Edit Bottleneck {editingBottleneckId}</h3>
+                  <button
+                    onClick={() => {
+                      setEditingBottleneckId(null);
+                      setEditPickFromMap(false);
+                    }}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="mb-3 text-xs text-gray-600">Update details, or pick coordinates directly from map.</p>
+                <div className="mb-2 flex items-center justify-between rounded bg-gray-50 px-2 py-1 text-xs text-gray-700">
+                  <span>{editLatitude || "-"}, {editLongitude || "-"}</span>
+                  <button
+                    onClick={() => {
+                      setEditPickFromMap((current) => !current);
+                      setIsAddMode(false);
+                    }}
+                    className={`rounded px-2 py-1 font-medium ${editPickFromMap ? "bg-yellow-400 text-white" : "border text-gray-700"}`}
+                  >
+                    {editPickFromMap ? "Click map now" : "Pick from map"}
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  <input
+                    value={editBottleneckName}
+                    onChange={(event) => setEditBottleneckName(event.target.value)}
+                    placeholder="Name *"
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    value={editBottleneckDistrict}
+                    onChange={(event) => setEditBottleneckDistrict(event.target.value)}
+                    placeholder="District"
+                    className="w-full rounded border px-2 py-1.5 text-sm"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <select
+                      value={editBottleneckType}
+                      onChange={(event) => setEditBottleneckType(event.target.value)}
+                      className="rounded border px-2 py-1.5 text-sm"
+                    >
+                      <option value="intersection">Intersection</option>
+                      <option value="bridge">Bridge</option>
+                      <option value="school_zone">School Zone</option>
+                      <option value="market">Market</option>
+                      <option value="terminal">Terminal</option>
+                      <option value="other">Other</option>
+                    </select>
+                    <input
+                      value={editBottleneckWeight}
+                      onChange={(event) => setEditBottleneckWeight(event.target.value)}
+                      placeholder="Priority Weight"
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      className="rounded border px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      value={editLatitude}
+                      onChange={(event) => setEditLatitude(event.target.value)}
+                      placeholder="Latitude"
+                      type="number"
+                      step="0.000001"
+                      className="rounded border px-2 py-1.5 text-sm"
+                    />
+                    <input
+                      value={editLongitude}
+                      onChange={(event) => setEditLongitude(event.target.value)}
+                      placeholder="Longitude"
+                      type="number"
+                      step="0.000001"
+                      className="rounded border px-2 py-1.5 text-sm"
+                    />
+                  </div>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingBottleneckId(null);
+                      setEditPickFromMap(false);
+                    }}
+                    className="flex-1 rounded border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={onSaveEditedBottleneck}
+                    disabled={savingEditBottleneck}
+                    className="flex-1 rounded bg-yellow-400 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
+                  >
+                    {savingEditBottleneck ? "Saving..." : "Update"}
+                  </button>
+                </div>
+              </div>
+            )}
 
             {/* Weather Overlay */}
             {showWeatherOverlay && (

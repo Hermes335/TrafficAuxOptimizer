@@ -1,29 +1,60 @@
-import { Download, Filter } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Download, Filter, Pencil, Trash2, UserPlus, UserRound } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import {
+  createDashboardOfficer,
+  deleteDashboardOfficer,
   fetchBottlenecks,
+  fetchDashboardOfficers,
   fetchDeploymentSchedule,
+  fetchOptimizationHistory,
+  publishDeploymentsFromOptimization,
+  updateDashboardOfficer,
   type BottleneckOption,
+  type DashboardOfficerRecord,
   type DeploymentScheduleItem,
+  type OptimizationHistoryItem,
 } from "../services/backend";
 
 export function GanttChart() {
   const [schedule, setSchedule] = useState<DeploymentScheduleItem[]>([]);
   const [bottlenecks, setBottlenecks] = useState<BottleneckOption[]>([]);
+  const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
   const [query, setQuery] = useState("");
   const [shiftFilter, setShiftFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
+  const [officerError, setOfficerError] = useState<string | null>(null);
+  const [officerNotice, setOfficerNotice] = useState<string | null>(null);
+  const [addingOfficer, setAddingOfficer] = useState(false);
+  const [editingOfficerId, setEditingOfficerId] = useState<number | null>(null);
+  const [savingOfficer, setSavingOfficer] = useState(false);
+  const [deletingOfficerId, setDeletingOfficerId] = useState<number | null>(null);
+  const [officerName, setOfficerName] = useState("");
+  const [officerBadge, setOfficerBadge] = useState("");
+  const [officerShift, setOfficerShift] = useState<"morning" | "afternoon" | "night">("afternoon");
+  const [officerStatus, setOfficerStatus] = useState<"available" | "deployed" | "off_duty" | "unavailable">("available");
+  const [officerSkillsInput, setOfficerSkillsInput] = useState("");
+  const [completedRuns, setCompletedRuns] = useState<OptimizationHistoryItem[]>([]);
+  const [selectedRunId, setSelectedRunId] = useState("");
+  const [publishingSchedule, setPublishingSchedule] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishNotice, setPublishNotice] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
 
-    Promise.all([fetchDeploymentSchedule(), fetchBottlenecks()])
-      .then(([deployments, bottleneckRows]) => {
+    Promise.all([fetchDeploymentSchedule(), fetchBottlenecks(), fetchDashboardOfficers(), fetchOptimizationHistory()])
+      .then(([deployments, bottleneckRows, officerRows, optimizationRuns]) => {
         if (!active) {
           return;
         }
         setSchedule(deployments);
         setBottlenecks(bottleneckRows);
+        setOfficers(officerRows);
+        const completed = optimizationRuns.filter((run) => run.status === "completed");
+        setCompletedRuns(completed);
+        if (completed.length > 0) {
+          setSelectedRunId(completed[0].run_id);
+        }
       })
       .catch((loadError: unknown) => {
         if (!active) {
@@ -76,6 +107,175 @@ export function GanttChart() {
   }, [bottlenecks, groupedByBottleneck]);
 
   const activeAssignments = filteredSchedule.length;
+  const assignedOfficerCodes = useMemo(() => new Set(filteredSchedule.map((item) => item.officer)), [filteredSchedule]);
+  const availableOfficerPool = useMemo(
+    () => officers.filter((officer) => officer.status !== "off_duty" && officer.status !== "unavailable" && !assignedOfficerCodes.has(officer.badge_number)),
+    [officers, assignedOfficerCodes],
+  );
+
+  const hourSlots = useMemo(() => Array.from({ length: 9 }, (_, idx) => 14 + idx), []);
+  const matrixRows = useMemo(() => {
+    const bottleneckRows = bottlenecks.slice(0, 8);
+    return bottleneckRows.map((row) => {
+      const rowAssignments = filteredSchedule.filter((assignment) => assignment.bottleneck === row.id);
+      const cells = hourSlots.map((hour) => {
+        const overlapCount = rowAssignments.filter((assignment) => {
+          const startHour = new Date(assignment.start_time).getHours();
+          const endHour = new Date(assignment.end_time).getHours();
+          return startHour <= hour && endHour > hour;
+        }).length;
+        return overlapCount;
+      });
+      return { row, cells };
+    });
+  }, [bottlenecks, filteredSchedule, hourSlots]);
+
+  const matrixLegend = [
+    { label: "Optimal (2+ Officers)", className: "bg-yellow-400" },
+    { label: "Sufficient (1 Officer)", className: "bg-yellow-200" },
+    { label: "Critical (0 Officers)", className: "bg-rose-100" },
+  ];
+
+  const resetOfficerForm = () => {
+    setOfficerName("");
+    setOfficerBadge("");
+    setOfficerShift("afternoon");
+    setOfficerStatus("available");
+    setOfficerSkillsInput("");
+  };
+
+  const reloadOfficers = async () => {
+    const rows = await fetchDashboardOfficers();
+    setOfficers(rows);
+  };
+
+  const reloadSchedule = async () => {
+    const rows = await fetchDeploymentSchedule();
+    setSchedule(rows);
+  };
+
+  const onAddOfficer = async () => {
+    if (!officerName.trim() || !officerBadge.trim()) {
+      setOfficerError("Officer name and badge number are required.");
+      return;
+    }
+    const skills = officerSkillsInput.split(",").map((item) => item.trim()).filter(Boolean);
+    setSavingOfficer(true);
+    setOfficerError(null);
+    setOfficerNotice(null);
+    try {
+      await createDashboardOfficer({
+        name: officerName.trim(),
+        badge_number: officerBadge.trim(),
+        shift: officerShift,
+        status: officerStatus,
+        skills,
+      });
+      await reloadOfficers();
+      resetOfficerForm();
+      setAddingOfficer(false);
+      setOfficerNotice("Officer added successfully.");
+    } catch (actionError: unknown) {
+      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to add officer.");
+    } finally {
+      setSavingOfficer(false);
+    }
+  };
+
+  const startEditingOfficer = (officer: DashboardOfficerRecord) => {
+    setEditingOfficerId(officer.id);
+    setOfficerName(officer.name);
+    setOfficerBadge(officer.badge_number);
+    setOfficerShift(officer.shift);
+    setOfficerStatus(officer.status);
+    setOfficerSkillsInput((officer.skills ?? []).join(", "));
+    setAddingOfficer(false);
+    setOfficerError(null);
+    setOfficerNotice(null);
+  };
+
+  const onUpdateOfficer = async () => {
+    if (!editingOfficerId) {
+      return;
+    }
+    if (!officerName.trim() || !officerBadge.trim()) {
+      setOfficerError("Officer name and badge number are required.");
+      return;
+    }
+    const skills = officerSkillsInput.split(",").map((item) => item.trim()).filter(Boolean);
+    setSavingOfficer(true);
+    setOfficerError(null);
+    setOfficerNotice(null);
+    try {
+      await updateDashboardOfficer(editingOfficerId, {
+        name: officerName.trim(),
+        badge_number: officerBadge.trim(),
+        shift: officerShift,
+        status: officerStatus,
+        skills,
+      });
+      await reloadOfficers();
+      setEditingOfficerId(null);
+      resetOfficerForm();
+      setOfficerNotice("Officer updated successfully.");
+    } catch (actionError: unknown) {
+      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to update officer.");
+    } finally {
+      setSavingOfficer(false);
+    }
+  };
+
+  const onDeleteOfficer = async (officerId: number, badge: string) => {
+    const confirmed = window.confirm(`Remove officer ${badge}?`);
+    if (!confirmed) {
+      return;
+    }
+    setDeletingOfficerId(officerId);
+    setOfficerError(null);
+    setOfficerNotice(null);
+    try {
+      await deleteDashboardOfficer(officerId);
+      await reloadOfficers();
+      if (editingOfficerId === officerId) {
+        setEditingOfficerId(null);
+        resetOfficerForm();
+      }
+      setOfficerNotice(`Officer ${badge} removed.`);
+    } catch (actionError: unknown) {
+      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to remove officer.");
+    } finally {
+      setDeletingOfficerId(null);
+    }
+  };
+
+  const onPublishSchedule = async () => {
+    if (!selectedRunId) {
+      setPublishError("Select a completed optimization run first.");
+      return;
+    }
+
+    setPublishingSchedule(true);
+    setPublishError(null);
+    setPublishNotice(null);
+    try {
+      const result = await publishDeploymentsFromOptimization({
+        run_id: selectedRunId,
+        shift: shiftFilter === "all" ? "afternoon" : (shiftFilter as "morning" | "afternoon" | "night"),
+        replace_existing: true,
+      });
+      await reloadSchedule();
+      setPublishNotice(`Published ${result.created} deployments from ${selectedRunId}.`);
+      if (result.skipped.length > 0) {
+        setPublishError(`${result.skipped.length} assignments were skipped due to missing officer or bottleneck.`);
+      }
+    } catch (publishActionError: unknown) {
+      setPublishError(
+        publishActionError instanceof Error ? publishActionError.message : "Failed to publish optimization schedule.",
+      );
+    } finally {
+      setPublishingSchedule(false);
+    }
+  };
 
   const onExport = () => {
     const rows = [
@@ -100,10 +300,18 @@ export function GanttChart() {
     URL.revokeObjectURL(url);
   };
 
+  const formattedToday = new Date().toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "short",
+    day: "numeric",
+  });
+
+  const selectedShiftLabel = shiftFilter === "all" ? "All Shifts" : `Shift ${shiftFilter[0].toUpperCase()}${shiftFilter.slice(1)}`;
+
   return (
-    <div className="flex h-full flex-col bg-white">
-      <div className="border-b px-6 py-4">
-        <div className="mb-4 flex items-center justify-between">
+    <div className="flex h-full flex-col bg-gray-50">
+      <div className="border-b bg-white px-6 py-4">
+        <div className="mb-3 flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold">Deployment Schedule</h1>
             <p className="text-sm text-gray-600">Live schedule loaded from backend deployments API.</p>
@@ -118,6 +326,67 @@ export function GanttChart() {
               <Download className="h-4 w-4" />
               Export
             </button>
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedRunId}
+                onChange={(event) => setSelectedRunId(event.target.value)}
+                className="rounded-lg border px-3 py-2 text-sm"
+              >
+                {completedRuns.length === 0 && <option value="">No completed runs</option>}
+                {completedRuns.map((run) => (
+                  <option key={run.run_id} value={run.run_id}>
+                    {run.run_id}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={onPublishSchedule}
+                disabled={publishingSchedule || completedRuns.length === 0}
+                className="rounded-lg bg-yellow-400 px-4 py-2 font-semibold text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
+              >
+                {publishingSchedule ? "Publishing..." : "Publish Schedule"}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {publishNotice && <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{publishNotice}</div>}
+        {publishError && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{publishError}</div>}
+
+        <div className="mb-3 flex items-center gap-3">
+          <button className="rounded border p-1.5 text-gray-600 hover:bg-gray-50">
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <div>
+            <div className="text-3xl font-bold text-gray-900">{formattedToday}</div>
+            <div className="text-sm text-gray-600">{selectedShiftLabel}</div>
+          </div>
+          <button className="rounded border p-1.5 text-gray-600 hover:bg-gray-50">
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="rounded-lg border border-yellow-100 bg-yellow-50 px-4 py-3">
+          <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-yellow-800">
+            <CalendarDays className="h-4 w-4" />
+            Available Officer Pool
+            <span className="text-yellow-700">{availableOfficerPool.length} Officers Unassigned</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {availableOfficerPool.slice(0, 10).map((officer) => (
+              <div key={officer.id} className="flex items-center gap-1 rounded-full border border-yellow-200 bg-white px-2 py-1 text-xs">
+                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-300 font-semibold text-yellow-900">
+                  {officer.name
+                    .split(" ")
+                    .map((part) => part[0])
+                    .join("")
+                    .slice(0, 2)
+                    .toUpperCase()}
+                </div>
+                <span className="font-medium text-gray-700">{officer.badge_number}</span>
+              </div>
+            ))}
+            {availableOfficerPool.length === 0 && <span className="text-xs text-yellow-800">No unassigned officers for current filter.</span>}
           </div>
         </div>
 
@@ -162,8 +431,8 @@ export function GanttChart() {
 
       {error && <div className="px-6 py-4 text-sm text-red-600">{error}</div>}
 
-      <div className="flex-1 overflow-auto p-6">
-        <div className="overflow-hidden rounded-xl border">
+      <div className="flex flex-1 gap-4 overflow-hidden p-4">
+        <div className="flex-1 overflow-auto rounded-xl border bg-white">
           <table className="min-w-full divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
@@ -202,6 +471,162 @@ export function GanttChart() {
             </tbody>
           </table>
         </div>
+
+        <aside className="w-80 space-y-4 overflow-y-auto">
+          <div className="rounded-xl border bg-white p-4">
+            <div className="mb-3 flex items-center gap-2">
+              <UserRound className="h-5 w-5 text-yellow-500" />
+              <h3 className="font-semibold">Officer Management</h3>
+              <span className="ml-auto rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{officers.length}</span>
+            </div>
+
+            <div className="mb-3 flex gap-2">
+              <button
+                onClick={() => {
+                  setAddingOfficer((current) => !current);
+                  setEditingOfficerId(null);
+                  resetOfficerForm();
+                  setOfficerError(null);
+                  setOfficerNotice(null);
+                }}
+                className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
+                  addingOfficer ? "bg-yellow-400 text-white" : "border text-gray-700 hover:bg-gray-50"
+                }`}
+              >
+                <UserPlus className="h-3.5 w-3.5" />
+                {addingOfficer ? "Cancel" : "Add Officer"}
+              </button>
+            </div>
+
+            {officerError && <p className="mb-2 text-xs text-red-600">{officerError}</p>}
+            {officerNotice && <p className="mb-2 text-xs text-green-700">{officerNotice}</p>}
+
+            {(addingOfficer || editingOfficerId !== null) && (
+              <div className="mb-3 space-y-2 rounded-lg border bg-gray-50 p-3">
+                <input
+                  value={officerName}
+                  onChange={(event) => setOfficerName(event.target.value)}
+                  placeholder="Officer name"
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+                <input
+                  value={officerBadge}
+                  onChange={(event) => setOfficerBadge(event.target.value)}
+                  placeholder="Badge number"
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <select
+                    value={officerShift}
+                    onChange={(event) => setOfficerShift(event.target.value as "morning" | "afternoon" | "night")}
+                    className="rounded border px-2 py-1.5 text-sm"
+                  >
+                    <option value="morning">Morning</option>
+                    <option value="afternoon">Afternoon</option>
+                    <option value="night">Night</option>
+                  </select>
+                  <select
+                    value={officerStatus}
+                    onChange={(event) => setOfficerStatus(event.target.value as "available" | "deployed" | "off_duty" | "unavailable")}
+                    className="rounded border px-2 py-1.5 text-sm"
+                  >
+                    <option value="available">Available</option>
+                    <option value="deployed">Deployed</option>
+                    <option value="off_duty">Off Duty</option>
+                    <option value="unavailable">Unavailable</option>
+                  </select>
+                </div>
+                <input
+                  value={officerSkillsInput}
+                  onChange={(event) => setOfficerSkillsInput(event.target.value)}
+                  placeholder="Skills (comma-separated)"
+                  className="w-full rounded border px-2 py-1.5 text-sm"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setAddingOfficer(false);
+                      setEditingOfficerId(null);
+                      resetOfficerForm();
+                    }}
+                    className="flex-1 rounded border px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={editingOfficerId !== null ? onUpdateOfficer : onAddOfficer}
+                    disabled={savingOfficer}
+                    className="flex-1 rounded bg-yellow-400 px-2 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
+                  >
+                    {savingOfficer ? "Saving..." : editingOfficerId !== null ? "Update" : "Create"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="max-h-48 space-y-2 overflow-y-auto">
+              {officers.length === 0 && <p className="text-xs text-gray-500">No officers available.</p>}
+              {officers.map((officer) => (
+                <div key={officer.id} className="rounded border p-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold text-gray-900">{officer.name}</div>
+                      <div className="text-gray-600">{officer.badge_number}</div>
+                    </div>
+                    <div className="flex gap-1">
+                      <button
+                        onClick={() => startEditingOfficer(officer)}
+                        className="rounded p-1 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
+                        title="Edit officer"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      <button
+                        onClick={() => onDeleteOfficer(officer.id, officer.badge_number)}
+                        disabled={deletingOfficerId === officer.id}
+                        className="rounded p-1 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        title="Remove officer"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-1 flex items-center gap-2 text-gray-600">
+                    <span className="capitalize">{officer.shift}</span>
+                    <span>|</span>
+                    <span className="capitalize">{officer.status.replace("_", " ")}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl border bg-white p-4">
+            <h3 className="mb-3 font-semibold">Coverage Matrix</h3>
+            <div className="space-y-1">
+              {matrixRows.map(({ row, cells }) => (
+                <div key={row.id} className="grid grid-cols-9 gap-1">
+                  {cells.map((count, index) => (
+                    <div
+                      key={`${row.id}-${hourSlots[index]}`}
+                      className={`h-6 rounded ${count >= 2 ? "bg-yellow-400" : count === 1 ? "bg-yellow-200" : "bg-rose-100"}`}
+                      title={`${row.id} @ ${hourSlots[index]}:00 -> ${count} officer(s)`}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-4 space-y-1 text-xs text-gray-600">
+              {matrixLegend.map((legend) => (
+                <div key={legend.label} className="flex items-center gap-2">
+                  <div className={`h-3 w-3 rounded ${legend.className}`} />
+                  <span>{legend.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </aside>
       </div>
     </div>
   );

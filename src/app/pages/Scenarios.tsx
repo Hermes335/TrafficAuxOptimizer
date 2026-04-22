@@ -256,14 +256,27 @@ export function Scenarios() {
               className="rounded-lg border px-3 py-2"
             />
           </div>
-          <button
-            onClick={onCreateScenario}
-            disabled={saving}
-            className="mt-4 flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
-          >
-            <PlusCircle className="h-4 w-4" />
-            {saving ? "Creating..." : "Create Scenario"}
-          </button>
+          <div className="mt-4 flex items-center gap-3">
+            <button
+              onClick={() => {
+                setName("");
+                setDescription("");
+                setError(null);
+              }}
+              type="button"
+              className="rounded-lg border px-4 py-2 font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onCreateScenario}
+              disabled={saving}
+              className="flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
+            >
+              <PlusCircle className="h-4 w-4" />
+              {saving ? "Creating..." : "Create Scenario"}
+            </button>
+          </div>
           {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         </div>
 

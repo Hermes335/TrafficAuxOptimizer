@@ -392,6 +392,25 @@ export interface DeploymentScheduleItem {
   status: string;
 }
 
+export interface PublishOptimizationDeploymentsRequest {
+  run_id: string;
+  shift?: "morning" | "afternoon" | "night";
+  start_time?: string;
+  end_time?: string;
+  assignment_type?: "static" | "mobile" | "response";
+  status?: string;
+  replace_existing?: boolean;
+}
+
+export interface PublishOptimizationDeploymentsResponse {
+  run_id: string;
+  created: number;
+  skipped: Array<{ officer_id?: number; bottleneck_id?: string }>;
+  shift: string;
+  start_time: string;
+  end_time: string;
+}
+
 export async function fetchDeploymentSchedule(): Promise<DeploymentScheduleItem[]> {
   const response = await fetch(`${getApiBaseUrl()}/api/deployments/schedule/`);
   if (!response.ok) {
@@ -400,9 +419,71 @@ export async function fetchDeploymentSchedule(): Promise<DeploymentScheduleItem[
   return response.json() as Promise<DeploymentScheduleItem[]>;
 }
 
+export async function publishDeploymentsFromOptimization(
+  payload: PublishOptimizationDeploymentsRequest,
+): Promise<PublishOptimizationDeploymentsResponse> {
+  const response = await fetch(`${getApiBaseUrl()}/api/deployments/publish-optimization/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to publish optimization deployment: ${response.status}`);
+    throw new Error(detail);
+  }
+
+  return response.json() as Promise<PublishOptimizationDeploymentsResponse>;
+}
+
 export interface BottleneckOption {
   id: string;
   name: string;
+}
+
+export interface DashboardBottleneckPayload {
+  id?: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  district?: string;
+  bottleneck_type?: "intersection" | "bridge" | "school_zone" | "market" | "terminal" | "other";
+  road_priority_weight?: number;
+}
+
+export interface DashboardOfficerRecord {
+  id: number;
+  name: string;
+  badge_number: string;
+  shift: "morning" | "afternoon" | "night";
+  status: "available" | "deployed" | "off_duty" | "unavailable";
+  skills: string[];
+  current_latitude?: number | null;
+  current_longitude?: number | null;
+}
+
+export interface DashboardOfficerPayload {
+  name: string;
+  badge_number: string;
+  shift: "morning" | "afternoon" | "night";
+  status: "available" | "deployed" | "off_duty" | "unavailable";
+  skills?: string[];
+  current_latitude?: number | null;
+  current_longitude?: number | null;
+}
+
+async function extractApiError(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { detail?: string };
+    if (payload?.detail) {
+      return payload.detail;
+    }
+  } catch {
+    // Keep fallback when the backend does not return JSON detail.
+  }
+  return fallback;
 }
 
 export async function fetchBottlenecks(): Promise<BottleneckOption[]> {
@@ -412,6 +493,99 @@ export async function fetchBottlenecks(): Promise<BottleneckOption[]> {
   }
   const rows = (await response.json()) as Array<{ id: string; name: string }>;
   return rows.map((row) => ({ id: row.id, name: row.name }));
+}
+
+export async function createDashboardBottleneck(payload: DashboardBottleneckPayload): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to create bottleneck: ${response.status}`);
+    throw new Error(detail);
+  }
+}
+
+export async function deleteDashboardBottleneck(bottleneckId: string): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/${encodeURIComponent(bottleneckId)}/`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to remove bottleneck: ${response.status}`);
+    throw new Error(detail);
+  }
+}
+
+export async function updateDashboardBottleneck(
+  bottleneckId: string,
+  payload: Omit<DashboardBottleneckPayload, "id">
+): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/${encodeURIComponent(bottleneckId)}/`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to update bottleneck: ${response.status}`);
+    throw new Error(detail);
+  }
+}
+
+export async function fetchDashboardOfficers(): Promise<DashboardOfficerRecord[]> {
+  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/officers/`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch officers: ${response.status}`);
+  }
+  return response.json() as Promise<DashboardOfficerRecord[]>;
+}
+
+export async function createDashboardOfficer(payload: DashboardOfficerPayload): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/officers/manage/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to create officer: ${response.status}`);
+    throw new Error(detail);
+  }
+}
+
+export async function updateDashboardOfficer(officerId: number, payload: Partial<DashboardOfficerPayload>): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/officers/manage/${officerId}/`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to update officer: ${response.status}`);
+    throw new Error(detail);
+  }
+}
+
+export async function deleteDashboardOfficer(officerId: number): Promise<void> {
+  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/officers/manage/${officerId}/`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to remove officer: ${response.status}`);
+    throw new Error(detail);
+  }
 }
 
 export interface IncidentReportPayload {

@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import {
   fetchOptimizationConfig,
   fetchOptimizationHistory,
+  publishDeploymentsFromOptimization,
   type OptimizationHistoryItem,
   type OptimizationConfigResponse,
 } from "../services/backend";
@@ -28,6 +29,9 @@ export function Optimization() {
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [validationLoading, setValidationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [publishingRunId, setPublishingRunId] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishNotice, setPublishNotice] = useState<string | null>(null);
 
   const params = useMemo(
     () => ({
@@ -131,6 +135,30 @@ export function Optimization() {
   }, [history]);
   const currentValidation = validation?.valid ?? false;
   const validationErrors = validation?.errors ?? {};
+
+  const onPublishCompletedRun = async (runId: string) => {
+    setPublishError(null);
+    setPublishNotice(null);
+    setPublishingRunId(runId);
+    try {
+      const result = await publishDeploymentsFromOptimization({
+        run_id: runId,
+        replace_existing: true,
+      });
+      setPublishNotice(`Published ${result.created} deployments from ${runId}.`);
+      if (result.skipped.length > 0) {
+        setPublishError(`${result.skipped.length} assignments were skipped due to missing officer or bottleneck.`);
+      }
+    } catch (publishActionError: unknown) {
+      const message =
+        publishActionError instanceof Error
+          ? publishActionError.message
+          : "Failed to publish completed optimization run";
+      setPublishError(message);
+    } finally {
+      setPublishingRunId(null);
+    }
+  };
 
   return (
     <div className="flex h-full">
@@ -352,6 +380,9 @@ export function Optimization() {
               Recent Optimization Runs
             </div>
 
+            {publishNotice && <p className="mb-2 text-sm text-green-700">{publishNotice}</p>}
+            {publishError && <p className="mb-2 text-sm text-red-600">{publishError}</p>}
+
             {loadingHistory && <p className="text-sm text-gray-500">Loading run history...</p>}
             {!loadingHistory && error && <p className="text-sm text-red-600">{error}</p>}
             {!loadingHistory && !error && history.length === 0 && (
@@ -359,7 +390,7 @@ export function Optimization() {
             )}
             {!loadingHistory && !error && history.length > 0 && (
               <div className="overflow-auto">
-                <table className="w-full min-w-[860px] border-collapse text-sm">
+                <table className="w-full min-w-[980px] border-collapse text-sm">
                   <thead>
                     <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
                       <th className="px-3 py-2">Run ID</th>
@@ -367,6 +398,7 @@ export function Optimization() {
                       <th className="px-3 py-2">Started</th>
                       <th className="px-3 py-2">Fitness</th>
                       <th className="px-3 py-2">Generations</th>
+                      <th className="px-3 py-2">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -390,6 +422,19 @@ export function Optimization() {
                           </td>
                           <td className="px-3 py-2 text-gray-700">{bestFitness ?? "-"}</td>
                           <td className="px-3 py-2 text-gray-700">{generationCount}</td>
+                          <td className="px-3 py-2">
+                            {run.status === "completed" ? (
+                              <button
+                                onClick={() => onPublishCompletedRun(run.run_id)}
+                                disabled={publishingRunId === run.run_id}
+                                className="rounded bg-yellow-400 px-2.5 py-1 text-xs font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
+                              >
+                                {publishingRunId === run.run_id ? "Publishing..." : "Publish"}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-gray-400">-</span>
+                            )}
+                          </td>
                         </tr>
                       );
                     })}

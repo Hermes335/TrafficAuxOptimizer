@@ -260,6 +260,17 @@ export function OptimizationRunning() {
           </div>
             <h2 className="text-lg font-bold">Session ID: {runId ?? "Starting..."}</h2>
             {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+            <div className="mt-3 flex items-center gap-2">
+              <Link
+                to="/optimization"
+                className="rounded-lg border px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                {isRunActive ? "Back to Optimization" : "Start New Run"}
+              </Link>
+            </div>
+            {isRunActive && (
+              <p className="mt-2 text-xs text-gray-500">Leaving this page does not stop the backend run.</p>
+            )}
         </div>
 
         <div className="mb-6">

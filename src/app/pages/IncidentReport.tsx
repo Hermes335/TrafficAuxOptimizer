@@ -207,13 +207,21 @@ export function IncidentReport() {
         {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
         {statusMessage && <p className="mb-4 text-sm text-green-600">{statusMessage}</p>}
 
-        <button
-          onClick={onSubmit}
-          disabled={saving}
-          className="w-full rounded-xl bg-yellow-400 py-4 text-lg font-bold text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
-        >
-          {saving ? "SUBMITTING..." : "SUBMIT REPORT"}
-        </button>
+        <div className="flex gap-3">
+          <Link
+            to="/"
+            className="flex w-1/3 items-center justify-center rounded-xl border py-4 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+          >
+            Cancel
+          </Link>
+          <button
+            onClick={onSubmit}
+            disabled={saving}
+            className="w-2/3 rounded-xl bg-yellow-400 py-4 text-lg font-bold text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
+          >
+            {saving ? "SUBMITTING..." : "SUBMIT REPORT"}
+          </button>
+        </div>
       </div>
     </div>
   );

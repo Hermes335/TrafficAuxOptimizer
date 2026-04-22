@@ -6,7 +6,22 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.models import Bottleneck, Incident, Officer, OptimizationRun, TrafficData, WeatherData
+from core.serializers import BottleneckSerializer, OfficerSerializer
 from core.utils import write_audit_log
+
+
+def _generate_next_bottleneck_id() -> str:
+	existing_ids = (
+		Bottleneck.objects.filter(is_deleted=False, id__regex=r"^B-\\d{3}$")
+		.values_list("id", flat=True)
+	)
+	max_number = 0
+	for raw_id in existing_ids:
+		try:
+			max_number = max(max_number, int(raw_id.split("-")[1]))
+		except (IndexError, ValueError):
+			continue
+	return f"B-{max_number + 1:03d}"
 
 
 class DashboardKPIsView(APIView):
@@ -61,6 +76,119 @@ class DashboardBottlenecksView(APIView):
 				}
 			)
 		return Response(rows)
+
+
+class DashboardOfficersView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def get(self, request):
+		officers = Officer.objects.filter(is_deleted=False).order_by("name")
+		return Response(OfficerSerializer(officers, many=True).data)
+
+
+class DashboardBottleneckManageView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def post(self, request):
+		payload = request.data or {}
+		name = str(payload.get("name", "")).strip()
+		if not name:
+			return Response({"detail": "Bottleneck name is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+		bottleneck_id = str(payload.get("id", "")).strip() or _generate_next_bottleneck_id()
+		serializer = BottleneckSerializer(
+			data={
+				"id": bottleneck_id,
+				"name": name,
+				"latitude": payload.get("latitude"),
+				"longitude": payload.get("longitude"),
+				"district": str(payload.get("district", "Unassigned")).strip() or "Unassigned",
+				"bottleneck_type": str(payload.get("bottleneck_type", "other")).strip() or "other",
+				"road_priority_weight": payload.get("road_priority_weight", 1.0),
+			}
+		)
+		serializer.is_valid(raise_exception=True)
+		created = serializer.save()
+
+		return Response(BottleneckSerializer(created).data, status=status.HTTP_201_CREATED)
+
+	def put(self, request, bottleneck_id: str):
+		bottleneck = Bottleneck.objects.filter(id=bottleneck_id, is_deleted=False).first()
+		if not bottleneck:
+			return Response({"detail": "Bottleneck not found."}, status=status.HTTP_404_NOT_FOUND)
+
+		payload = request.data or {}
+		allowed_fields = {
+			"name": payload.get("name", bottleneck.name),
+			"latitude": payload.get("latitude", bottleneck.latitude),
+			"longitude": payload.get("longitude", bottleneck.longitude),
+			"district": payload.get("district", bottleneck.district),
+			"bottleneck_type": payload.get("bottleneck_type", bottleneck.bottleneck_type),
+			"road_priority_weight": payload.get("road_priority_weight", bottleneck.road_priority_weight),
+		}
+
+		serializer = BottleneckSerializer(bottleneck, data=allowed_fields, partial=True)
+		serializer.is_valid(raise_exception=True)
+		updated = serializer.save()
+		return Response(BottleneckSerializer(updated).data)
+
+	def delete(self, request, bottleneck_id: str):
+		bottleneck = Bottleneck.objects.filter(id=bottleneck_id, is_deleted=False).first()
+		if not bottleneck:
+			return Response({"detail": "Bottleneck not found."}, status=status.HTTP_404_NOT_FOUND)
+
+		has_active_incidents = bottleneck.incidents.filter(
+			is_deleted=False,
+			status__in=["active", "investigating"],
+		).exists()
+		has_active_deployments = bottleneck.deployments.filter(is_deleted=False, status="assigned").exists()
+
+		if has_active_incidents or has_active_deployments:
+			return Response(
+				{"detail": "Cannot remove bottleneck with active incidents or deployments."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		bottleneck.is_deleted = True
+		bottleneck.save(update_fields=["is_deleted", "updated_at"])
+		return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DashboardOfficerManageView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def post(self, request):
+		payload = request.data or {}
+		serializer = OfficerSerializer(data=payload)
+		serializer.is_valid(raise_exception=True)
+		created = serializer.save()
+		return Response(OfficerSerializer(created).data, status=status.HTTP_201_CREATED)
+
+	def put(self, request, officer_id: int):
+		officer = Officer.objects.filter(pk=officer_id, is_deleted=False).first()
+		if not officer:
+			return Response({"detail": "Officer not found."}, status=status.HTTP_404_NOT_FOUND)
+
+		serializer = OfficerSerializer(officer, data=request.data or {}, partial=True)
+		serializer.is_valid(raise_exception=True)
+		updated = serializer.save()
+		return Response(OfficerSerializer(updated).data)
+
+	def delete(self, request, officer_id: int):
+		officer = Officer.objects.filter(pk=officer_id, is_deleted=False).first()
+		if not officer:
+			return Response({"detail": "Officer not found."}, status=status.HTTP_404_NOT_FOUND)
+
+		has_active_assignments = officer.deployments.filter(is_deleted=False, status="assigned").exists()
+		if has_active_assignments:
+			return Response(
+				{"detail": "Cannot remove officer with active deployments."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		officer.is_deleted = True
+		officer.save(update_fields=["is_deleted", "updated_at"])
+		return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class ActiveIncidentsView(APIView):
