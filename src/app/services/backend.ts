@@ -279,6 +279,34 @@ export interface OptimizationRunResponse {
   estimated_completion?: string;
 }
 
+export interface OptimizationConfigRequest {
+  population_size?: number;
+  generations?: number;
+  mutation_rate?: number;
+  crossover_rate?: number;
+  elitism_count?: number;
+}
+
+export interface OptimizationConfigResponse {
+  parameters: Required<OptimizationConfigRequest>;
+  valid: boolean;
+  errors?: Record<string, string>;
+}
+
+export async function fetchOptimizationConfig(
+  request: OptimizationConfigRequest,
+): Promise<OptimizationConfigResponse> {
+  const response = await fetch(`${getApiBaseUrl()}/api/optimization/configure/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(request),
+  });
+
+  return response.json() as Promise<OptimizationConfigResponse>;
+}
+
 export async function runOptimization(request: OptimizationRunRequest): Promise<OptimizationRunResponse> {
   const response = await fetch(`${getApiBaseUrl()}/api/optimization/start/`, {
     method: "POST",
@@ -331,6 +359,25 @@ export async function fetchOptimizationResults(runId: string): Promise<Optimizat
     throw new Error(`Failed to fetch optimization results: ${response.status}`);
   }
   return response.json() as Promise<OptimizationResults>;
+}
+
+export interface OptimizationHistoryItem {
+  id: number;
+  run_id: string;
+  timestamp: string;
+  parameters: Record<string, unknown>;
+  fitness_scores: number[];
+  result_data: Record<string, unknown>;
+  status: string;
+  created_by: number;
+}
+
+export async function fetchOptimizationHistory(): Promise<OptimizationHistoryItem[]> {
+  const response = await fetch(`${getApiBaseUrl()}/api/optimization/history/`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch optimization history: ${response.status}`);
+  }
+  return response.json() as Promise<OptimizationHistoryItem[]>;
 }
 
 export interface DeploymentScheduleItem {

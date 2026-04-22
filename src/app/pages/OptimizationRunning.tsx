@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { TrendingUp, Users, AlertCircle, Target } from "lucide-react";
+import { TrendingUp, Users, AlertCircle, Target, Clock, Activity, CheckCircle2, XCircle } from "lucide-react";
 import { Link } from "react-router";
 import {
   LineChart,
@@ -19,6 +19,10 @@ import {
 } from "../services/backend";
 
 type ConvergencePoint = { id: string; x: number; best: number; avg: number };
+type RunEvent = {
+  label: string;
+  tone: "neutral" | "success" | "warning" | "danger";
+};
 
 function upsertConvergencePoint(prev: ConvergencePoint[], nextPoint: ConvergencePoint) {
   const existingIndex = prev.findIndex((item) => item.x === nextPoint.x);
@@ -35,6 +39,7 @@ export function OptimizationRunning() {
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [convergenceData, setConvergenceData] = useState<ConvergencePoint[]>([]);
+  const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const startedRef = useRef(false);
 
   const progress = useMemo(() => {
@@ -77,6 +82,32 @@ export function OptimizationRunning() {
     return generated.toLocaleString();
   }, [config.populationSize, currentGen]);
 
+  const latestFitnessLabel = useMemo(() => {
+    if (!status) {
+      return "Waiting for backend run";
+    }
+    if (status.status === "completed") {
+      return "Completed successfully";
+    }
+    if (status.status === "failed") {
+      return "Run failed";
+    }
+    return "Processing generations";
+  }, [status]);
+
+  const currentEventIcon = useMemo(() => {
+    if (!status) {
+      return Activity;
+    }
+    if (status.status === "completed") {
+      return CheckCircle2;
+    }
+    if (status.status === "failed") {
+      return XCircle;
+    }
+    return Clock;
+  }, [status]);
+
   useEffect(() => {
     if (startedRef.current) {
       return;
@@ -98,6 +129,7 @@ export function OptimizationRunning() {
       .then((run) => {
         setRunId(run.run_id);
         setStatus(run);
+        setRunEvents([{ label: `Run started: ${run.run_id}`, tone: "success" }]);
 
         unsubscribe = subscribeToOptimizationStream(run.run_id, (event) => {
           if (event.current_generation !== undefined) {
@@ -111,6 +143,18 @@ export function OptimizationRunning() {
             );
           }
           setStatus((prev) => ({ ...prev, ...event }));
+          setRunEvents((prev) => [
+            ...prev,
+            {
+              label: `${event.event ?? "optimization_event"} • gen ${event.current_generation ?? 0}`,
+              tone:
+                event.status === "completed"
+                  ? "success"
+                  : event.status === "failed"
+                    ? "danger"
+                    : "neutral",
+            },
+          ].slice(-8));
 
           if (event.status === "completed" || event.status === "failed") {
             if (pollTimer) {
@@ -124,6 +168,13 @@ export function OptimizationRunning() {
           fetchOptimizationStatus(run.run_id)
             .then((latest) => {
               setStatus(latest);
+              setRunEvents((prev) => [
+                ...prev,
+                {
+                  label: `Polled status: ${latest.status} • gen ${latest.current_generation}/${latest.total_generations}`,
+                  tone: latest.status === "completed" ? "success" : latest.status === "failed" ? "danger" : "neutral",
+                },
+              ].slice(-8));
               setConvergenceData((prev) =>
                 upsertConvergencePoint(prev, {
                   id: `poll-${latest.current_generation}`,
@@ -287,26 +338,51 @@ export function OptimizationRunning() {
         <div className="mb-6 rounded-lg bg-yellow-50 p-4">
           <div className="mb-3 flex items-center gap-2">
             <AlertCircle className="h-5 w-5 text-yellow-600" />
-            <span className="font-semibold text-yellow-900">ENGINE LOGS</span>
+            <span className="font-semibold text-yellow-900">EXECUTION SNAPSHOT</span>
           </div>
-          <div className="space-y-1 text-xs">
+          <div className="space-y-2 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-gray-600">GA_INIT_SUCCESS</span>
-              <span className="text-green-600">OK</span>
+              <span className="text-gray-600">Status</span>
+              <span className="font-medium text-gray-900">{status?.status ?? "starting"}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-gray-600">X_OVER_RATE_SYNC</span>
-              <span className="text-green-600">OK</span>
+              <span className="text-gray-600">Latest Fitness</span>
+              <span className="font-medium text-gray-900">{fitnessScore.toFixed(4)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-gray-600">ELITE_SURVIVAL</span>
-              <span className="text-yellow-600">ACT</span>
+              <span className="text-gray-600">Last Update</span>
+              <span className="font-medium text-gray-900">
+                {status?.estimated_completion ? new Date(status.estimated_completion).toLocaleTimeString() : "pending"}
+              </span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-gray-600">PARALLEL_THREADS</span>
-              <span className="text-blue-600">8/8</span>
+            <div className="rounded bg-white/70 p-2">
+              <div className="mb-1 flex items-center gap-1 text-gray-700">
+                <Activity className="h-3.5 w-3.5" />
+                Recent backend events
+              </div>
+              <div className="space-y-1">
+                {runEvents.length === 0 ? (
+                  <div className="text-gray-500">Waiting for stream data...</div>
+                ) : (
+                  runEvents.map((entry, index) => (
+                    <div
+                      key={`${entry.label}-${index}`}
+                      className={`rounded px-2 py-1 ${
+                        entry.tone === "success"
+                          ? "bg-green-50 text-green-700"
+                          : entry.tone === "warning"
+                            ? "bg-yellow-50 text-yellow-700"
+                            : entry.tone === "danger"
+                              ? "bg-red-50 text-red-700"
+                              : "bg-gray-50 text-gray-700"
+                      }`}
+                    >
+                      {entry.label}
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-            <div className="text-yellow-600">▸ SEARCHING_GLOBAL_OPTIMA...</div>
           </div>
         </div>
 
@@ -337,7 +413,7 @@ export function OptimizationRunning() {
                     ? "Optimization complete."
                     : status?.status === "failed"
                       ? "Optimization failed. Check backend logs and retry."
-                      : "Running live optimization against backend..."}
+                      : latestFitnessLabel}
                 </p>
               </div>
             </div>
@@ -409,7 +485,7 @@ export function OptimizationRunning() {
                 <TrendingUp className="h-5 w-5 text-yellow-600" />
                 <span className="font-medium">GEN {currentGen} / {totalGenerations}</span>
               </div>
-              <p className="text-sm text-gray-600">Simulating thousands of traffic scenarios...</p>
+              <p className="text-sm text-gray-600">Simulating backend-scored deployment scenarios...</p>
             </div>
             <div className="rounded-lg bg-blue-50 p-4">
               <div className="mb-2 flex items-center gap-2">
@@ -422,10 +498,10 @@ export function OptimizationRunning() {
         </div>
 
         <div className="flex items-center justify-between text-sm text-gray-500">
-          <span>© 2024 ILOILO CITY TRAFFIC MANAGEMENT OFFICE (ICTMO)</span>
+          <span>{runId ? `Run ${runId}` : "Awaiting run start"}</span>
           <div className="flex gap-6">
-            <span>DSS ENGINE V2.4.0</span>
-            <span>SYSTEM LIVE</span>
+            <span>{status?.status ?? "starting"}</span>
+            <span>{status?.current_generation ? `${status.current_generation} generations streamed` : "System live"}</span>
           </div>
         </div>
       </div>

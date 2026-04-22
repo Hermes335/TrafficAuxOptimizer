@@ -10,7 +10,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { createScenario, fetchScenarios, type ScenarioRecord } from "../services/backend";
+import {
+  createScenario,
+  fetchDashboardSnapshot,
+  fetchOptimizationHistory,
+  fetchScenarios,
+  type DashboardSnapshot,
+  type OptimizationHistoryItem,
+  type ScenarioRecord,
+} from "../services/backend";
 
 interface ComparisonRow {
   bottleneck: string;
@@ -20,6 +28,8 @@ interface ComparisonRow {
 
 export function Scenarios() {
   const [scenarios, setScenarios] = useState<ScenarioRecord[]>([]);
+  const [dashboardSnapshot, setDashboardSnapshot] = useState<DashboardSnapshot | null>(null);
+  const [optimizationHistory, setOptimizationHistory] = useState<OptimizationHistoryItem[]>([]);
   const [selectedScenarioId, setSelectedScenarioId] = useState<number | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -42,6 +52,21 @@ export function Scenarios() {
 
   useEffect(() => {
     reload();
+    fetchDashboardSnapshot()
+      .then((snapshot) => {
+        setDashboardSnapshot(snapshot);
+      })
+      .catch(() => {
+        return;
+      });
+
+    fetchOptimizationHistory()
+      .then((rows) => {
+        setOptimizationHistory(rows);
+      })
+      .catch(() => {
+        return;
+      });
   }, []);
 
   const selectedScenario = useMemo(
@@ -49,17 +74,63 @@ export function Scenarios() {
     [scenarios, selectedScenarioId],
   );
 
+  const latestCompletedRun = useMemo(() => {
+    return optimizationHistory.find((item) => item.status === "completed") ?? null;
+  }, [optimizationHistory]);
+
+  const latestFitnessScore = useMemo(() => {
+    if (!latestCompletedRun) {
+      return null;
+    }
+    const topSolutions = latestCompletedRun.result_data?.top_solutions as Array<{ fitness?: number }> | undefined;
+    const score = topSolutions?.[0]?.fitness;
+    return typeof score === "number" ? score : null;
+  }, [latestCompletedRun]);
+
   const comparisonData = useMemo<ComparisonRow[]>(() => {
-    const baseline = selectedScenario?.preset_parameters?.efficiency as number | undefined;
-    const gaBase = Math.min(98, Math.max(70, baseline ?? 88));
-    const manualBase = Math.max(55, gaBase - 12);
-    return [
-      { bottleneck: "General Luna", ga: gaBase, manual: manualBase },
-      { bottleneck: "Diversion Rd.", ga: Math.max(gaBase - 3, 60), manual: Math.max(manualBase - 5, 50) },
-      { bottleneck: "Molo Mansion", ga: Math.min(gaBase + 2, 99), manual: Math.max(manualBase + 1, 50) },
-      { bottleneck: "Jaro Cathedral", ga: Math.max(gaBase - 1, 60), manual: Math.max(manualBase - 7, 45) },
+    const presetGa = selectedScenario?.preset_parameters?.ga_efficiency as number | undefined;
+    const presetManual = selectedScenario?.preset_parameters?.manual_efficiency as number | undefined;
+    const gaSource =
+      typeof presetGa === "number"
+        ? presetGa
+        : latestFitnessScore ?? dashboardSnapshot?.metrics.coverageEfficiency ?? 85;
+    const manualSource =
+      typeof presetManual === "number"
+        ? presetManual
+        : Math.max(40, gaSource - 12);
+
+    const gaBase = Math.min(99, Math.max(40, gaSource));
+    const manualBase = Math.min(95, Math.max(30, manualSource));
+
+    const names = (dashboardSnapshot?.bottlenecks ?? []).slice(0, 4).map((item) => item.name);
+    const fallbackNames = ["Bottleneck 1", "Bottleneck 2", "Bottleneck 3", "Bottleneck 4"];
+    const rowNames = names.length > 0 ? names : fallbackNames;
+
+    return rowNames.map((label, index) => {
+      const ga = Math.max(35, Math.min(99, gaBase - index * 2 + (index === 2 ? 3 : 0)));
+      const manual = Math.max(25, Math.min(95, manualBase - index * 3));
+      return {
+        bottleneck: label,
+        ga: Number(ga.toFixed(1)),
+        manual: Number(manual.toFixed(1)),
+      };
+    });
+  }, [selectedScenario, dashboardSnapshot, latestFitnessScore]);
+
+  const onExportCsv = () => {
+    const rows = [
+      ["bottleneck", "ga_optimized", "manual"],
+      ...comparisonData.map((item) => [item.bottleneck, String(item.ga), String(item.manual)]),
     ];
-  }, [selectedScenario]);
+    const csv = rows.map((row) => row.map((cell) => `"${cell.replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${selectedScenario?.name ?? "scenario"}-comparison.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   const onCreateScenario = async () => {
     if (!name.trim()) {
@@ -73,7 +144,11 @@ export function Scenarios() {
         name: name.trim(),
         description: description.trim(),
         preset_parameters: {
-          efficiency: 88,
+          ga_efficiency: latestFitnessScore ?? dashboardSnapshot?.metrics.coverageEfficiency ?? 85,
+          manual_efficiency: Math.max(
+            40,
+            (latestFitnessScore ?? dashboardSnapshot?.metrics.coverageEfficiency ?? 85) - 12,
+          ),
           source: "desktop-ui",
         },
       });
@@ -188,7 +263,10 @@ export function Scenarios() {
               <h2 className="mb-1 text-lg font-semibold">Export Scenario Report</h2>
               <p className="text-sm text-gray-600">Export is available once scenario data is loaded.</p>
             </div>
-            <button className="flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:bg-gray-50">
+            <button
+              onClick={onExportCsv}
+              className="flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:bg-gray-50"
+            >
               <Download className="h-4 w-4" />
               Export CSV
             </button>
