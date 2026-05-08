@@ -34,6 +34,23 @@ class DeploymentScheduleView(APIView):
 		]
 		return Response(data)
 
+	def delete(self, request):
+		cleared = Deployment.objects.filter(is_deleted=False).update(is_deleted=True, updated_at=timezone.now())
+		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
+		if actor is None:
+			actor = get_user_model().objects.create_user(username="desktop-runner")
+		write_audit_log(actor, "delete", "deployment_schedule", {"cleared": cleared})
+		broadcast(
+			"dashboard_live",
+			"dashboard_event",
+			{
+				"event": "deployment_schedule_cleared",
+				"cleared": cleared,
+				"timestamp": timezone.now().isoformat(),
+			},
+		)
+		return Response({"cleared": cleared})
+
 
 class DeploymentAssignView(APIView):
 	permission_classes = [permissions.AllowAny]

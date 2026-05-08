@@ -1,0 +1,64 @@
+Absolutely. Here is the clean step-by-step fix for your exact error (unknown command BZPOPMIN).
+
+Goal:
+Use a modern Redis (6 or 7) instead of the old Windows Redis 3.0.504 service.
+
+1. Stop your running app first
+- In the terminal where dev:local is running, press Ctrl+C.
+- Then run:
+npm run stop:local
+
+2. Open PowerShell as Administrator
+- This is required to manage Windows services.
+
+3. Disable old Windows Redis (the 3.0.504 one)
+Run:
+Stop-Service Redis
+Set-Service Redis -StartupType Disabled
+Get-Service Redis
+
+You should see Status as Stopped.
+
+4. Confirm port 6379 is not owned by Windows Redis
+Run:
+netstat -ano | findstr :6379
+
+You should not see a LISTENING entry tied to the Windows Redis service.
+
+5. Start Redis in WSL Ubuntu (recommended)
+Open Ubuntu terminal and run:
+sudo apt update
+sudo apt install -y redis-server
+redis-server --version
+sudo service redis-server start
+redis-cli ping
+
+Expected:
+- Version should be 6.x or 7.x
+- ping returns PONG
+
+6. Verify from Windows side that your app sees the correct Redis
+Back in project PowerShell:
+cd D:\CodingRelated\Codes.Ams\TrafficAuxOptimizer Design Help and Demo\traffic_dss_backend
+..\ python.exe manage.py shell -c "from django.conf import settings; from redis import Redis; r=Redis.from_url(settings.REDIS_URL, decode_responses=True); i=r.info('server'); print('redis_url=', settings.REDIS_URL); print('redis_version=', i.get('redis_version')); print('os=', i.get('os'))"
+
+Important:
+- redis_version must NOT be 3.0.504
+- it should be 6.x or 7.x
+
+7. Return to project root and restart stack
+cd ..
+npm run stop:local
+npm run dev:local
+
+8. Validate the fix in logs
+You should no longer see:
+- unknown command BZPOPMIN
+- repeated websocket connect/disconnect errors tied to Redis command failure
+
+9. Quick UI validation
+- Open dashboard and optimization pages.
+- Websocket-driven widgets should stay connected.
+- No repeated reconnect loop in backend logs.
+
+If you want, I can give you a single copy-paste checklist next that includes only the exact commands in order with no explanations.

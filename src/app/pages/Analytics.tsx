@@ -1,18 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import PrettyCurve from "../components/PrettyCurve";
 import { Activity, Gauge, TrendingUp } from "lucide-react";
 import { fetchAnalyticsTrends, type AnalyticsTrendPoint } from "../services/backend";
 
 type TrendChartPoint = {
-  label: string;
   tsi: number;
   speed: number;
 };
@@ -52,17 +43,10 @@ export function Analytics() {
   }, []);
 
   const chartData = useMemo<TrendChartPoint[]>(() => {
-    return [...trends]
-      .reverse()
-      .map((point) => {
-        const date = new Date(point.timestamp);
-        const label = `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
-        return {
-          label,
-          tsi: Number((point.traffic_severity_index * 100).toFixed(1)),
-          speed: Number(point.avg_speed.toFixed(1)),
-        };
-      });
+    return [...trends].reverse().map((point) => ({
+      tsi: Number((point.traffic_severity_index * 100).toFixed(1)),
+      speed: Number(point.avg_speed.toFixed(1)),
+    }));
   }, [trends]);
 
   const summary = useMemo(() => {
@@ -126,18 +110,13 @@ export function Analytics() {
         )}
 
         {!loading && !error && chartData.length > 0 && (
-          <div className="h-[360px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                <XAxis dataKey="label" tick={{ fontSize: 12 }} minTickGap={18} />
-                <YAxis yAxisId="left" tick={{ fontSize: 12 }} width={42} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 12 }} width={48} />
-                <Tooltip />
-                <Line yAxisId="left" type="monotone" dataKey="tsi" stroke="#f59e0b" strokeWidth={2.5} dot={false} name="TSI %" />
-                <Line yAxisId="right" type="monotone" dataKey="speed" stroke="#2563eb" strokeWidth={2.5} dot={false} name="Avg speed" />
-              </LineChart>
-            </ResponsiveContainer>
+          <div className="space-y-4 w-full">
+            <div className="h-40">
+              <PrettyCurve values={chartData.map((d) => d.tsi)} color="#f59e0b" />
+            </div>
+            <div className="h-40">
+              <PrettyCurve values={chartData.map((d) => d.speed)} color="#2563eb" />
+            </div>
           </div>
         )}
       </div>

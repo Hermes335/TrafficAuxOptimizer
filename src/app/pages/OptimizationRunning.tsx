@@ -1,16 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { TrendingUp, Users, AlertCircle, Target, Clock, Activity, CheckCircle2, XCircle } from "lucide-react";
-import { Link } from "react-router";
+import { TrendingUp, Users, AlertCircle, Target, Clock, Activity, CheckCircle2, XCircle, ChevronLeft, AlertTriangle } from "lucide-react";
+import { Link, useNavigate } from "react-router";
+import PrettyCurve from "../components/PrettyCurve";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { StatusBadge } from "../components/StatusBadge";
+import { ErrorFeedback } from "../components/ErrorFeedback";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
-import {
+  cancelOptimizationRun,
   fetchOptimizationResults,
   fetchOptimizationStatus,
   runOptimization,
@@ -35,6 +31,7 @@ function upsertConvergencePoint(prev: ConvergencePoint[], nextPoint: Convergence
 }
 
 export function OptimizationRunning() {
+  const navigate = useNavigate();
   const [runId, setRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +70,10 @@ export function OptimizationRunning() {
       populationSize: Number(query.get("population_size") || 200),
       mutationRate: Number(query.get("mutation_rate") || 0.1),
       crossoverRate: Number(query.get("crossover_rate") || 0.8),
+      tsiWeight: Number(query.get("tsi_weight") || 0.35),
+      wifWeight: Number(query.get("wif_weight") || 0.25),
+      rpwWeight: Number(query.get("rpw_weight") || 0.25),
+      resourceUtilizationWeight: Number(query.get("resource_utilization_weight") || 0.15),
     }),
     [query],
   );
@@ -92,6 +93,9 @@ export function OptimizationRunning() {
     if (status.status === "failed") {
       return "Run failed";
     }
+    if (status.status === "cancelled") {
+      return "Run cancelled";
+    }
     return "Processing generations";
   }, [status]);
 
@@ -102,6 +106,8 @@ export function OptimizationRunning() {
       ? "bg-green-100 text-green-700"
       : status?.status === "failed"
         ? "bg-red-100 text-red-700"
+        : status?.status === "cancelled"
+          ? "bg-gray-100 text-gray-700"
         : "bg-yellow-100 text-yellow-700";
 
   const currentEventIcon = useMemo(() => {
@@ -111,20 +117,40 @@ export function OptimizationRunning() {
     if (status.status === "completed") {
       return CheckCircle2;
     }
-    if (status.status === "failed") {
+    if (status.status === "failed" || status.status === "cancelled") {
       return XCircle;
     }
     return Clock;
   }, [status]);
 
-  const isRunActive = status?.status !== "completed" && status?.status !== "failed";
+  const isRunActive = status?.status !== "completed" && status?.status !== "failed" && status?.status !== "cancelled";
   const ProgressStatusIcon = currentEventIcon;
   const progressIconClass =
     status?.status === "completed"
       ? "text-green-700"
       : status?.status === "failed"
         ? "text-red-700"
+        : status?.status === "cancelled"
+          ? "text-gray-700"
         : "text-white";
+
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  const handleCancelRun = async () => {
+    if (!runId) {
+      navigate("/optimization");
+      return;
+    }
+
+    try {
+      await cancelOptimizationRun(runId);
+      setCancelError(null);
+      navigate("/optimization");
+    } catch (cancelError: unknown) {
+      const message = cancelError instanceof Error ? cancelError.message : "Failed to cancel optimization run";
+      setCancelError(message);
+    }
+  };
 
   useEffect(() => {
     if (startedRef.current) {
@@ -141,6 +167,10 @@ export function OptimizationRunning() {
       mutation_rate: Number(query.get("mutation_rate") || 0.1),
       crossover_rate: Number(query.get("crossover_rate") || 0.8),
       elitism_count: Number(query.get("elitism_count") || 5),
+      tsi_weight: Number(query.get("tsi_weight") || 0.35),
+      wif_weight: Number(query.get("wif_weight") || 0.25),
+      rpw_weight: Number(query.get("rpw_weight") || 0.25),
+      resource_utilization_weight: Number(query.get("resource_utilization_weight") || 0.15),
     };
 
     runOptimization(payload)
@@ -258,19 +288,30 @@ export function OptimizationRunning() {
           <div className={`mb-2 inline-block rounded px-3 py-1 text-sm font-medium ${statusToneClass}`}>
             {status?.status ? status.status.toUpperCase() : "STARTING"}
           </div>
-            <h2 className="text-lg font-bold">Session ID: {runId ?? "Starting..."}</h2>
-            {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-            <div className="mt-3 flex items-center gap-2">
-              <Link
-                to="/optimization"
-                className="rounded-lg border px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
-              >
-                {isRunActive ? "Back to Optimization" : "Start New Run"}
-              </Link>
+          <h2 className="text-lg font-bold">Session ID: {runId ?? "Starting..."}</h2>
+          {error && (
+            <div className="mt-2 rounded-lg border border-yellow-200 bg-yellow-50 p-2 text-xs text-yellow-700">
+              {error}
             </div>
-            {isRunActive && (
-              <p className="mt-2 text-xs text-gray-500">Leaving this page does not stop the backend run.</p>
-            )}
+          )}
+          <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">
+            <div className="mb-1 flex items-center gap-1 font-semibold">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Data Note
+            </div>
+            <p>This run uses real traffic coordinates with synthetic variation for missing officers. Production deployment requires complete real data.</p>
+          </div>
+          <div className="mt-3 flex items-center gap-2">
+            <Link
+              to="/optimization"
+              className="rounded-lg border px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50"
+            >
+              {isRunActive ? "Back to Optimization" : "Start New Run"}
+            </Link>
+          </div>
+          {isRunActive && (
+            <p className="mt-2 text-xs text-gray-500">Leaving this page does not stop the backend run.</p>
+          )}
         </div>
 
         <div className="mb-6">
@@ -328,40 +369,43 @@ export function OptimizationRunning() {
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
                     <span className="text-gray-600">TSI Weight</span>
-                    <span className="font-medium">0.35</span>
+                    <span className="font-medium">{config.tsiWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
-                    <div className="h-full bg-yellow-400" style={{ width: "35%" }} />
+                    <div className="h-full bg-yellow-400" style={{ width: `${Math.min(100, Math.round(config.tsiWeight * 100))}%` }} />
                   </div>
                 </div>
 
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
                     <span className="text-gray-600">WIF Weight</span>
-                    <span className="font-medium">0.25</span>
+                    <span className="font-medium">{config.wifWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
-                    <div className="h-full bg-yellow-400" style={{ width: "25%" }} />
+                    <div className="h-full bg-yellow-400" style={{ width: `${Math.min(100, Math.round(config.wifWeight * 100))}%` }} />
                   </div>
                 </div>
 
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
                     <span className="text-gray-600">RPW Weight</span>
-                    <span className="font-medium">0.25</span>
+                    <span className="font-medium">{config.rpwWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
-                    <div className="h-full bg-yellow-400" style={{ width: "25%" }} />
+                    <div className="h-full bg-yellow-400" style={{ width: `${Math.min(100, Math.round(config.rpwWeight * 100))}%` }} />
                   </div>
                 </div>
 
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
                     <span className="text-gray-600">Resource Utilization</span>
-                    <span className="font-medium">0.15</span>
+                    <span className="font-medium">{config.resourceUtilizationWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
-                    <div className="h-full bg-yellow-400" style={{ width: "15%" }} />
+                    <div
+                      className="h-full bg-yellow-400"
+                      style={{ width: `${Math.min(100, Math.round(config.resourceUtilizationWeight * 100))}%` }}
+                    />
                   </div>
                 </div>
               </div>
@@ -444,17 +488,58 @@ export function OptimizationRunning() {
                 <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
               </div>
               <div>
-                <h1 className="text-2xl font-bold">{progress}% Optimization Progress</h1>
+                <div className="mb-2 flex items-center gap-2">
+                  <h1 className="text-2xl font-bold">{progress}% Optimization Progress</h1>
+                  <StatusBadge status={status?.status || "queued"} size="md" />
+                </div>
                 <p className="text-gray-600">
                   {status?.status === "completed"
                     ? "Optimization complete."
                     : status?.status === "failed"
                       ? "Optimization failed. Check backend logs and retry."
-                      : latestFitnessLabel}
+                      : status?.status === "cancelled"
+                        ? "Optimization cancelled."
+                        : latestFitnessLabel}
                 </p>
               </div>
             </div>
+            <div className="flex gap-2">
+              <Link
+                to="/optimization"
+                className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Back
+              </Link>
+              {isRunActive && (
+                <ConfirmDialog
+                  title="Cancel Optimization Run?"
+                  description="This will stop the currently running genetic algorithm. The run ID will be marked as cancelled and results will not be saved."
+                  confirmText="Cancel Run"
+                  isDangerous
+                  onConfirm={handleCancelRun}
+                  trigger={
+                    <button className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100">
+                      <XCircle className="h-4 w-4" />
+                      Cancel Run
+                    </button>
+                  }
+                />
+              )}
+            </div>
           </div>
+
+          {/* Show error feedback if cancel failed */}
+          {cancelError && (
+            <div className="mb-4">
+              <ErrorFeedback
+                error={cancelError}
+                onRetry={handleCancelRun}
+                onDismiss={() => setCancelError(null)}
+                retryLabel="Retry Cancel"
+              />
+            </div>
+          )}
 
           <div className="mb-2 h-4 overflow-hidden rounded-full bg-gray-200">
             <div
@@ -479,42 +564,28 @@ export function OptimizationRunning() {
             </div>
           </div>
 
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={convergenceData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis
-                dataKey="x"
-                tick={{ fontSize: 11 }}
-                label={{ value: "Generation", position: "insideBottom", offset: -5 }}
-              />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                domain={[30, 100]}
-                label={{ value: "Fitness Score", angle: -90, position: "insideLeft" }}
-              />
-              <Tooltip />
-              <Line
-                type="monotone"
-                dataKey="best"
-                stroke="#facc15"
-                strokeWidth={3}
-                dot={false}
-                name="Best Fitness"
-                isAnimationActive={false}
-                key="running-best-fitness"
-              />
-              <Line
-                type="monotone"
-                dataKey="avg"
-                stroke="#6b7280"
-                strokeWidth={2}
-                dot={false}
-                name="Average Fitness"
-                isAnimationActive={false}
-                key="running-avg-fitness"
-              />
-            </LineChart>
-          </ResponsiveContainer>
+          {/* Legend */}
+          <div className="mb-4 flex gap-6 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-yellow-400" />
+              <span className="text-gray-700">Best Fitness (Per Generation)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="h-3 w-3 rounded-full bg-gray-400" />
+              <span className="text-gray-700">Average Fitness (Cumulative)</span>
+            </div>
+          </div>
+
+          {/* Chart with axis labels */}
+          <div className="relative h-80">
+            <div className="absolute left-0 top-0 text-xs font-semibold text-gray-600">Fitness Score →</div>
+            <PrettyCurve
+              values={convergenceData.map((d) => d.best)}
+              secondaryValues={convergenceData.map((d) => d.avg)}
+              color="#facc15"
+              colorSecondary="#6b7280"
+            />
+          </div>
 
           <div className="mt-4 grid grid-cols-2 gap-4">
             <div className="rounded-lg bg-yellow-50 p-4">

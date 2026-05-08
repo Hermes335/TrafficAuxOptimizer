@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Clock, Target, Zap, TrendingUp, Users } from "lucide-react";
+import { Clock, Target, Zap, TrendingUp, Users, AlertTriangle, ChevronLeft } from "lucide-react";
 import { Link } from "react-router";
 import {
   fetchOptimizationConfig,
@@ -8,6 +8,7 @@ import {
   type OptimizationHistoryItem,
   type OptimizationConfigResponse,
 } from "../services/backend";
+import { ErrorFeedback } from "../components/ErrorFeedback";
 
 const DEFAULT_PARAMS = {
   populationSize: 200,
@@ -15,6 +16,10 @@ const DEFAULT_PARAMS = {
   crossoverRate: 80,
   mutationRate: 10,
   elitismRate: 10,
+  tsiWeight: 35,
+  wifWeight: 25,
+  rpwWeight: 25,
+  resourceUtilizationWeight: 15,
 };
 
 export function Optimization() {
@@ -23,6 +28,10 @@ export function Optimization() {
   const [crossoverRate, setCrossoverRate] = useState(DEFAULT_PARAMS.crossoverRate);
   const [mutationRate, setMutationRate] = useState(DEFAULT_PARAMS.mutationRate);
   const [elitismRate, setElitismRate] = useState(DEFAULT_PARAMS.elitismRate);
+  const [tsiWeight, setTsiWeight] = useState(DEFAULT_PARAMS.tsiWeight);
+  const [wifWeight, setWifWeight] = useState(DEFAULT_PARAMS.wifWeight);
+  const [rpwWeight, setRpwWeight] = useState(DEFAULT_PARAMS.rpwWeight);
+  const [resourceUtilizationWeight, setResourceUtilizationWeight] = useState(DEFAULT_PARAMS.resourceUtilizationWeight);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [history, setHistory] = useState<OptimizationHistoryItem[]>([]);
   const [validation, setValidation] = useState<OptimizationConfigResponse | null>(null);
@@ -40,8 +49,22 @@ export function Optimization() {
       mutation_rate: Number((mutationRate / 100).toFixed(2)),
       crossover_rate: Number((crossoverRate / 100).toFixed(2)),
       elitism_count: Math.max(1, Math.round((elitismRate / 100) * 10)),
+      tsi_weight: Number((tsiWeight / 100).toFixed(2)),
+      wif_weight: Number((wifWeight / 100).toFixed(2)),
+      rpw_weight: Number((rpwWeight / 100).toFixed(2)),
+      resource_utilization_weight: Number((resourceUtilizationWeight / 100).toFixed(2)),
     }),
-    [populationSize, generationLimit, mutationRate, crossoverRate, elitismRate],
+    [
+      populationSize,
+      generationLimit,
+      mutationRate,
+      crossoverRate,
+      elitismRate,
+      tsiWeight,
+      wifWeight,
+      rpwWeight,
+      resourceUtilizationWeight,
+    ],
   );
 
   useEffect(() => {
@@ -110,6 +133,10 @@ export function Optimization() {
         setElitismRate(10);
         setPopulationSize(200);
         setGenerationLimit(300);
+        setTsiWeight(35);
+        setWifWeight(25);
+        setRpwWeight(25);
+        setResourceUtilizationWeight(15);
         break;
       case "weather":
         setMutationRate(8);
@@ -117,6 +144,10 @@ export function Optimization() {
         setElitismRate(12);
         setPopulationSize(240);
         setGenerationLimit(350);
+        setTsiWeight(30);
+        setWifWeight(35);
+        setRpwWeight(20);
+        setResourceUtilizationWeight(15);
         break;
       case "event":
         setMutationRate(12);
@@ -124,6 +155,10 @@ export function Optimization() {
         setElitismRate(15);
         setPopulationSize(180);
         setGenerationLimit(250);
+        setTsiWeight(40);
+        setWifWeight(20);
+        setRpwWeight(25);
+        setResourceUtilizationWeight(15);
         break;
     }
   };
@@ -135,6 +170,12 @@ export function Optimization() {
   }, [history]);
   const currentValidation = validation?.valid ?? false;
   const validationErrors = validation?.errors ?? {};
+
+  // Check if all weights are zero (edge case)
+  const allWeightsZero = tsiWeight === 0 && wifWeight === 0 && rpwWeight === 0 && resourceUtilizationWeight === 0;
+  const weightsValidation = allWeightsZero ? "At least one objective weight must be > 0" : null;
+  const weightTotal = tsiWeight + wifWeight + rpwWeight + resourceUtilizationWeight;
+  const weightsValid = weightTotal > 0;
 
   const onPublishCompletedRun = async (runId: string) => {
     setPublishError(null);
@@ -177,6 +218,8 @@ export function Optimization() {
           </div>
           {validationLoading ? (
             <p className="text-sm text-gray-500">Validating parameters...</p>
+          ) : weightsValidation ? (
+            <ErrorFeedback error={weightsValidation} onDismiss={() => {}} />
           ) : currentValidation ? (
             <p className="text-sm font-medium text-green-700">Parameters are valid for backend execution.</p>
           ) : (
@@ -283,6 +326,84 @@ export function Optimization() {
         <div className="mb-6">
           <div className="mb-4 flex items-center gap-2">
             <Target className="h-5 w-5 text-yellow-500" />
+            <h2 className="font-semibold">FITNESS WEIGHTS</h2>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium">Traffic Severity Index (TSI)</label>
+                <span className="text-yellow-500">{tsiWeight}%</span>
+              </div>
+              <div className="text-xs text-gray-500">CONGESTION, SPEED, QUEUE LENGTH</div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={tsiWeight}
+                onChange={(e) => setTsiWeight(Number(e.target.value))}
+                className="w-full accent-yellow-400"
+              />
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium">Weather Impact Factor (WIF)</label>
+                <span className="text-yellow-500">{wifWeight}%</span>
+              </div>
+              <div className="text-xs text-gray-500">RAINFALL CAPACITY REDUCTION</div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={wifWeight}
+                onChange={(e) => setWifWeight(Number(e.target.value))}
+                className="w-full accent-yellow-400"
+              />
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium">Road Priority Weight (RPW)</label>
+                <span className="text-yellow-500">{rpwWeight}%</span>
+              </div>
+              <div className="text-xs text-gray-500">VOLUME, ECONOMIC IMPORTANCE, INFRASTRUCTURE</div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={rpwWeight}
+                onChange={(e) => setRpwWeight(Number(e.target.value))}
+                className="w-full accent-yellow-400"
+              />
+            </div>
+
+            <div>
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-sm font-medium">Resource Utilization</label>
+                <span className="text-yellow-500">{resourceUtilizationWeight}%</span>
+              </div>
+              <div className="text-xs text-gray-500">OFFICER-HOUR EFFICIENCY</div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={resourceUtilizationWeight}
+                onChange={(e) => setResourceUtilizationWeight(Number(e.target.value))}
+                className="w-full accent-yellow-400"
+              />
+            </div>
+
+            <div className={`rounded-lg border px-3 py-2 text-xs ${weightsValid ? "border-green-200 bg-green-50 text-green-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}>
+              Total weight: <span className="font-semibold">{weightTotal}%</span>
+              {weightsValid ? " • ready to run" : " • at least one weight must be above 0"}
+            </div>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Target className="h-5 w-5 text-yellow-500" />
             <h2 className="font-semibold">PARAMETER PRESETS</h2>
           </div>
 
@@ -323,14 +444,25 @@ export function Optimization() {
               setCrossoverRate(DEFAULT_PARAMS.crossoverRate);
               setMutationRate(DEFAULT_PARAMS.mutationRate);
               setElitismRate(DEFAULT_PARAMS.elitismRate);
+              setTsiWeight(DEFAULT_PARAMS.tsiWeight);
+              setWifWeight(DEFAULT_PARAMS.wifWeight);
+              setRpwWeight(DEFAULT_PARAMS.rpwWeight);
+              setResourceUtilizationWeight(DEFAULT_PARAMS.resourceUtilizationWeight);
               setSelectedPreset(null);
             }}
           >
             Reset Defaults
           </button>
           <Link
-            to={`/optimization-running?population_size=${populationSize}&generations=${generationLimit}&mutation_rate=${(mutationRate / 100).toFixed(2)}&crossover_rate=${(crossoverRate / 100).toFixed(2)}&elitism_count=${Math.max(1, Math.round((elitismRate / 100) * 10))}`}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-yellow-400 px-4 py-2.5 font-medium text-white hover:bg-yellow-500"
+            to={weightsValid ? `/optimization-running?population_size=${populationSize}&generations=${generationLimit}&mutation_rate=${(mutationRate / 100).toFixed(2)}&crossover_rate=${(crossoverRate / 100).toFixed(2)}&elitism_count=${Math.max(1, Math.round((elitismRate / 100) * 10))}&tsi_weight=${(tsiWeight / 100).toFixed(2)}&wif_weight=${(wifWeight / 100).toFixed(2)}&rpw_weight=${(rpwWeight / 100).toFixed(2)}&resource_utilization_weight=${(resourceUtilizationWeight / 100).toFixed(2)}` : "#"}
+            aria-disabled={!weightsValid}
+            tabIndex={weightsValid ? 0 : -1}
+            onClick={(e) => {
+              if (!weightsValid) {
+                e.preventDefault();
+              }
+            }}
+            className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-medium text-white transition-colors ${weightsValid ? "bg-yellow-400 hover:bg-yellow-500" : "cursor-not-allowed bg-gray-300 text-gray-600"}`}
           >
             Run Algorithm
           </Link>

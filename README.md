@@ -1,7 +1,7 @@
 
-  # TrafficAuxOptimizer Design Help and Demo
+  # TrafficAuxOptimizer
 
-  This is a code bundle for TrafficAuxOptimizer Design Help and Demo. The original project is available at https://www.figma.com/design/7G6CKf8Fay63TGRibN7g5W/TrafficAuxOptimizer-Design-Help-and-Demo.
+  This repository contains the TrafficAuxOptimizer application.
 
   ## Running the code
 
@@ -107,6 +107,9 @@ Go back to Ubuntu and make sure WSL Redis is still running:
 sudo service redis-server start
 redis-cli ping
 You want PONG.
+
+Use this to verify server version each time:
+redis-cli INFO SERVER | findstr redis_version
 
 Then in the project root, restart the app stack:
 npm run stop:local

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Callable
-from random import Random
+from random import Random, randint
 
 from geopy.distance import geodesic
 
@@ -19,17 +19,32 @@ class GARunResult:
 class GeneticDeploymentOptimizer:
     """Constraint-aware GA for officer-to-bottleneck assignments."""
 
-    def __init__(self, seed: int = 42):
+    def __init__(self, seed: int | None = None):
+        if seed is None:
+            seed = randint(0, 2**31 - 1)
         self.rng = Random(seed)
+        self.seed = seed
 
     @staticmethod
     def _clamp_parameters(parameters: dict) -> dict:
+        tsi_weight = max(0.0, min(1.0, float(parameters.get("tsi_weight", 0.35))))
+        wif_weight = max(0.0, min(1.0, float(parameters.get("wif_weight", 0.25))))
+        rpw_weight = max(0.0, min(1.0, float(parameters.get("rpw_weight", 0.25))))
+        resource_utilization_weight = max(0.0, min(1.0, float(parameters.get("resource_utilization_weight", 0.15))))
+        total_weight = tsi_weight + wif_weight + rpw_weight + resource_utilization_weight
+        if total_weight <= 0:
+            raise ValueError("At least one optimization weight must be greater than zero.")
+
         return {
             "population_size": max(50, min(500, int(parameters.get("population_size", 200)))),
             "generations": max(50, min(1000, int(parameters.get("generations", 300)))),
             "mutation_rate": max(0.01, min(0.30, float(parameters.get("mutation_rate", 0.10)))),
             "crossover_rate": max(0.50, min(0.95, float(parameters.get("crossover_rate", 0.80)))),
             "elitism_count": max(1, min(20, int(parameters.get("elitism_count", 5)))),
+            "tsi_weight": tsi_weight / total_weight,
+            "wif_weight": wif_weight / total_weight,
+            "rpw_weight": rpw_weight / total_weight,
+            "resource_utilization_weight": resource_utilization_weight / total_weight,
             "tournament_size": 3,
         }
 
@@ -40,7 +55,14 @@ class GeneticDeploymentOptimizer:
             return 3.0
         return geodesic((lat, lng), (bottleneck["latitude"], bottleneck["longitude"])).km
 
-    def _evaluate(self, chromosome: list[int], officers: list[dict], bottlenecks: list[dict], weather_impact_factor: float) -> dict:
+    def _evaluate(
+        self,
+        chromosome: list[int],
+        officers: list[dict],
+        bottlenecks: list[dict],
+        weather_impact_factor: float,
+        weights: dict,
+    ) -> dict:
         assigned_indices = [idx for idx in chromosome if 0 <= idx < len(bottlenecks)]
         assigned_count = len(assigned_indices)
         covered = set(assigned_indices)
@@ -49,27 +71,34 @@ class GeneticDeploymentOptimizer:
         resource_utilization = (assigned_count / max(1, len(officers))) * 100
 
         response_minutes = []
-        weighted_coverage_bonus = 0.0
+        assigned_priority_weight = 0.0
         for officer_idx, bottleneck_idx in enumerate(chromosome):
             if bottleneck_idx < 0 or bottleneck_idx >= len(bottlenecks):
                 continue
             officer = officers[officer_idx]
             bottleneck = bottlenecks[bottleneck_idx]
-            weighted_coverage_bonus += float(bottleneck.get("road_priority_weight", 1.0))
+            assigned_priority_weight += max(0.0, float(bottleneck.get("road_priority_weight", 1.0)))
             speed_kmh = max(8.0, 28.0 * (1.0 - float(bottleneck.get("tsi", 0.0))))
             travel_minutes = (self._distance_km(officer, bottleneck) / speed_kmh) * 60.0
             response_minutes.append(travel_minutes * weather_impact_factor)
 
-        coverage_efficiency = min(100.0, coverage_efficiency + min(20.0, weighted_coverage_bonus))
+        priority_denominator = sum(max(0.0, float(item.get("road_priority_weight", 1.0))) for item in bottlenecks)
+        road_priority_coverage = 100.0 if priority_denominator <= 0 else min(100.0, (assigned_priority_weight / priority_denominator) * 100.0)
         avg_response_time = sum(response_minutes) / max(1, len(response_minutes))
         response_time_score = max(0.0, 100.0 - (avg_response_time * 2.0))
 
-        fitness = (coverage_efficiency * 0.40) + (response_time_score * 0.35) + (resource_utilization * 0.25)
+        fitness = (
+            (coverage_efficiency * weights["tsi_weight"])
+            + (response_time_score * weights["wif_weight"])
+            + (road_priority_coverage * weights["rpw_weight"])
+            + (resource_utilization * weights["resource_utilization_weight"])
+        )
         return {
             "fitness": round(fitness, 4),
             "coverage_efficiency": round(coverage_efficiency, 3),
             "avg_response_time": round(avg_response_time, 3),
             "resource_utilization": round(resource_utilization, 3),
+            "road_priority_coverage": round(road_priority_coverage, 3),
         }
 
     def _init_population(self, population_size: int, officer_count: int, bottleneck_count: int) -> list[list[int]]:
@@ -107,8 +136,12 @@ class GeneticDeploymentOptimizer:
         bottlenecks: list[dict],
         parameters: dict,
         weather_impact_factor: float = 1.0,
+        seed: int | None = None,
+        cancel_check: Callable[[], bool] | None = None,
         progress_callback: Callable[[int, int, float], None] | None = None,
     ) -> GARunResult:
+        if seed is not None:
+            self.rng = Random(seed)
         if not officers or not bottlenecks:
             return GARunResult(best_fitness=0.0, top_solutions=[], generation_fitness=[], status="failed")
 
@@ -118,7 +151,12 @@ class GeneticDeploymentOptimizer:
         best_population: list[tuple[list[int], dict]] = []
 
         for generation in range(config["generations"]):
-            scored = [(chromosome, self._evaluate(chromosome, officers, bottlenecks, weather_impact_factor)) for chromosome in pop]
+            if cancel_check and cancel_check():
+                return GARunResult(best_fitness=generation_fitness[-1] if generation_fitness else 0.0, top_solutions=[], generation_fitness=[round(item, 4) for item in generation_fitness], status="cancelled")
+            scored = [
+                (chromosome, self._evaluate(chromosome, officers, bottlenecks, weather_impact_factor, config))
+                for chromosome in pop
+            ]
             scored.sort(key=lambda item: item[1]["fitness"], reverse=True)
             best_population = scored
             best_score = scored[0][1]["fitness"]
@@ -161,6 +199,7 @@ class GeneticDeploymentOptimizer:
                     "coverage_efficiency": metrics["coverage_efficiency"],
                     "avg_response_time": metrics["avg_response_time"],
                     "resource_utilization": metrics["resource_utilization"],
+                    "road_priority_coverage": metrics["road_priority_coverage"],
                     "generated_at": datetime.now(UTC).isoformat(),
                     "assignments": assignments,
                 }

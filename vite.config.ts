@@ -23,4 +23,25 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  // Code splitting optimization for better startup performance
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split large charting library
+          recharts: ['recharts'],
+          // Split UI components library
+          radix: [
+            '@radix-ui/react-alert-dialog',
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-select',
+            '@radix-ui/react-tabs',
+          ],
+        },
+      },
+    },
+    // Optimize chunk size
+    chunkSizeWarningLimit: 1000,
+  },
 })

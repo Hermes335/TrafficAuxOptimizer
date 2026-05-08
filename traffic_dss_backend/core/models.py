@@ -136,6 +136,7 @@ class OptimizationRun(TimeStampedSoftDeleteModel):
 		("running", "Running"),
 		("completed", "Completed"),
 		("failed", "Failed"),
+		("cancelled", "Cancelled"),
 	]
 
 	run_id = models.CharField(max_length=64, unique=True, db_index=True)

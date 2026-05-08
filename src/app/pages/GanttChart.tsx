@@ -1,7 +1,11 @@
-import { CalendarDays, ChevronLeft, ChevronRight, Download, Filter, Pencil, Trash2, UserPlus, UserRound } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Download, Filter, Pencil, Trash2, UserPlus, UserRound, XCircle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router";
+import { ConfirmDialog } from "../components/ConfirmDialog";
+import { ErrorFeedback } from "../components/ErrorFeedback";
 import {
   createDashboardOfficer,
+  clearDeploymentSchedule,
   deleteDashboardOfficer,
   fetchBottlenecks,
   fetchDashboardOfficers,
@@ -17,6 +21,7 @@ import {
 
 export function GanttChart() {
   const [schedule, setSchedule] = useState<DeploymentScheduleItem[]>([]);
+  const [scheduleSnapshot, setScheduleSnapshot] = useState<DeploymentScheduleItem[] | null>(null);
   const [bottlenecks, setBottlenecks] = useState<BottleneckOption[]>([]);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
   const [query, setQuery] = useState("");
@@ -36,8 +41,20 @@ export function GanttChart() {
   const [completedRuns, setCompletedRuns] = useState<OptimizationHistoryItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [publishingSchedule, setPublishingSchedule] = useState(false);
+  const [clearingSchedule, setClearingSchedule] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
+
+  const restorePreviousSchedule = () => {
+    if (!scheduleSnapshot) {
+      setPublishError("No previous schedule snapshot is available to restore.");
+      return;
+    }
+
+    setSchedule(scheduleSnapshot);
+    setPublishNotice("Restored the previous schedule view locally. Refresh to re-sync with the backend.");
+    setPublishError(null);
+  };
 
   useEffect(() => {
     let active = true;
@@ -254,6 +271,7 @@ export function GanttChart() {
       return;
     }
 
+    setScheduleSnapshot(schedule);
     setPublishingSchedule(true);
     setPublishError(null);
     setPublishNotice(null);
@@ -274,6 +292,28 @@ export function GanttChart() {
       );
     } finally {
       setPublishingSchedule(false);
+    }
+  };
+
+  const onClearSchedule = async () => {
+    setScheduleSnapshot(schedule);
+    const confirmation = window.prompt("Type CLEAR_SCHEDULE to remove all active deployments.");
+    if (confirmation !== "CLEAR_SCHEDULE") {
+      setPublishError("Clear schedule cancelled. Type CLEAR_SCHEDULE next time to confirm the reset.");
+      return;
+    }
+
+    setClearingSchedule(true);
+    setPublishError(null);
+    setPublishNotice(null);
+    try {
+      const result = await clearDeploymentSchedule();
+      await reloadSchedule();
+      setPublishNotice(`Cleared ${result.cleared} deployment${result.cleared === 1 ? "" : "s"}.`);
+    } catch (clearError: unknown) {
+      setPublishError(clearError instanceof Error ? clearError.message : "Failed to clear deployment schedule. Try again after checking backend logs.");
+    } finally {
+      setClearingSchedule(false);
     }
   };
 
@@ -313,6 +353,15 @@ export function GanttChart() {
       <div className="border-b bg-white px-6 py-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
+            <div className="mb-2 flex items-center gap-2">
+              <Link
+                to="/optimization"
+                className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                Back
+              </Link>
+            </div>
             <h1 className="text-2xl font-bold">Deployment Schedule</h1>
             <p className="text-sm text-gray-600">Live schedule loaded from backend deployments API.</p>
           </div>
@@ -325,6 +374,14 @@ export function GanttChart() {
             <button onClick={onExport} className="flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-gray-50">
               <Download className="h-4 w-4" />
               Export
+            </button>
+            <button
+              onClick={onClearSchedule}
+              disabled={clearingSchedule || filteredSchedule.length === 0}
+              className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <XCircle className="h-4 w-4" />
+              {clearingSchedule ? "Clearing..." : "Clear Schedule"}
             </button>
             <div className="flex items-center gap-2">
               <select
@@ -351,7 +408,32 @@ export function GanttChart() {
         </div>
 
         {publishNotice && <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{publishNotice}</div>}
-        {publishError && <div className="mb-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{publishError}</div>}
+        {publishError && (
+          <div className="mb-3">
+            <ErrorFeedback
+              error={publishError}
+              onRetry={publishError.toLowerCase().includes("clear") ? onClearSchedule : onPublishSchedule}
+              onDismiss={() => setPublishError(null)}
+            />
+          </div>
+        )}
+
+        {scheduleSnapshot && (
+          <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="font-semibold">Rollback available</div>
+                <div className="text-xs text-blue-700">A previous schedule snapshot is cached locally for this session.</div>
+              </div>
+              <button
+                onClick={restorePreviousSchedule}
+                className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100"
+              >
+                Restore Previous Schedule
+              </button>
+            </div>
+          </div>
+        )}
 
         <div className="mb-3 flex items-center gap-3">
           <button className="rounded border p-1.5 text-gray-600 hover:bg-gray-50">

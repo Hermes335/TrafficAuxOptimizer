@@ -1,22 +1,9 @@
 import { Bell, Home, User } from "lucide-react";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-} from "recharts";
+import { BarChart, Bar } from "recharts";
+import PrettyCurve from "../components/PrettyCurve";
 
 export function ComponentLibrary() {
-  const convergenceData = Array.from({ length: 20 }, (_, i) => ({
-    x: i * 5,
-    best: 20 + i * 3,
-    avg: 15 + i * 2,
-  }));
+  const convergenceData = Array.from({ length: 20 }, (_, i) => 20 + i * 3);
 
   const congestionData = [
     { id: "B-001", value: 92 },
@@ -317,32 +304,9 @@ export function ComponentLibrary() {
                 Genetic algorithm fitness evolution over 150+ generations
               </p>
               <ResponsiveContainer width="100%" height={300}>
-                <LineChart data={convergenceData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="x" tick={{ fontSize: 10 }} />
-                  <YAxis tick={{ fontSize: 10 }} />
-                  <Tooltip />
-                  <Line
-                    type="monotone"
-                    dataKey="best"
-                    stroke="#facc15"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Best Fitness"
-                    isAnimationActive={false}
-                    key="component-lib-best"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="avg"
-                    stroke="#9ca3af"
-                    strokeWidth={2}
-                    dot={false}
-                    name="Average Fitness"
-                    isAnimationActive={false}
-                    key="component-lib-avg"
-                  />
-                </LineChart>
+                <div className="h-64">
+                  <PrettyCurve values={convergenceData} color="#facc15" />
+                </div>
               </ResponsiveContainer>
               <div className="mt-4 flex justify-center gap-6 text-xs">
                 <div className="flex items-center gap-2">

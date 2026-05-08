@@ -1,15 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle, Clock, Target, TrendingDown, Users } from "lucide-react";
+import { AlertCircle, CheckCircle, ChevronLeft, Clock, Target, TrendingDown, Users, TrendingUp } from "lucide-react";
 import { Link } from "react-router";
-import {
-  CartesianGrid,
-  Line,
-  LineChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
+import PrettyCurve from "../components/PrettyCurve";
+import { StatusBadge } from "../components/StatusBadge";
+import { LoadingState, EmptyState } from "../components/LoadingState";
 import {
   fetchOptimizationResults,
   fetchOptimizationStatus,
@@ -32,6 +26,19 @@ function upsertPoint(prev: Point[], nextPoint: Point) {
     return next;
   }
   return [...prev, nextPoint].slice(-200);
+}
+
+function buildConvergenceFromScores(scores: number[]): Point[] {
+  let runningTotal = 0;
+  return scores.map((score, index) => {
+    runningTotal += score;
+    return {
+      id: `result-${index + 1}`,
+      generation: index + 1,
+      bestFitness: score,
+      avgFitness: runningTotal / (index + 1),
+    };
+  });
 }
 
 export function OptimizationEngine() {
@@ -62,7 +69,9 @@ export function OptimizationEngine() {
             id: `status-${latestStatus.current_generation}`,
             generation: latestStatus.current_generation,
             bestFitness: latestStatus.current_fitness,
-            avgFitness: Math.max(0, latestStatus.current_fitness * 0.82),
+            avgFitness: prev.length === 0
+              ? latestStatus.current_fitness
+              : ((prev[prev.length - 1].avgFitness * prev.length) + latestStatus.current_fitness) / (prev.length + 1),
           }),
         );
 
@@ -73,12 +82,7 @@ export function OptimizationEngine() {
         setResults(latestResults);
 
         if (Array.isArray(latestResults.fitness_scores) && latestResults.fitness_scores.length > 0) {
-          const rebuilt = latestResults.fitness_scores.map((score, index) => ({
-            id: `result-${index + 1}`,
-            generation: index + 1,
-            bestFitness: score,
-            avgFitness: Math.max(0, score * 0.82),
-          }));
+          const rebuilt = buildConvergenceFromScores(latestResults.fitness_scores);
           setConvergenceData(rebuilt.slice(-200));
         }
 
@@ -122,6 +126,8 @@ export function OptimizationEngine() {
       ? "bg-green-100 text-green-700"
       : status?.status === "failed"
         ? "bg-red-100 text-red-700"
+        : status?.status === "cancelled"
+          ? "bg-gray-100 text-gray-700"
         : "bg-yellow-100 text-yellow-700";
 
   return (
@@ -133,6 +139,21 @@ export function OptimizationEngine() {
             <p className="text-gray-600">Backend-run optimization output and performance metrics.</p>
           </div>
           <div className="text-right">
+            <div className="mb-2 flex justify-end gap-2">
+              <Link
+                to={runId ? `/optimization-running?run_id=${encodeURIComponent(runId)}` : "/optimization-running"}
+                className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Back
+              </Link>
+              <Link
+                to="/optimization"
+                className="inline-flex items-center rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                New Run
+              </Link>
+            </div>
             <div className="text-sm text-gray-600">RUN ID</div>
             <div className="text-lg font-semibold">{runId ?? "Pending"}</div>
           </div>
@@ -140,13 +161,16 @@ export function OptimizationEngine() {
 
         {error && (
           <div className="mb-6 rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-red-700">
-            {error}
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-5 w-5" />
+              <span>{error}</span>
+            </div>
           </div>
         )}
 
-        <div className={`mb-6 inline-flex items-center gap-2 rounded-lg px-4 py-2 ${statusToneClass}`}>
-          <CheckCircle className="h-5 w-5 text-green-600" />
-          <span className="font-medium">Status: {status?.status ?? "loading"}</span>
+        <div className="mb-6 flex items-center gap-3">
+          <StatusBadge status={status?.status || "queued"} size="md" />
+          <span className="text-sm text-gray-600">Run ID: <code className="font-mono font-semibold">{runId ?? "Pending"}</code></span>
         </div>
 
         <div className="mb-8 rounded-xl bg-white p-6 shadow-sm">
@@ -169,16 +193,31 @@ export function OptimizationEngine() {
             />
           </div>
 
-          <ResponsiveContainer width="100%" height={320}>
-            <LineChart data={convergenceData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
-              <XAxis dataKey="generation" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} />
-              <Tooltip />
-              <Line type="monotone" dataKey="bestFitness" stroke="#facc15" strokeWidth={3} dot={false} />
-              <Line type="monotone" dataKey="avgFitness" stroke="#6b7280" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+          {/* Convergence Chart Section */}
+          <div className="space-y-4">
+            <div>
+              <div className="mb-2 flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-yellow-500" />
+                <h3 className="font-semibold">Fitness Convergence</h3>
+              </div>
+              <p className="text-sm text-gray-600">Best fitness achieved across all generations</p>
+            </div>
+
+            {/* Legend */}
+            <div className="flex gap-4 text-sm">
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-yellow-400" />
+                <span className="text-gray-700">Best Fitness (Per Generation)</span>
+              </div>
+            </div>
+
+            <div className="h-80">
+              <PrettyCurve 
+                values={convergenceData.map((p) => p.bestFitness)} 
+                color="#facc15" 
+              />
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-3 gap-6">

@@ -268,6 +268,10 @@ export interface OptimizationRunRequest {
   mutation_rate?: number;
   crossover_rate?: number;
   elitism_count?: number;
+  tsi_weight?: number;
+  wif_weight?: number;
+  rpw_weight?: number;
+  resource_utilization_weight?: number;
 }
 
 export interface OptimizationRunResponse {
@@ -285,6 +289,10 @@ export interface OptimizationConfigRequest {
   mutation_rate?: number;
   crossover_rate?: number;
   elitism_count?: number;
+  tsi_weight?: number;
+  wif_weight?: number;
+  rpw_weight?: number;
+  resource_utilization_weight?: number;
 }
 
 export interface OptimizationConfigResponse {
@@ -419,6 +427,19 @@ export async function fetchDeploymentSchedule(): Promise<DeploymentScheduleItem[
   return response.json() as Promise<DeploymentScheduleItem[]>;
 }
 
+export async function clearDeploymentSchedule(): Promise<{ cleared: number }> {
+  const response = await fetch(`${getApiBaseUrl()}/api/deployments/schedule/`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to clear deployment schedule: ${response.status}`);
+    throw new Error(detail);
+  }
+
+  return response.json() as Promise<{ cleared: number }>;
+}
+
 export async function publishDeploymentsFromOptimization(
   payload: PublishOptimizationDeploymentsRequest,
 ): Promise<PublishOptimizationDeploymentsResponse> {
@@ -436,6 +457,23 @@ export async function publishDeploymentsFromOptimization(
   }
 
   return response.json() as Promise<PublishOptimizationDeploymentsResponse>;
+}
+
+export async function cancelOptimizationRun(runId: string): Promise<{ run_id: string; status: string }> {
+  const response = await fetch(`${getApiBaseUrl()}/api/optimization/cancel/${runId}/`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({}),
+  });
+
+  if (!response.ok) {
+    const detail = await extractApiError(response, `Failed to cancel optimization run: ${response.status}`);
+    throw new Error(detail);
+  }
+
+  return response.json() as Promise<{ run_id: string; status: string }>;
 }
 
 export interface BottleneckOption {

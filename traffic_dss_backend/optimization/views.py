@@ -7,9 +7,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from core.models import OptimizationRun
+from core.realtime import broadcast
 from core.serializers import OptimizationRunSerializer
 from core.utils import write_audit_log
-from .progress_store import load_progress
+from .progress_store import load_progress, save_progress
 from .tasks import run_optimization
 
 
@@ -19,7 +20,15 @@ DEFAULT_GA_PARAMETERS = {
 	"mutation_rate": 0.10,
 	"crossover_rate": 0.80,
 	"elitism_count": 5,
+	"tsi_weight": 0.35,
+	"wif_weight": 0.25,
+	"rpw_weight": 0.25,
+	"resource_utilization_weight": 0.15,
 }
+
+
+def _weight_total(params: dict) -> float:
+	return float(params.get("tsi_weight", 0)) + float(params.get("wif_weight", 0)) + float(params.get("rpw_weight", 0)) + float(params.get("resource_utilization_weight", 0))
 
 
 class OptimizationConfigureView(APIView):
@@ -38,6 +47,16 @@ class OptimizationConfigureView(APIView):
 			errors["crossover_rate"] = "Must be between 0.50 and 0.95."
 		if not 1 <= int(params["elitism_count"]) <= 20:
 			errors["elitism_count"] = "Must be between 1 and 20."
+		if not 0.0 <= float(params["tsi_weight"]) <= 1.0:
+			errors["tsi_weight"] = "Must be between 0.00 and 1.00."
+		if not 0.0 <= float(params["wif_weight"]) <= 1.0:
+			errors["wif_weight"] = "Must be between 0.00 and 1.00."
+		if not 0.0 <= float(params["rpw_weight"]) <= 1.0:
+			errors["rpw_weight"] = "Must be between 0.00 and 1.00."
+		if not 0.0 <= float(params["resource_utilization_weight"]) <= 1.0:
+			errors["resource_utilization_weight"] = "Must be between 0.00 and 1.00."
+		if _weight_total(params) <= 0:
+			errors["weights"] = "At least one objective weight must be greater than 0."
 
 		if errors:
 			return Response({"parameters": params, "valid": False, "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
@@ -49,6 +68,11 @@ class OptimizationStartView(APIView):
 
 	def post(self, request):
 		params = {**DEFAULT_GA_PARAMETERS, **(request.data or {})}
+		if _weight_total(params) <= 0:
+			return Response(
+				{"detail": "At least one objective weight must be greater than 0."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
 		created_by = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
 		if created_by is None:
 			created_by = get_user_model().objects.create_user(username="desktop-runner")
@@ -74,6 +98,36 @@ class OptimizationStartView(APIView):
 			},
 			status=status.HTTP_202_ACCEPTED,
 		)
+
+
+class OptimizationCancelView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def post(self, request, run_id: str):
+		run = OptimizationRun.objects.filter(run_id=run_id, is_deleted=False).first()
+		if not run:
+			return Response({"detail": "Run not found."}, status=status.HTTP_404_NOT_FOUND)
+		if run.status in {"completed", "failed", "cancelled"}:
+			return Response({"detail": f"Run is already {run.status}."}, status=status.HTTP_400_BAD_REQUEST)
+
+		run.status = "cancelled"
+		run.save(update_fields=["status", "updated_at"])
+		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
+		if actor is None:
+			actor = get_user_model().objects.create_user(username="desktop-runner")
+		write_audit_log(actor, "cancel", "optimization_run", {"run_id": run_id})
+		payload = {
+			"event": "optimization_cancelled",
+			"run_id": run_id,
+			"status": "cancelled",
+			"current_generation": 0,
+			"total_generations": int(run.parameters.get("generations", 300)),
+			"current_fitness": 0.0,
+			"updated_at": timezone.now().isoformat(),
+		}
+		save_progress(run_id, payload)
+		broadcast("optimization_" + run_id, "optimization_event", payload)
+		return Response({"run_id": run_id, "status": run.status})
 
 
 class OptimizationStatusView(APIView):
