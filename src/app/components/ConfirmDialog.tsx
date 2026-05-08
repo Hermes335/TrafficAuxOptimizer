@@ -19,6 +19,7 @@ interface ConfirmDialogProps {
   onConfirm: () => Promise<void> | void;
   onCancel?: () => void;
   trigger: React.ReactNode;
+  disabled?: boolean;
 }
 
 export function ConfirmDialog({
@@ -31,6 +32,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   trigger,
+  disabled = false,
 }: ConfirmDialogProps) {
   const [open, setOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -58,7 +60,10 @@ export function ConfirmDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
-      <div onClick={() => setOpen(true)}>{trigger}</div>
+      <div onClick={() => {
+        if (disabled) return;
+        setOpen(true);
+      }}>{trigger}</div>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className={isDangerous ? "text-red-600" : ""}>

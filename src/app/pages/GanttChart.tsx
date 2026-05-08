@@ -295,14 +295,8 @@ export function GanttChart() {
     }
   };
 
-  const onClearSchedule = async () => {
+  const clearScheduleConfirmed = async () => {
     setScheduleSnapshot(schedule);
-    const confirmation = window.prompt("Type CLEAR_SCHEDULE to remove all active deployments.");
-    if (confirmation !== "CLEAR_SCHEDULE") {
-      setPublishError("Clear schedule cancelled. Type CLEAR_SCHEDULE next time to confirm the reset.");
-      return;
-    }
-
     setClearingSchedule(true);
     setPublishError(null);
     setPublishNotice(null);
@@ -315,6 +309,11 @@ export function GanttChart() {
     } finally {
       setClearingSchedule(false);
     }
+  };
+
+  // used by retry paths (no typed confirmation) to directly attempt clear
+  const onClearSchedule = async () => {
+    await clearScheduleConfirmed();
   };
 
   const onExport = () => {
@@ -375,14 +374,26 @@ export function GanttChart() {
               <Download className="h-4 w-4" />
               Export
             </button>
-            <button
-              onClick={onClearSchedule}
+            <ConfirmDialog
+              title="Clear Schedule?"
+              description="This will remove all active deployments. This action can be undone by restoring the previous schedule snapshot for this session."
+              confirmText="Clear Schedule"
+              cancelText="Cancel"
+              isDangerous
+              requiresTypedConfirmation="CLEAR_SCHEDULE"
+              onConfirm={clearScheduleConfirmed}
+              onCancel={() => setPublishError("Clear schedule cancelled. Type CLEAR_SCHEDULE next time to confirm the reset.")}
+              trigger={
+                <button
+                  disabled={clearingSchedule || filteredSchedule.length === 0}
+                  className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <XCircle className="h-4 w-4" />
+                  {clearingSchedule ? "Clearing..." : "Clear Schedule"}
+                </button>
+              }
               disabled={clearingSchedule || filteredSchedule.length === 0}
-              className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <XCircle className="h-4 w-4" />
-              {clearingSchedule ? "Clearing..." : "Clear Schedule"}
-            </button>
+            />
             <div className="flex items-center gap-2">
               <select
                 value={selectedRunId}

@@ -112,10 +112,18 @@ export function Analytics() {
         {!loading && !error && chartData.length > 0 && (
           <div className="space-y-4 w-full">
             <div className="h-40">
-              <PrettyCurve values={chartData.map((d) => d.tsi)} color="#f59e0b" />
+              <PrettyCurve 
+                values={chartData.map((d) => d.tsi)} 
+                color="#f59e0b" 
+                yAxisFormatter={(v) => `${Math.round(v)}%`}
+              />
             </div>
             <div className="h-40">
-              <PrettyCurve values={chartData.map((d) => d.speed)} color="#2563eb" />
+              <PrettyCurve 
+                values={chartData.map((d) => d.speed)} 
+                color="#2563eb" 
+                yAxisFormatter={(v) => `${Math.round(v)} km/h`}
+              />
             </div>
           </div>
         )}

@@ -12,7 +12,7 @@ from core.utils import write_audit_log
 
 def _generate_next_bottleneck_id() -> str:
 	existing_ids = (
-		Bottleneck.objects.filter(is_deleted=False, id__regex=r"^B-\\d{3}$")
+		Bottleneck.objects.filter(is_deleted=False, id__regex=r"^B-\d{3}$")
 		.values_list("id", flat=True)
 	)
 	max_number = 0
@@ -63,7 +63,12 @@ class DashboardBottlenecksView(APIView):
 			active_incident = b.incidents.filter(is_deleted=False, status="active").order_by("-timestamp").first()
 			deployments = b.deployments.filter(is_deleted=False, status="assigned").select_related("officer")
 			assigned = deployments.first().officer.badge_number if deployments.exists() else None
-			status_value = "critical" if active_incident else ("warning" if (latest_traffic and latest_traffic.traffic_severity_index > 0.5) else "normal")
+			tsi_val = latest_traffic.traffic_severity_index if latest_traffic else 0.0
+			status_value = "normal"
+			if active_incident or tsi_val >= 0.8:
+				status_value = "critical"
+			elif tsi_val >= 0.4:
+				status_value = "warning"
 			rows.append(
 				{
 					"id": b.id,

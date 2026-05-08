@@ -215,6 +215,7 @@ export function OptimizationEngine() {
               <PrettyCurve 
                 values={convergenceData.map((p) => p.bestFitness)} 
                 color="#facc15" 
+                yAxisFormatter={(v) => v.toFixed(1)}
               />
             </div>
           </div>

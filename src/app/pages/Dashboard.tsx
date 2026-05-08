@@ -384,15 +384,18 @@ export function Dashboard() {
     for (const bottleneck of filteredBottlenecks) {
       const markerEl = document.createElement("div");
       markerEl.className = "h-4 w-4 rounded-full border-2 border-white shadow";
-      markerEl.style.backgroundColor =
-        bottleneck.status === "critical"
-          ? "#ef4444"
-          : bottleneck.status === "warning"
-            ? "#f59e0b"
-            : "#22c55e";
+
+      const tsiPercent = Math.round((Number(bottleneck.tsi) || 0) * 100);
+      let color = "#22c55e";
+      if (bottleneck.status === "critical" || tsiPercent >= 80) {
+        color = "#ef4444";
+      } else if (tsiPercent >= 40) {
+        color = "#f59e0b";
+      }
+      markerEl.style.backgroundColor = color;
 
       const popup = new maplibregl.Popup({ offset: 10 }).setHTML(
-        `<div><div style="font-weight:600">${bottleneck.id}</div><div>${bottleneck.name}</div><div style="text-transform:uppercase;font-size:11px;color:#6b7280">${bottleneck.status}</div></div>`,
+        `<div><div style="font-weight:600">${bottleneck.id}</div><div>${bottleneck.name}</div><div style="font-size:12px;margin-top:4px">TSI: ${tsiPercent}%</div><div style="text-transform:uppercase;font-size:11px;color:#6b7280">${bottleneck.status}</div></div>`,
       );
 
       const marker = new maplibregl.Marker({ element: markerEl })
@@ -1158,7 +1161,7 @@ export function Dashboard() {
                     </div>
                     <div className="flex items-center gap-1">
                       <div className="h-3 w-3 rounded-full bg-yellow-400"></div>
-                      <span>40-60%</span>
+                      <span>40-80%</span>
                     </div>
                     <div className="flex items-center gap-1">
                       <div className="h-3 w-3 rounded-full bg-red-500"></div>
