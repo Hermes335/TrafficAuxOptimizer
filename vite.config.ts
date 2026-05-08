@@ -31,6 +31,8 @@ export default defineConfig({
         manualChunks: {
           // Split large charting library
           recharts: ['recharts'],
+          // Split map engine
+          maplibre: ['maplibre-gl'],
           // Split UI components library
           radix: [
             '@radix-ui/react-alert-dialog',
