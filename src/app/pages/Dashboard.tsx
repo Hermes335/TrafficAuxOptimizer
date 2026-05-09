@@ -30,6 +30,7 @@ import {
   deleteDashboardBottleneck,
   deleteDashboardOfficer,
   fetchDashboardSnapshot,
+  fetchDeploymentSchedule,
   fetchDashboardOfficers,
   fetchCurrentWeather,
   getApiBaseUrl,
@@ -78,6 +79,7 @@ export function Dashboard() {
   const [editPickFromMap, setEditPickFromMap] = useState(false);
   const [savingEditBottleneck, setSavingEditBottleneck] = useState(false);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
+  const [assignedInSchedule, setAssignedInSchedule] = useState<number>(0);
   const [officerError, setOfficerError] = useState<string | null>(null);
   const [officerNotice, setOfficerNotice] = useState<string | null>(null);
   const [addingOfficer, setAddingOfficer] = useState(false);
@@ -176,6 +178,23 @@ export function Dashboard() {
       .catch(() => {
         if (active) {
           setOfficers([]);
+        }
+      });
+
+    // Fetch current deployment schedule to display assigned officer count
+    fetchDeploymentSchedule()
+      .then((rows) => {
+        if (!active) return;
+        try {
+          const uniqueBadges = new Set(rows.map((r) => r.officer));
+          setAssignedInSchedule(uniqueBadges.size);
+        } catch {
+          setAssignedInSchedule(0);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setAssignedInSchedule(0);
         }
       });
 
@@ -757,7 +776,8 @@ export function Dashboard() {
             <div className="h-1 overflow-hidden rounded-full bg-gray-200">
               <div className="h-full bg-yellow-400" style={{ width: `${resourceUtilization}%` }} />
             </div>
-            <div className="mt-1 text-xs text-gray-500">Live utilization from deployment data</div>
+            <div className="mt-1 text-xs text-gray-500">Resource utilization = officers with status 'deployed' / total officers</div>
+            <div className="text-xs text-gray-500">Assigned in schedule: {assignedInSchedule}</div>
           </div>
 
           {/* Weather Correlation */}
