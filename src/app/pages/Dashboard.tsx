@@ -21,6 +21,8 @@ import {
   UserRound,
 } from "lucide-react";
 import { Link } from "react-router";
+import { Badge } from "../components/ui/badge";
+import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
 import incidentImage from "../../assets/57fa97e8c83f22033790625605fab5b96dfc2d8b.png";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -768,16 +770,39 @@ export function Dashboard() {
 
           {/* Resource Utilization */}
           <div className="rounded-lg border px-3 py-2">
-            <div className="mb-1 flex items-center justify-between">
-              <div className="text-xs font-medium text-gray-600">RESOURCE UTILIZATION</div>
-              <TrendingUp className="h-3 w-3 text-gray-600" />
+            <div className="mb-2 flex items-start justify-between">
+              <div className="flex items-center gap-2">
+                <div className="text-xs font-medium text-gray-600">RESOURCE UTILIZATION</div>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button className="text-gray-400 hover:text-gray-600" aria-label="Resource utilization info">
+                      <AlertCircle className="h-3 w-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent sideOffset={6}>
+                    <div className="text-xs">Resource utilization = officers with status 'deployed' / total officers</div>
+                  </TooltipContent>
+                </Tooltip>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Badge className="bg-gray-100 text-gray-700 border-gray-100">Assigned {assignedInSchedule}</Badge>
+                <Link to="/gantt-chart" className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+                  Next step
+                  <ChevronRight className="h-3 w-3" />
+                </Link>
+              </div>
             </div>
-            <div className="mb-1 text-xl font-bold">{Math.round(resourceUtilization)}%</div>
-            <div className="h-1 overflow-hidden rounded-full bg-gray-200">
+
+            <div className="mb-1 text-2xl font-bold">{Math.round(resourceUtilization)}%</div>
+            <div className="h-2 overflow-hidden rounded-full bg-gray-200">
               <div className="h-full bg-yellow-400" style={{ width: `${resourceUtilization}%` }} />
             </div>
-            <div className="mt-1 text-xs text-gray-500">Resource utilization = officers with status 'deployed' / total officers</div>
-            <div className="text-xs text-gray-500">Assigned in schedule: {assignedInSchedule}</div>
+
+            <div className="mt-2 flex items-center justify-between">
+              <div className="text-xs text-gray-500">Assigned in schedule:</div>
+              <div className="text-xs font-medium text-gray-700">{assignedInSchedule}</div>
+            </div>
           </div>
 
           {/* Weather Correlation */}
