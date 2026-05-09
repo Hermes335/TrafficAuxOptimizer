@@ -8,6 +8,7 @@ export interface Bottleneck {
   badge?: string;
   latitude: number;
   longitude: number;
+  tsi?: number;
 }
 
 export interface Incident {
