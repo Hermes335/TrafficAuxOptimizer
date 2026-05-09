@@ -133,10 +133,10 @@ export function OptimizationEngine() {
   return (
     <div className="h-full overflow-y-auto bg-gray-50 p-8">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-0">
+        <div className="mb-6 flex items-start justify-between flex-wrap gap-4">
           <div className="min-w-0">
-            <h1 className="mb-2 text-3xl font-bold truncate">Optimization Engine</h1>
-            <p className="text-gray-600 truncate">Backend-run optimization output and performance metrics.</p>
+            <h1 className="mb-2 text-3xl font-bold">Optimization Engine</h1>
+            <p className="text-gray-600">Backend-run optimization output and performance metrics.</p>
           </div>
           <div className="text-right flex-shrink-0">
             <div className="mb-2 flex justify-end gap-2">
@@ -168,9 +168,11 @@ export function OptimizationEngine() {
           </div>
         )}
 
-        <div className="mb-6 flex items-center gap-3">
-          <StatusBadge status={status?.status || "queued"} size="md" />
-          <span className="text-sm text-gray-600">Run ID: <code className="font-mono font-semibold">{runId ?? "Pending"}</code></span>
+        <div className="mb-6 flex items-center gap-3 min-w-0">
+          <div className="flex-shrink-0">
+            <StatusBadge status={status?.status || "queued"} size="md" />
+          </div>
+          <span className="text-sm text-gray-600 min-w-0">Run ID: <code className="font-mono font-semibold">{runId ?? "Pending"}</code></span>
         </div>
 
         <div className="mb-8 rounded-xl bg-white p-6 shadow-sm">

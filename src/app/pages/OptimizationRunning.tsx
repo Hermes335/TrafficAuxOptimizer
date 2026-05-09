@@ -482,30 +482,30 @@ export function OptimizationRunning() {
       {/* Center Panel - Progress */}
       <div className="flex flex-1 flex-col bg-gray-50 p-8">
         <div className="mb-8">
-          <div className="mb-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 md:gap-0">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400 flex-shrink-0">
-                <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
-              </div>
-              <div className="min-w-0">
-                <div className="mb-2 flex items-center gap-2 min-w-0">
-                  <h1 className="text-2xl font-bold truncate min-w-0">{progress}% Optimization Progress</h1>
-                  <div className="flex-shrink-0">
-                    <StatusBadge status={status?.status || "queued"} size="md" />
-                  </div>
+            <div className="mb-4 flex items-center justify-between flex-wrap gap-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400">
+                  <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
                 </div>
-                <p className="text-gray-600 truncate">
-                  {status?.status === "completed"
-                    ? "Optimization complete."
-                    : status?.status === "failed"
-                      ? "Optimization failed. Check backend logs and retry."
-                      : status?.status === "cancelled"
-                        ? "Optimization cancelled."
-                        : latestFitnessLabel}
-                </p>
+                <div className="min-w-0">
+                  <div className="mb-2 flex items-center gap-2 flex-wrap">
+                    <h1 className="text-2xl font-bold min-w-0 break-words">{progress}% Optimization Progress</h1>
+                    <div className="flex-shrink-0">
+                      <StatusBadge status={status?.status || "queued"} size="md" />
+                    </div>
+                  </div>
+                  <p className="text-gray-600">
+                    {status?.status === "completed"
+                      ? "Optimization complete."
+                      : status?.status === "failed"
+                        ? "Optimization failed. Check backend logs and retry."
+                        : status?.status === "cancelled"
+                          ? "Optimization cancelled."
+                          : latestFitnessLabel}
+                  </p>
+                </div>
               </div>
-            </div>
-            <div className="flex gap-2 flex-shrink-0">
+            <div className="flex gap-2">
               <Link
                 to="/optimization"
                 className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
