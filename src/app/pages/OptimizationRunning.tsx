@@ -482,30 +482,37 @@ export function OptimizationRunning() {
       {/* Center Panel - Progress */}
       <div className="flex flex-1 flex-col bg-gray-50 p-8">
         <div className="mb-8">
-            <div className="mb-4 flex items-center justify-between flex-wrap gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400">
-                  <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
-                </div>
-                <div className="min-w-0">
-                  <div className="mb-2 flex items-center gap-2 flex-wrap">
-                    <h1 className="text-2xl font-bold min-w-0 break-words">{progress}% Optimization Progress</h1>
-                    <div className="flex-shrink-0">
-                      <StatusBadge status={status?.status || "queued"} size="md" />
-                    </div>
-                  </div>
-                  <p className="text-gray-600">
-                    {status?.status === "completed"
-                      ? "Optimization complete."
-                      : status?.status === "failed"
-                        ? "Optimization failed. Check backend logs and retry."
-                        : status?.status === "cancelled"
-                          ? "Optimization cancelled."
-                          : latestFitnessLabel}
-                  </p>
-                </div>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400">
+                <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
               </div>
+              <div>
+                <div className="mb-2 flex items-center gap-2">
+                  <h1 className="text-2xl font-bold">{progress}% Optimization Progress</h1>
+                  <StatusBadge status={status?.status || "queued"} size="md" />
+                </div>
+                <p className="text-gray-600">
+                  {status?.status === "completed"
+                    ? "Optimization complete."
+                    : status?.status === "failed"
+                      ? "Optimization failed. Check backend logs and retry."
+                      : status?.status === "cancelled"
+                        ? "Optimization cancelled."
+                        : latestFitnessLabel}
+                </p>
+              </div>
+            </div>
             <div className="flex gap-2">
+              {status?.status === "completed" && (
+                <Link
+                  to="/gantt-chart"
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+                >
+                  Review Schedule
+                  <ChevronLeft className="h-4 w-4 rotate-180" />
+                </Link>
+              )}
               <Link
                 to="/optimization"
                 className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
@@ -566,21 +573,24 @@ export function OptimizationRunning() {
             </div>
           </div>
 
-          {/* Legend */}
-          <div className="mb-4 flex gap-6 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-yellow-400" />
-              <span className="text-gray-700">Best Fitness (Per Generation)</span>
+          {/* Legend and Axis Label */}
+          <div className="mb-4 flex flex-col gap-2">
+            <div className="flex gap-6 text-sm">
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-yellow-400" />
+                <span className="text-gray-700">Best Fitness (Per Generation)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-gray-400" />
+                <span className="text-gray-700">Average Fitness (Cumulative)</span>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-3 w-3 rounded-full bg-gray-400" />
-              <span className="text-gray-700">Average Fitness (Cumulative)</span>
-            </div>
+            {/* Y-axis indicator properly positioned to avoid overlap */}
+            <div className="text-xs font-semibold text-gray-500 mt-2">Fitness Score &rarr;</div>
           </div>
 
           {/* Chart with axis labels */}
           <div className="relative h-80">
-            <div className="absolute left-0 top-0 text-xs font-semibold text-gray-600">Fitness Score →</div>
             <PrettyCurve
               values={convergenceData.map((d) => d.best)}
               secondaryValues={convergenceData.map((d) => d.avg)}
