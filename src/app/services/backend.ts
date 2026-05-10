@@ -101,8 +101,11 @@ const fallbackDashboardSnapshot: DashboardSnapshot = {
 };
 
 export function getApiBaseUrl() {
-  if (typeof window !== "undefined" && window.desktopConfig?.backendUrl) {
-    return window.desktopConfig.backendUrl;
+  if (typeof window !== "undefined") {
+    const config = (window as Window & { desktopConfig?: { backendUrl: string } }).desktopConfig;
+    if (config?.backendUrl) {
+      return config.backendUrl;
+    }
   }
 
   return "http://127.0.0.1:8000";
