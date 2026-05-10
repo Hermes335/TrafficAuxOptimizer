@@ -100,6 +100,8 @@ const fallbackDashboardSnapshot: DashboardSnapshot = {
   },
 };
 
+const DEFAULT_TIMEOUT_MS = 15000;
+
 export function getApiBaseUrl() {
   if (typeof window !== "undefined") {
     const config = (window as Window & { desktopConfig?: { backendUrl: string } }).desktopConfig;
@@ -109,6 +111,31 @@ export function getApiBaseUrl() {
   }
 
   return "http://127.0.0.1:8000";
+}
+
+async function fetchWithTimeout(
+  url: string,
+  options: RequestInit & { timeout?: number } = {}
+): Promise<Response> {
+  const { timeout = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
+
+  const controller = new AbortController();
+  const timeoutId = window.setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const response = await fetch(url, {
+      ...fetchOptions,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Request timed out after ${timeout}ms`);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 }
 
 export function getFallbackDashboardSnapshot() {
@@ -123,18 +150,22 @@ export function buildWebSocketUrl(path: string, token?: string) {
   return url.toString();
 }
 
-export function subscribeToDashboardStream(onEvent: LiveCallback, token?: string) {
+function createWebSocketSubscription<T>(
+  path: string,
+  onEvent: (data: T) => void,
+  token?: string
+): () => void {
   let socket: WebSocket | null = null;
   let shouldReconnect = true;
   let reconnectDelayMs = 500;
   let reconnectTimer: number | undefined;
 
   const connect = () => {
-    socket = new WebSocket(buildWebSocketUrl("/ws/dashboard/", token));
+    socket = new WebSocket(buildWebSocketUrl(path, token));
 
     socket.onmessage = (event) => {
       try {
-        onEvent(JSON.parse(event.data) as LiveDashboardEvent);
+        onEvent(JSON.parse(event.data) as T);
       } catch {
         return;
       }
@@ -166,55 +197,20 @@ export function subscribeToDashboardStream(onEvent: LiveCallback, token?: string
   };
 }
 
+export function subscribeToDashboardStream(onEvent: LiveCallback, token?: string) {
+  return createWebSocketSubscription<LiveDashboardEvent>("/ws/dashboard/", onEvent, token);
+}
+
 export function subscribeToOptimizationStream(runId: string, onEvent: OptimizationCallback, token?: string) {
-  let socket: WebSocket | null = null;
-  let shouldReconnect = true;
-  let reconnectDelayMs = 500;
-  let reconnectTimer: number | undefined;
-
-  const connect = () => {
-    socket = new WebSocket(buildWebSocketUrl(`/ws/optimization/${runId}/`, token));
-
-    socket.onmessage = (event) => {
-      try {
-        onEvent(JSON.parse(event.data) as OptimizationStatus);
-      } catch {
-        return;
-      }
-    };
-
-    socket.onclose = () => {
-      if (!shouldReconnect) {
-        return;
-      }
-      reconnectTimer = window.setTimeout(() => {
-        reconnectDelayMs = Math.min(reconnectDelayMs * 2, 8000);
-        connect();
-      }, reconnectDelayMs);
-    };
-
-    socket.onerror = () => {
-      socket?.close();
-    };
-  };
-
-  connect();
-
-  return () => {
-    shouldReconnect = false;
-    if (reconnectTimer) {
-      window.clearTimeout(reconnectTimer);
-    }
-    socket?.close();
-  };
+  return createWebSocketSubscription<OptimizationStatus>(`/ws/optimization/${runId}/`, onEvent, token);
 }
 
 export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
   const base = getApiBaseUrl();
   const [kpiRes, bottleneckRes, incidentRes] = await Promise.all([
-    fetch(`${base}/api/dashboard/kpis/`),
-    fetch(`${base}/api/dashboard/bottlenecks/`),
-    fetch(`${base}/api/dashboard/incidents/active/`),
+    fetchWithTimeout(`${base}/api/dashboard/kpis/`),
+    fetchWithTimeout(`${base}/api/dashboard/bottlenecks/`),
+    fetchWithTimeout(`${base}/api/dashboard/incidents/active/`),
   ]);
 
   if (!kpiRes.ok || !bottleneckRes.ok || !incidentRes.ok) {
@@ -258,7 +254,7 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
 }
 
 export async function fetchCurrentWeather(): Promise<WeatherCurrentSnapshot> {
-  const response = await fetch(`${getApiBaseUrl()}/api/weather/current/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/weather/current/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch weather data: ${response.status}`);
   }
@@ -308,7 +304,7 @@ export interface OptimizationConfigResponse {
 export async function fetchOptimizationConfig(
   request: OptimizationConfigRequest,
 ): Promise<OptimizationConfigResponse> {
-  const response = await fetch(`${getApiBaseUrl()}/api/optimization/configure/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/configure/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -320,7 +316,7 @@ export async function fetchOptimizationConfig(
 }
 
 export async function runOptimization(request: OptimizationRunRequest): Promise<OptimizationRunResponse> {
-  const response = await fetch(`${getApiBaseUrl()}/api/optimization/start/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/start/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -336,7 +332,7 @@ export async function runOptimization(request: OptimizationRunRequest): Promise<
 }
 
 export async function fetchOptimizationStatus(runId: string): Promise<OptimizationStatus> {
-  const response = await fetch(`${getApiBaseUrl()}/api/optimization/status/${runId}/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/status/${runId}/`);
 
   if (!response.ok) {
     throw new Error(`Failed to fetch optimization status: ${response.status}`);
@@ -366,7 +362,7 @@ export interface OptimizationResults {
 }
 
 export async function fetchOptimizationResults(runId: string): Promise<OptimizationResults> {
-  const response = await fetch(`${getApiBaseUrl()}/api/optimization/results/${runId}/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/results/${runId}/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch optimization results: ${response.status}`);
   }
@@ -385,7 +381,7 @@ export interface OptimizationHistoryItem {
 }
 
 export async function fetchOptimizationHistory(): Promise<OptimizationHistoryItem[]> {
-  const response = await fetch(`${getApiBaseUrl()}/api/optimization/history/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/history/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch optimization history: ${response.status}`);
   }
@@ -424,7 +420,7 @@ export interface PublishOptimizationDeploymentsResponse {
 }
 
 export async function fetchDeploymentSchedule(): Promise<DeploymentScheduleItem[]> {
-  const response = await fetch(`${getApiBaseUrl()}/api/deployments/schedule/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/schedule/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch deployment schedule: ${response.status}`);
   }
@@ -432,7 +428,7 @@ export async function fetchDeploymentSchedule(): Promise<DeploymentScheduleItem[
 }
 
 export async function clearDeploymentSchedule(): Promise<{ cleared: number }> {
-  const response = await fetch(`${getApiBaseUrl()}/api/deployments/schedule/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/schedule/`, {
     method: "DELETE",
   });
 
@@ -447,7 +443,7 @@ export async function clearDeploymentSchedule(): Promise<{ cleared: number }> {
 export async function publishDeploymentsFromOptimization(
   payload: PublishOptimizationDeploymentsRequest,
 ): Promise<PublishOptimizationDeploymentsResponse> {
-  const response = await fetch(`${getApiBaseUrl()}/api/deployments/publish-optimization/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/publish-optimization/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -464,7 +460,7 @@ export async function publishDeploymentsFromOptimization(
 }
 
 export async function cancelOptimizationRun(runId: string): Promise<{ run_id: string; status: string }> {
-  const response = await fetch(`${getApiBaseUrl()}/api/optimization/cancel/${runId}/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/cancel/${runId}/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -529,7 +525,7 @@ async function extractApiError(response: Response, fallback: string) {
 }
 
 export async function fetchBottlenecks(): Promise<BottleneckOption[]> {
-  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/bottlenecks/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/bottlenecks/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch bottlenecks: ${response.status}`);
   }
@@ -538,7 +534,7 @@ export async function fetchBottlenecks(): Promise<BottleneckOption[]> {
 }
 
 export async function createDashboardBottleneck(payload: DashboardBottleneckPayload): Promise<void> {
-  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -553,7 +549,7 @@ export async function createDashboardBottleneck(payload: DashboardBottleneckPayl
 }
 
 export async function deleteDashboardBottleneck(bottleneckId: string): Promise<void> {
-  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/${encodeURIComponent(bottleneckId)}/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/${encodeURIComponent(bottleneckId)}/`, {
     method: "DELETE",
   });
 
@@ -567,7 +563,7 @@ export async function updateDashboardBottleneck(
   bottleneckId: string,
   payload: Omit<DashboardBottleneckPayload, "id">
 ): Promise<void> {
-  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/${encodeURIComponent(bottleneckId)}/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/${encodeURIComponent(bottleneckId)}/`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -582,7 +578,7 @@ export async function updateDashboardBottleneck(
 }
 
 export async function fetchDashboardOfficers(): Promise<DashboardOfficerRecord[]> {
-  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/officers/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/officers/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch officers: ${response.status}`);
   }
@@ -590,7 +586,7 @@ export async function fetchDashboardOfficers(): Promise<DashboardOfficerRecord[]
 }
 
 export async function createDashboardOfficer(payload: DashboardOfficerPayload): Promise<void> {
-  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/officers/manage/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/officers/manage/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -605,7 +601,7 @@ export async function createDashboardOfficer(payload: DashboardOfficerPayload): 
 }
 
 export async function updateDashboardOfficer(officerId: number, payload: Partial<DashboardOfficerPayload>): Promise<void> {
-  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/officers/manage/${officerId}/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/officers/manage/${officerId}/`, {
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -620,7 +616,7 @@ export async function updateDashboardOfficer(officerId: number, payload: Partial
 }
 
 export async function deleteDashboardOfficer(officerId: number): Promise<void> {
-  const response = await fetch(`${getApiBaseUrl()}/api/dashboard/officers/manage/${officerId}/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/officers/manage/${officerId}/`, {
     method: "DELETE",
   });
 
@@ -649,7 +645,7 @@ export interface IncidentMetaSnapshot {
 }
 
 export async function fetchIncidentMeta(): Promise<IncidentMetaSnapshot> {
-  const response = await fetch(`${getApiBaseUrl()}/api/incidents/meta/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/incidents/meta/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch incident metadata: ${response.status}`);
   }
@@ -663,7 +659,7 @@ export async function reportIncident(payload: IncidentReportPayload): Promise<vo
   body.append("severity", payload.severity);
   body.append("description", payload.description);
 
-  const response = await fetch(`${getApiBaseUrl()}/api/incidents/report/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/incidents/report/`, {
     method: "POST",
     body,
   });
@@ -681,7 +677,7 @@ export interface ScenarioRecord {
 }
 
 export async function fetchScenarios(): Promise<ScenarioRecord[]> {
-  const response = await fetch(`${getApiBaseUrl()}/api/scenarios/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/scenarios/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch scenarios: ${response.status}`);
   }
@@ -694,7 +690,7 @@ export async function createScenario(payload: {
   preset_parameters: Record<string, unknown>;
   is_default?: boolean;
 }): Promise<ScenarioRecord> {
-  const response = await fetch(`${getApiBaseUrl()}/api/scenarios/`, {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/scenarios/`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -714,7 +710,7 @@ export interface AnalyticsTrendPoint {
 }
 
 export async function fetchAnalyticsTrends(): Promise<AnalyticsTrendPoint[]> {
-  const response = await fetch(`${getApiBaseUrl()}/api/analytics/trends/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/analytics/trends/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch analytics trends: ${response.status}`);
   }
@@ -733,7 +729,7 @@ export interface AuditLogRecord {
 }
 
 export async function fetchAuditLogs(): Promise<AuditLogRecord[]> {
-  const response = await fetch(`${getApiBaseUrl()}/api/admin/audit-logs/`);
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/admin/audit-logs/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch audit logs: ${response.status}`);
   }
@@ -754,7 +750,7 @@ export interface SystemHealthSnapshot {
 }
 
 export async function fetchSystemHealthSnapshot(): Promise<SystemHealthSnapshot> {
-  const apiResponse = await fetch(`${getApiBaseUrl()}/api/health/`);
+  const apiResponse = await fetchWithTimeout(`${getApiBaseUrl()}/api/health/`);
   if (!apiResponse.ok) {
     throw new Error(`Failed to fetch public health: ${apiResponse.status}`);
   }
@@ -762,7 +758,7 @@ export async function fetchSystemHealthSnapshot(): Promise<SystemHealthSnapshot>
   const apiPayload = (await apiResponse.json()) as { status?: string };
   const apiStatus = apiPayload.status ?? "unknown";
 
-  const adminResponse = await fetch(`${getApiBaseUrl()}/api/admin/system-health/`);
+  const adminResponse = await fetchWithTimeout(`${getApiBaseUrl()}/api/admin/system-health/`);
   if (adminResponse.status === 403) {
     return {
       apiStatus,
