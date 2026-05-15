@@ -18,11 +18,17 @@ from django.contrib import admin
 from django.urls import include, path
 from django.conf import settings
 from django.conf.urls.static import static
+from django.db import models
 from drf_spectacular.views import SpectacularAPIView, SpectacularRedocView, SpectacularSwaggerView
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework import status
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 
 class HealthCheckView(APIView):
@@ -39,8 +45,69 @@ class LogoutView(APIView):
         return Response(status=204)
 
 
-class LoginView(TokenObtainPairView):
-    pass
+class LoginView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        from django.contrib.auth import authenticate
+        from core.models import Officer
+
+        username = request.data.get("username", "")
+        password = request.data.get("password", "")
+
+        if not username or not password:
+            return Response(
+                {"detail": "Username and password are required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Authenticate user
+        user = authenticate(username=username, password=password)
+
+        if not user:
+            return Response(
+                {"detail": "Invalid credentials."},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # Get or create officer profile
+        officer = Officer.objects.filter(
+            models.Q(user=user) | models.Q(badge_number__icontains=username)
+        ).first()
+
+        # Determine role from user permissions
+        role = "dispatcher"
+        if user.is_superuser or user.is_staff:
+            role = "administrator"
+
+        # Generate tokens
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+
+        # Build response with user info
+        response_data = {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": {
+                "id": user.id,
+                "username": user.username,
+                "badge_number": officer.badge_number if officer else "",
+                "role": role,
+                "shift": officer.shift if officer else "afternoon",
+                "permissions": self._get_permissions(role),
+                "profile_complete": True,
+            }
+        }
+
+        return Response(response_data)
+
+    def _get_permissions(self, role):
+        if role == "administrator":
+            return ["read", "write", "delete", "manage_users", "view_audit"]
+        elif role == "supervisor":
+            return ["read", "write", "run_optimization", "approve_deployments"]
+        else:  # dispatcher
+            return ["read"]
 
 
 class RefreshView(TokenRefreshView):

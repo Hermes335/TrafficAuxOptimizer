@@ -119,12 +119,22 @@ async function fetchWithTimeout(
 ): Promise<Response> {
   const { timeout = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
 
+  // Get auth token from localStorage if available
+  const token = localStorage.getItem("auth_token");
+  const headers: HeadersInit = {
+    ...fetchOptions.headers,
+  };
+  if (token) {
+    (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
+  }
+
   const controller = new AbortController();
   const timeoutId = window.setTimeout(() => controller.abort(), timeout);
 
   try {
     const response = await fetch(url, {
       ...fetchOptions,
+      headers,
       signal: controller.signal,
     });
     return response;

@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(findstr tsconfig *)"
+      "Bash(findstr tsconfig *)",
+      "Bash(python manage.py migrate)"
     ]
   }
 }

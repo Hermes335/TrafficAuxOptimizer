@@ -41,9 +41,8 @@ class Bottleneck(TimeStampedSoftDeleteModel):
 
 class Officer(TimeStampedSoftDeleteModel):
 	SHIFTS = [
-		("morning", "Morning"),
-		("afternoon", "Afternoon"),
-		("night", "Night"),
+		("morning", "Morning (6 AM - 2 PM)"),
+		("afternoon", "Afternoon (2 PM - 10 PM)"),
 	]
 	STATUSES = [
 		("available", "Available"),
@@ -54,6 +53,7 @@ class Officer(TimeStampedSoftDeleteModel):
 
 	name = models.CharField(max_length=255)
 	badge_number = models.CharField(max_length=40, unique=True)
+	user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="officer_profile")
 	shift = models.CharField(max_length=20, choices=SHIFTS)
 	status = models.CharField(max_length=20, choices=STATUSES, default="available")
 	skills = models.JSONField(default=list, blank=True)

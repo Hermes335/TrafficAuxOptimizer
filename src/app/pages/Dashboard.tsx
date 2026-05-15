@@ -33,7 +33,6 @@ import {
   deleteDashboardBottleneck,
   deleteDashboardOfficer,
   fetchDashboardSnapshot,
-  fetchDeploymentSchedule,
   fetchDashboardOfficers,
   fetchCurrentWeather,
   getApiBaseUrl,
@@ -82,7 +81,8 @@ export function Dashboard() {
   const [editPickFromMap, setEditPickFromMap] = useState(false);
   const [savingEditBottleneck, setSavingEditBottleneck] = useState(false);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
-  const [assignedInSchedule, setAssignedInSchedule] = useState<number>(0);
+  const [deployedOfficersCount, setDeployedOfficersCount] = useState<number>(0);
+  const [totalOfficersCount, setTotalOfficersCount] = useState<number>(0);
   const [officerError, setOfficerError] = useState<string | null>(null);
   const [officerNotice, setOfficerNotice] = useState<string | null>(null);
   const [addingOfficer, setAddingOfficer] = useState(false);
@@ -176,30 +176,20 @@ export function Dashboard() {
       .then((rows) => {
         if (active) {
           setOfficers(rows);
+          setTotalOfficersCount(rows.length);
+          const deployed = rows.filter((o) => o.status === 'deployed').length;
+          setDeployedOfficersCount(deployed);
         }
       })
       .catch(() => {
         if (active) {
           setOfficers([]);
+          setTotalOfficersCount(0);
+          setDeployedOfficersCount(0);
         }
       });
 
-    // Fetch current deployment schedule to display assigned officer count
-    fetchDeploymentSchedule()
-      .then((rows) => {
-        if (!active) return;
-        try {
-          const uniqueBadges = new Set(rows.map((r) => r.officer));
-          setAssignedInSchedule(uniqueBadges.size);
-        } catch {
-          setAssignedInSchedule(0);
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setAssignedInSchedule(0);
-        }
-      });
+
 
     return () => {
       active = false;
@@ -405,16 +395,40 @@ export function Dashboard() {
 
     for (const bottleneck of filteredBottlenecks) {
       const markerEl = document.createElement("div");
-      markerEl.className = "h-4 w-4 rounded-full border-2 border-white shadow";
-
+      
       const tsiPercent = Math.round((Number(bottleneck.tsi) || 0) * 100);
       let color = "#22c55e";
+      let isRed = false;
+      
       if (bottleneck.status === "critical" || tsiPercent >= 80) {
         color = "#ef4444";
+        isRed = true;
       } else if (tsiPercent >= 40) {
         color = "#f59e0b";
       }
-      markerEl.style.backgroundColor = color;
+      
+      // Larger marker with better styling
+      markerEl.className = "flex items-center justify-center";
+      markerEl.style.width = "28px";
+      markerEl.style.height = "28px";
+      
+      // Create inner circle
+      const innerCircle = document.createElement("div");
+      innerCircle.style.width = "20px";
+      innerCircle.style.height = "20px";
+      innerCircle.style.backgroundColor = color;
+      innerCircle.style.borderRadius = "50%";
+      innerCircle.style.border = "2px solid white";
+      innerCircle.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+      innerCircle.style.position = "relative";
+      
+      // Add pulsing animation for red markers
+      if (isRed) {
+        innerCircle.className = "map-marker-pulse";
+        innerCircle.style.animation = "beacon-pulse 2s infinite";
+      }
+      
+      markerEl.appendChild(innerCircle);
 
       const popup = new maplibregl.Popup({ offset: 10 }).setHTML(
         `<div><div style="font-weight:600">${bottleneck.id}</div><div>${bottleneck.name}</div><div style="font-size:12px;margin-top:4px">TSI: ${tsiPercent}%</div><div style="text-transform:uppercase;font-size:11px;color:#6b7280">${bottleneck.status}</div></div>`,
@@ -776,13 +790,10 @@ export function Dashboard() {
                 </Tooltip>
               </div>
 
-              <div className="flex items-center gap-2">
-                <Badge className="bg-gray-100 text-gray-700 border-gray-100">Assigned {assignedInSchedule}</Badge>
-                <Link to="/gantt-chart" className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
-                  Next step
-                  <ChevronRight className="h-3 w-3" />
-                </Link>
-              </div>
+              <Link to="/gantt-chart" className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+                Next step
+                <ChevronRight className="h-3 w-3" />
+              </Link>
             </div>
 
             <div className="mb-1 text-2xl font-bold">{Math.round(resourceUtilization)}%</div>
@@ -790,9 +801,8 @@ export function Dashboard() {
               <div className="h-full bg-yellow-400" style={{ width: `${resourceUtilization}%` }} />
             </div>
 
-            <div className="mt-2 flex items-center justify-between">
-              <div className="text-xs text-gray-500">Assigned in schedule:</div>
-              <div className="text-xs font-medium text-gray-700">{assignedInSchedule}</div>
+            <div className="mt-2 text-xs text-gray-700 font-medium">
+              {deployedOfficersCount}/{totalOfficersCount} officers active
             </div>
           </div>
 

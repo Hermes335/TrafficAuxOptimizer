@@ -6,10 +6,11 @@ import type { DashboardSnapshot, WeatherCurrentSnapshot } from "../../../service
 interface KPICardsProps {
   metrics: DashboardSnapshot["metrics"];
   weather: WeatherCurrentSnapshot;
-  assignedInSchedule: number;
+  deployedOfficersCount: number;
+  totalOfficersCount: number;
 }
 
-export function KPICards({ metrics, weather, assignedInSchedule }: KPICardsProps) {
+export function KPICards({ metrics, weather, deployedOfficersCount, totalOfficersCount }: KPICardsProps) {
   const coverageEfficiency = Math.max(0, Math.min(100, metrics.coverageEfficiency));
   const avgResponseTimeMinutes = metrics.avgResponseTimeMinutes;
   const resourceUtilization = Math.max(0, Math.min(100, metrics.resourceUtilization));
@@ -100,13 +101,10 @@ export function KPICards({ metrics, weather, assignedInSchedule }: KPICardsProps
               </Tooltip>
             </div>
 
-            <div className="flex items-center gap-2">
-              <span className="bg-gray-100 text-gray-700 border-gray-100 text-xs px-2 py-0.5 rounded">Assigned {assignedInSchedule}</span>
-              <RouterLink to="/gantt-chart" className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
-                Next step
-                <Link className="h-3 w-3" aria-hidden="true" />
-              </RouterLink>
-            </div>
+            <RouterLink to="/gantt-chart" className="inline-flex items-center gap-1 text-xs text-primary-600 hover:underline">
+              Next step
+              <Link className="h-3 w-3" aria-hidden="true" />
+            </RouterLink>
           </div>
 
           <div className="mb-1 text-2xl font-bold">{Math.round(resourceUtilization)}%</div>
@@ -114,9 +112,8 @@ export function KPICards({ metrics, weather, assignedInSchedule }: KPICardsProps
             <div className="h-full bg-yellow-400" style={{ width: `${resourceUtilization}%` }} />
           </div>
 
-          <div className="mt-2 flex items-center justify-between">
-            <div className="text-xs text-gray-500">Assigned in schedule:</div>
-            <div className="text-xs font-medium text-gray-700">{assignedInSchedule}</div>
+          <div className="mt-2 text-xs text-gray-700 font-medium">
+            {deployedOfficersCount}/{totalOfficersCount} officers active
           </div>
         </div>
 

@@ -1,8 +1,10 @@
 import { lazy, Suspense } from "react";
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter, Navigate } from "react-router";
 import { Layout } from "./components/Layout";
 import { LoadingState } from "./components/LoadingState";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
+import { ProtectedRoute } from "./components/ProtectedRoute";
+import { useAuth } from "./contexts/AuthContext";
 
 // Lazy load all pages for better startup performance
 const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
@@ -16,6 +18,7 @@ const IncidentReport = lazy(() => import("./pages/IncidentReport").then(m => ({ 
 const Analytics = lazy(() => import("./pages/Analytics").then(m => ({ default: m.Analytics })));
 const AuditLogs = lazy(() => import("./pages/AuditLogs").then(m => ({ default: m.AuditLogs })));
 const Settings = lazy(() => import("./pages/Settings").then(m => ({ default: m.Settings })));
+const Login = lazy(() => import("./pages/Login").then(m => ({ default: m.Login })));
 
 // Wrapper to provide loading state for lazy-loaded components
 const PageLoader = ({ Component }: { Component: React.ComponentType }) => (
@@ -24,10 +27,40 @@ const PageLoader = ({ Component }: { Component: React.ComponentType }) => (
   </Suspense>
 );
 
+// Wrapper component to handle auth-based redirect
+const AuthRedirect = ({ children }: { children: React.ReactNode }) => {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <LoadingState label="Checking session..." />;
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+};
+
 export const router = createBrowserRouter([
+  // Public routes
+  {
+    path: "/login",
+    element: (
+      <AuthRedirect>
+        <PageLoader Component={Login} />
+      </AuthRedirect>
+    ),
+  },
+
+  // Protected routes
   {
     path: "/",
-    Component: Layout,
+    element: (
+      <ProtectedRoute>
+        <Layout />
+      </ProtectedRoute>
+    ),
     errorElement: <RouteErrorBoundary />,
     children: [
       { index: true, Component: () => <PageLoader Component={Dashboard} /> },
@@ -42,5 +75,11 @@ export const router = createBrowserRouter([
       { path: "audit-logs", Component: () => <PageLoader Component={AuditLogs} /> },
       { path: "settings", Component: () => <PageLoader Component={Settings} /> },
     ],
+  },
+
+  // Catch-all redirect to login
+  {
+    path: "*",
+    element: <Navigate to="/login" replace />,
   },
 ]);

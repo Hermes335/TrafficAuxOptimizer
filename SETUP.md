@@ -134,6 +134,37 @@ python manage.py migrate
 python manage.py createsuperuser
 ```
 
+### 4.1 Create Test Accounts
+
+The project includes a management command to create test user accounts for different roles:
+
+```bash
+# Create Supervisor account
+python manage.py create_test_user --username supervisor --password supervisor123 --badge 1001 --role supervisor
+
+# Create Dispatcher account
+python manage.py create_test_user --username dispatcher --password dispatcher123 --badge 2001 --role dispatcher
+
+# Create Administrator account
+python manage.py create_test_user --username admin --password admin123 --badge 0001 --role administrator
+```
+
+**Test Login Credentials:**
+
+| Role | Username | Password | Badge | Access Level |
+|------|-----------|-----------|-------|--------------|
+| Supervisor | `supervisor` | `supervisor123` | 1001 | Full optimization & deployment controls |
+| Dispatcher | `dispatcher` | `dispatcher123` | 2001 | Read-only monitoring |
+| Administrator | `admin` | `admin123` | 0001 | System settings & user management |
+
+**Usage:**
+1. Start the backend: `npm run dev:backend`
+2. Start the frontend: `npm run dev:renderer`
+3. Open http://127.0.0.1:5173/login
+4. Enter any of the credentials above
+
+**Note:** The login page requires the backend to be running. If testing frontend-only, you can temporarily disable authentication in `src/app/routes.tsx` by removing the `ProtectedRoute` wrapper.
+
 ---
 
 ## 5. Import Data (CSV)
@@ -368,9 +399,11 @@ python -c "from django.conf import settings; print(settings.CELERY_BROKER_URL)"
 | Service | URL |
 |---------|-----|
 | Frontend (Vite) | http://127.0.0.1:5173 |
+| Login Page | http://127.0.0.1:5173/login |
 | Django API | http://127.0.0.1:8000 |
 | Electron Desktop | http://127.0.0.1:3001 |
 | Admin Panel | http://127.0.0.1:8000/admin |
+| API Docs (Swagger) | http://127.0.0.1:8000/api/docs/ |
 
 ---
 

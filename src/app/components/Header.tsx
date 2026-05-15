@@ -1,10 +1,15 @@
-import { Clock, CloudRain, Bell } from "lucide-react";
+import { Clock, CloudRain, Bell, LogOut, User as UserIcon, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
+import { useAuth } from "../contexts/AuthContext";
 import { fetchCurrentWeather, type WeatherCurrentSnapshot } from "../services/backend";
 
 export function Header() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
   const [weather, setWeather] = useState<WeatherCurrentSnapshot | null>(null);
+  const [showUserMenu, setShowUserMenu] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -67,6 +72,27 @@ export function Header() {
 
   const precipitationLabel = weather ? `${weather.precipitation.toFixed(1)}mm/hr precipitation` : "No live weather feed";
 
+  const handleLogout = async () => {
+    setShowUserMenu(false);
+    await logout();
+    navigate("/login");
+  };
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    if (!showUserMenu) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".relative")) {
+        setShowUserMenu(false);
+      }
+    };
+
+    document.addEventListener("click", handleClickOutside);
+    return () => document.removeEventListener("click", handleClickOutside);
+  }, [showUserMenu]);
+
   return (
     <header className="flex items-center justify-between border-b bg-white px-6 py-3">
       <div className="flex items-center gap-8">
@@ -99,12 +125,34 @@ export function Header() {
           </span>
         </button>
 
-        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-gray-300">
-          <img
-            src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop"
-            alt="User"
-            className="h-full w-full rounded-full object-cover"
-          />
+        <div className="relative">
+          <button
+            onClick={() => setShowUserMenu(!showUserMenu)}
+            className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100"
+          >
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-yellow-400">
+              <span className="text-sm font-bold text-white">
+                {user?.username?.charAt(0).toUpperCase() || "U"}
+              </span>
+            </div>
+            <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${showUserMenu ? "rotate-180" : ""}`} />
+          </button>
+
+          {showUserMenu && (
+            <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-white py-1 shadow-lg">
+              <div className="border-b px-4 py-3">
+                <div className="text-sm font-medium text-gray-900">{user?.username}</div>
+                <div className="text-xs text-gray-500">{user?.role}</div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>
