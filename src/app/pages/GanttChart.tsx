@@ -35,7 +35,7 @@ export function GanttChart() {
   const [deletingOfficerId, setDeletingOfficerId] = useState<number | null>(null);
   const [officerName, setOfficerName] = useState("");
   const [officerBadge, setOfficerBadge] = useState("");
-  const [officerShift, setOfficerShift] = useState<"morning" | "afternoon" | "night">("afternoon");
+  const [officerShift, setOfficerShift] = useState<"morning" | "afternoon">("afternoon");
   const [officerStatus, setOfficerStatus] = useState<"available" | "deployed" | "off_duty" | "unavailable">("available");
   const [officerSkillsInput, setOfficerSkillsInput] = useState("");
   const [completedRuns, setCompletedRuns] = useState<OptimizationHistoryItem[]>([]);
@@ -278,7 +278,7 @@ export function GanttChart() {
     try {
       const result = await publishDeploymentsFromOptimization({
         run_id: selectedRunId,
-        shift: shiftFilter === "all" ? "afternoon" : (shiftFilter as "morning" | "afternoon" | "night"),
+        shift: shiftFilter === "all" ? "afternoon" : (shiftFilter as "morning" | "afternoon"),
         replace_existing: true,
       });
       await reloadSchedule();
@@ -515,9 +515,8 @@ export function GanttChart() {
             className="rounded-lg border px-3 py-2 text-sm md:w-48"
           >
             <option value="all">All shifts</option>
-            <option value="morning">Morning</option>
-            <option value="afternoon">Afternoon</option>
-            <option value="night">Night</option>
+            <option value="morning">Morning (6AM-2PM)</option>
+            <option value="afternoon">Afternoon (2PM-10PM)</option>
           </select>
         </div>
       </div>
@@ -611,12 +610,11 @@ export function GanttChart() {
                 <div className="grid grid-cols-2 gap-2">
                   <select
                     value={officerShift}
-                    onChange={(event) => setOfficerShift(event.target.value as "morning" | "afternoon" | "night")}
+                    onChange={(event) => setOfficerShift(event.target.value as "morning" | "afternoon")}
                     className="rounded border px-2 py-1.5 text-sm"
                   >
-                    <option value="morning">Morning</option>
-                    <option value="afternoon">Afternoon</option>
-                    <option value="night">Night</option>
+                    <option value="morning">Morning (6AM-2PM)</option>
+                    <option value="afternoon">Afternoon (2PM-10PM)</option>
                   </select>
                   <select
                     value={officerStatus}

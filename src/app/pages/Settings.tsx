@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Database, ServerCog, ShieldAlert, Activity } from "lucide-react";
+import { LoadingState } from "../components/LoadingState";
 import {
   fetchSystemHealthSnapshot,
   getApiBaseUrl,
@@ -97,8 +98,8 @@ export function Settings() {
         </div>
       </div>
 
-      {loading && <p className="text-sm text-gray-500">Loading system status...</p>}
-      {!loading && error && <p className="text-sm text-red-600">{error}</p>}
+      {loading && <LoadingState label="Loading system status..." />}
+      {!loading && error && <LoadingState error={error} />}
 
       {!loading && !error && health?.adminForbidden && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">

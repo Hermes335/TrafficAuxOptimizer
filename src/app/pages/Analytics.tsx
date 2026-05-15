@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import PrettyCurve from "../components/PrettyCurve";
-import { Activity, Gauge, TrendingUp } from "lucide-react";
+import { Activity, Gauge, TrendingUp, BarChart3 } from "lucide-react";
+import { LoadingState, EmptyState } from "../components/LoadingState";
 import { fetchAnalyticsTrends, type AnalyticsTrendPoint } from "../services/backend";
 
 type TrendChartPoint = {
@@ -103,10 +104,14 @@ export function Analytics() {
       <div className="min-h-0 flex-1 rounded-xl border bg-white p-4">
         <h2 className="mb-3 text-sm font-semibold text-gray-700">Traffic Trend Timeline</h2>
 
-        {loading && <p className="text-sm text-gray-500">Loading analytics trends...</p>}
-        {!loading && error && <p className="text-sm text-red-600">{error}</p>}
+        {loading && <LoadingState label="Loading analytics trends..." />}
+        {!loading && error && <LoadingState error={error} />}
         {!loading && !error && chartData.length === 0 && (
-          <p className="text-sm text-gray-500">No analytics trend data available yet.</p>
+          <EmptyState
+            icon={BarChart3}
+            title="No Trend Data"
+            description="No analytics trend data available yet. Data will appear once collected."
+          />
         )}
 
         {!loading && !error && chartData.length > 0 && (

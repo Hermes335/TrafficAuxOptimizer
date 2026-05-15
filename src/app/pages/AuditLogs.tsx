@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { ShieldCheck, Clock3 } from "lucide-react";
+import { ShieldCheck, Clock3, FileText } from "lucide-react";
+import { LoadingState, EmptyState } from "../components/LoadingState";
 import { fetchAuditLogs, type AuditLogRecord } from "../services/backend";
 
 export function AuditLogs() {
@@ -56,21 +57,25 @@ export function AuditLogs() {
           Latest Events
         </div>
 
-        {loading && <p className="text-sm text-gray-500">Loading audit logs...</p>}
+        {loading && <LoadingState label="Loading audit logs..." />}
 
         {!loading && permissionDenied && (
-          <p className="text-sm text-amber-700">
+          <div className="rounded-lg bg-amber-50 p-4 text-sm text-amber-800">
             This endpoint is admin-only. Sign in with an admin account to view audit logs.
-          </p>
+          </div>
         )}
 
-        {!loading && !permissionDenied && error && <p className="text-sm text-red-600">{error}</p>}
+        {!loading && !permissionDenied && error && <LoadingState error={error} />}
 
-        {!loading && !error && logs.length === 0 && (
-          <p className="text-sm text-gray-500">No audit log entries found yet.</p>
+        {!loading && !permissionDenied && !error && logs.length === 0 && (
+          <EmptyState
+            icon={FileText}
+            title="No Audit Logs"
+            description="No audit log entries found yet. Activities will appear here once recorded."
+          />
         )}
 
-        {!loading && !error && logs.length > 0 && (
+        {!loading && !permissionDenied && !error && logs.length > 0 && (
           <div className="overflow-auto">
             <table className="w-full min-w-[860px] border-collapse text-sm">
               <thead>

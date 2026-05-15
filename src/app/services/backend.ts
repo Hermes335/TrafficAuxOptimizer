@@ -402,7 +402,7 @@ export interface DeploymentScheduleItem {
 
 export interface PublishOptimizationDeploymentsRequest {
   run_id: string;
-  shift?: "morning" | "afternoon" | "night";
+  shift?: "morning" | "afternoon";
   start_time?: string;
   end_time?: string;
   assignment_type?: "static" | "mobile" | "response";
@@ -495,7 +495,7 @@ export interface DashboardOfficerRecord {
   id: number;
   name: string;
   badge_number: string;
-  shift: "morning" | "afternoon" | "night";
+  shift: "morning" | "afternoon";
   status: "available" | "deployed" | "off_duty" | "unavailable";
   skills: string[];
   current_latitude?: number | null;
@@ -505,7 +505,7 @@ export interface DashboardOfficerRecord {
 export interface DashboardOfficerPayload {
   name: string;
   badge_number: string;
-  shift: "morning" | "afternoon" | "night";
+  shift: "morning" | "afternoon";
   status: "available" | "deployed" | "off_duty" | "unavailable";
   skills?: string[];
   current_latitude?: number | null;

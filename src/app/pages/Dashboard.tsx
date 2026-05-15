@@ -23,6 +23,7 @@ import {
 import { Link } from "react-router";
 import { Badge } from "../components/ui/badge";
 import { Tooltip, TooltipTrigger, TooltipContent } from "../components/ui/tooltip";
+import { ConfirmDialog } from "../components/ConfirmDialog";
 import incidentImage from "../../assets/57fa97e8c83f22033790625605fab5b96dfc2d8b.png";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -90,7 +91,7 @@ export function Dashboard() {
   const [deletingOfficerId, setDeletingOfficerId] = useState<number | null>(null);
   const [officerName, setOfficerName] = useState("");
   const [officerBadge, setOfficerBadge] = useState("");
-  const [officerShift, setOfficerShift] = useState<"morning" | "afternoon" | "night">("afternoon");
+  const [officerShift, setOfficerShift] = useState<"morning" | "afternoon">("afternoon");
   const [officerStatus, setOfficerStatus] = useState<"available" | "deployed" | "off_duty" | "unavailable">("available");
   const [officerSkillsInput, setOfficerSkillsInput] = useState("");
   const [bottleneckActionError, setBottleneckActionError] = useState<string | null>(null);
@@ -512,11 +513,6 @@ export function Dashboard() {
   };
 
   const onDeleteBottleneck = async (bottleneckId: string) => {
-    const confirmed = window.confirm(`Remove ${bottleneckId} from active bottlenecks?`);
-    if (!confirmed) {
-      return;
-    }
-
     setDeletingBottleneckId(bottleneckId);
     setBottleneckActionError(null);
     setBottleneckActionNotice(null);
@@ -685,11 +681,6 @@ export function Dashboard() {
   };
 
   const onDeleteOfficer = async (officerId: number, badge: string) => {
-    const confirmed = window.confirm(`Remove officer ${badge}?`);
-    if (!confirmed) {
-      return;
-    }
-
     setDeletingOfficerId(officerId);
     setOfficerError(null);
     setOfficerNotice(null);
@@ -712,7 +703,7 @@ export function Dashboard() {
     <div className="flex h-full flex-col">
       {/* Top KPI Cards - Ultra Compact */}
       <div className="border-b bg-white px-4 py-2">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
           {/* Coverage Efficiency */}
           <div className="rounded-lg border-2 border-yellow-400 bg-yellow-50 px-3 py-2">
             <div className="mb-1 flex items-center justify-between">
@@ -835,7 +826,7 @@ export function Dashboard() {
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - Bottlenecks List */}
-        <div className="w-80 border-r bg-white">
+        <div className="w-full border-r bg-white md:w-80">
           <div className="border-b p-4">
             <div className="mb-4 flex items-center gap-2">
               <AlertCircle className="h-5 w-5 text-yellow-500" />
@@ -889,18 +880,26 @@ export function Dashboard() {
                   </div>
                   <div className="font-medium">{item.name}</div>
                 </div>
-                <button
-                  onClick={() => onDeleteBottleneck(item.id)}
-                  disabled={deletingBottleneckId === item.id}
-                  className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="Remove bottleneck"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <ConfirmDialog
+                  title="Remove Bottleneck"
+                  description={`Are you sure you want to remove ${item.id} (${item.name}) from active bottlenecks? This action cannot be undone.`}
+                  confirmText="Remove"
+                  isDangerous
+                  onConfirm={() => onDeleteBottleneck(item.id)}
+                  trigger={
+                    <button
+                      disabled={deletingBottleneckId === item.id}
+                      className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={`Remove bottleneck ${item.id}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  }
+                />
                 <button
                   onClick={() => startEditingBottleneck(item.id)}
                   className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600"
-                  title="Edit bottleneck"
+                  aria-label={`Edit bottleneck ${item.id}`}
                 >
                   <Pencil className="h-4 w-4" />
                 </button>
@@ -1282,7 +1281,7 @@ export function Dashboard() {
         </div>
 
         {/* Right Sidebar - Quick Optimize & Incident Ticker */}
-        <div className="w-96 space-y-4 overflow-y-auto bg-white p-4">
+        <div className="w-full space-y-4 overflow-y-auto bg-white p-4 md:w-96">
           {/* Incident Ticker */}
           <div className="rounded-lg border bg-white p-4">
             <div className="mb-3 flex items-center gap-2">
@@ -1332,7 +1331,7 @@ export function Dashboard() {
                   }`}
                 >
                   Morning
-                  <div className="text-xs opacity-75">6AM-2PM</div>
+                  <div className="text-xs opacity-75">6:00 AM - 2:00 PM</div>
                 </button>
                 <button
                   onClick={() => setSelectedShift("Afternoon")}
@@ -1343,7 +1342,7 @@ export function Dashboard() {
                   }`}
                 >
                   Afternoon
-                  <div className="text-xs opacity-75">2PM-10PM</div>
+                  <div className="text-xs opacity-75">2:00 PM - 10:00 PM</div>
                 </button>
               </div>
             </div>
