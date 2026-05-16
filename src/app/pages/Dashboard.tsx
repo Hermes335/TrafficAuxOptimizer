@@ -254,6 +254,37 @@ export function Dashboard() {
     critical: { dot: "bg-red-500", text: "text-red-500" },
   };
 
+  // Severity color mapping for map markers and list
+  const getSeverityColor = (severity: "free" | "moderate" | "heavy" | "critical") => {
+    const colors = {
+      free: "#22c55e",      // green
+      moderate: "#eab308",  // yellow
+      heavy: "#f97316",     // orange
+      critical: "#ef4444",  // red
+    };
+    return colors[severity];
+  };
+
+  const getSeverityBgClass = (severity: "free" | "moderate" | "heavy" | "critical") => {
+    const classes = {
+      free: "bg-emerald-50 border-emerald-200",
+      moderate: "bg-yellow-50 border-yellow-200",
+      heavy: "bg-orange-50 border-orange-200",
+      critical: "bg-red-50 border-red-200",
+    };
+    return classes[severity];
+  };
+
+  const getSeverityTextClass = (severity: "free" | "moderate" | "heavy" | "critical") => {
+    const classes = {
+      free: "text-emerald-700",
+      moderate: "text-yellow-700",
+      heavy: "text-orange-700",
+      critical: "text-red-700",
+    };
+    return classes[severity];
+  };
+
   const hasIncidentForBottleneck = (bottleneckId: string, bottleneckName: string) => {
     const idTerm = bottleneckId.toLowerCase();
     const nameTerm = bottleneckName.toLowerCase();
@@ -375,7 +406,7 @@ export function Dashboard() {
       },
     });
 
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+    // NavigationControl removed - using custom JSX controls instead
     mapRef.current = map;
 
     return () => {
@@ -500,39 +531,33 @@ export function Dashboard() {
 
     for (const bottleneck of filteredBottlenecks) {
       const markerEl = document.createElement("div");
-      
+
       const tsiPercent = Math.round((Number(bottleneck.tsi) || 0) * 100);
-      let color = "#22c55e";
-      let isRed = false;
-      
-      if (bottleneck.status === "critical" || tsiPercent >= 80) {
-        color = "#ef4444";
-        isRed = true;
-      } else if (tsiPercent >= 40) {
-        color = "#f59e0b";
-      }
-      
-      // Larger marker with better styling
+      const severity = getCongestionSeverity(bottleneck);
+      const color = getSeverityColor(severity);
+      const isCritical = severity === "critical";
+
+      // Compact marker container
       markerEl.className = "flex items-center justify-center";
-      markerEl.style.width = "28px";
-      markerEl.style.height = "28px";
-      
-      // Create inner circle
+      markerEl.style.width = "24px";
+      markerEl.style.height = "24px";
+
+      // Inner circle with severity color
       const innerCircle = document.createElement("div");
-      innerCircle.style.width = "20px";
-      innerCircle.style.height = "20px";
+      innerCircle.style.width = "16px";
+      innerCircle.style.height = "16px";
       innerCircle.style.backgroundColor = color;
       innerCircle.style.borderRadius = "50%";
       innerCircle.style.border = "2px solid white";
-      innerCircle.style.boxShadow = "0 2px 4px rgba(0,0,0,0.2)";
+      innerCircle.style.boxShadow = "0 2px 6px rgba(0,0,0,0.25)";
       innerCircle.style.position = "relative";
-      
-      // Add pulsing animation for red markers
-      if (isRed) {
+
+      // Add pulsing animation for critical markers
+      if (isCritical) {
         innerCircle.className = "map-marker-pulse";
         innerCircle.style.animation = "beacon-pulse 2s infinite";
       }
-      
+
       markerEl.appendChild(innerCircle);
 
       // Add click handler to select bottleneck
@@ -1100,7 +1125,7 @@ export function Dashboard() {
               return (
                 <div
                   key={item.id}
-                  className={`group flex items-center gap-2 border-b border-gray-200 px-3 py-3 transition-colors ${selected ? "bg-blue-50" : "hover:bg-gray-100"}`}
+                  className={`group flex items-center gap-3 border-b border-gray-100 px-3 py-2.5 transition-all cursor-pointer ${selected ? "bg-amber-50 border-l-4 border-l-amber-500" : "hover:bg-gray-50 border-l-4 border-l-transparent"}`}
                   onClick={() => {
                     setSelectedBottleneckId(item.id);
                     setIsEditingDetailPanel(false);
@@ -1110,22 +1135,24 @@ export function Dashboard() {
                     setDetailPanelLongitude(String(item.longitude));
                   }}
                 >
-                  <span className={`h-3 w-3 shrink-0 rounded-full ${congestionTone[severity].dot}`} />
+                  {/* Colored dot indicator */}
+                  <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${congestionTone[severity].dot}`} />
 
                   <div className="min-w-0 flex-1">
                     <div className="mb-0.5 flex items-center gap-1.5">
-                      <span className="text-[11px] font-semibold tracking-wide text-gray-400">{item.id}</span>
+                      <span className="font-mono text-[11px] font-medium text-gray-500">{item.id}</span>
                       {(hasIncident || item.badge) && (
-                        <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                          Incident
+                        <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          INCIDENT
                         </span>
                       )}
                     </div>
-                    <div className="truncate text-[20px]/[22px] font-semibold text-gray-800">{item.name}</div>
+                    <div className="truncate text-sm font-semibold text-gray-900">{item.name}</div>
                   </div>
 
+                  {/* TSI Value with severity color */}
                   <div className="ml-2 flex shrink-0 flex-col items-end gap-1">
-                    <span className={`text-sm font-semibold ${congestionTone[severity].text}`}>{tsiPercent}%</span>
+                    <span className={`text-sm font-bold ${congestionTone[severity].text}`}>{tsiPercent}%</span>
                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
                       <ConfirmDialog
                         title="Remove Bottleneck"
@@ -1401,66 +1428,31 @@ export function Dashboard() {
               </div>
             )}
 
-            {/* Map Controls */}
-            <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-2">
-              <button className="rounded-lg bg-white p-2 shadow-md hover:bg-gray-50">
-                <Navigation className="h-5 w-5 text-gray-600" />
-              </button>
-              <button className="rounded-lg bg-white p-2 shadow-md hover:bg-gray-50">
-                <Maximize2 className="h-5 w-5 text-gray-600" />
-              </button>
-              <div className="rounded-lg bg-white p-2 shadow-md">
-                <div className="text-xs font-medium text-gray-700">+</div>
-                <div className="my-1 h-px bg-gray-300"></div>
-                <div className="text-xs font-medium text-gray-700">−</div>
+            
+            
+            {/* Bottom-left Map Legend */}
+          <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 shadow-sm">
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Severity</div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                <span className="text-gray-600">Free (&lt;40%)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-yellow-500" />
+                <span className="text-gray-600">Moderate (40-59%)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
+                <span className="text-gray-600">Heavy (60-79%)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                <span className="text-gray-600">Critical (≥80%)</span>
               </div>
             </div>
-
-            {/* Context Legend */}
-            <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-lg bg-white p-3 shadow-md">
-              {selectedView === "Weather" ? (
-                <>
-                  <div className="mb-2 text-xs font-semibold text-gray-700">WEATHER LEGEND</div>
-                  <div className="flex gap-3 text-xs">
-                    <div className="flex items-center gap-1">
-                      <div className="h-3 w-3 rounded-full bg-emerald-500"></div>
-                      <span>Clear (WIF &lt; 1.30)</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <div className="h-3 w-3 rounded-full bg-yellow-400"></div>
-                      <span>Moderate (1.30-1.69)</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <div className="h-3 w-3 rounded-full bg-rose-500"></div>
-                      <span>Severe (≥ 1.70)</span>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="mb-2 text-xs font-semibold text-gray-700">CONGESTION LEGEND</div>
-                  <div className="flex gap-3 text-xs">
-                    <div className="flex items-center gap-1">
-                      <div className="h-3 w-3 rounded-full bg-green-500"></div>
-                      <span>&lt;40%</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <div className="h-3 w-3 rounded-full bg-yellow-400"></div>
-                      <span>40-80%</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <div className="h-3 w-3 rounded-full bg-red-500"></div>
-                      <span>&gt;80%</span>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <div className="pointer-events-none absolute bottom-1 right-2 z-20 rounded bg-white/85 px-2 py-0.5 text-xs text-gray-700">
-              Map data © TomTom, © OpenStreetMap contributors
-            </div>
           </div>
+        </div>
 
           {/* Incident Modal */}
           {showIncidentModal && (
@@ -1514,6 +1506,37 @@ export function Dashboard() {
               </div>
             </div>
           )}
+
+          
+          {/* Bottom-right Map Controls */}
+          <div className="absolute bottom-4 right-4 z-20 flex flex-col gap-2">
+            <button
+              onClick={() => mapRef.current?.flyTo({ center: [122.5626, 10.707], zoom: 13 })}
+              className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm hover:bg-gray-50"
+              title="Center map"
+            >
+              <Navigation className="h-4 w-4 text-gray-600" />
+            </button>
+            <button
+              onClick={() => mapRef.current?.zoomIn()}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-1 shadow-sm hover:bg-gray-50"
+            >
+              <span className="text-sm font-bold text-gray-600">+</span>
+            </button>
+            <button
+              onClick={() => mapRef.current?.zoomOut()}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-1 shadow-sm hover:bg-gray-50"
+            >
+              <span className="text-sm font-bold text-gray-600">−</span>
+            </button>
+            <button
+              onClick={() => mapRef.current?.flyTo({ pitch: 0, bearing: 0 })}
+              className="rounded-lg border border-gray-200 bg-white p-2 shadow-sm hover:bg-gray-50"
+              title="Reset view"
+            >
+              <Maximize2 className="h-4 w-4 text-gray-600" />
+            </button>
+          </div>
         </div>
 
         {/* Right Sidebar - Quick Optimize & Incident Ticker */}
