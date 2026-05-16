@@ -7,6 +7,7 @@ from .models import (
     Incident,
     Officer,
     OptimizationRun,
+    POI,
     Scenario,
     TrafficData,
     WeatherData,
@@ -25,6 +26,9 @@ class BottleneckSerializer(serializers.ModelSerializer):
             "latitude",
             "longitude",
             "road_priority_weight",
+            "tsi",
+            "heatmap_tsi",
+            "is_archived",
             "district",
             "bottleneck_type",
             "created_at",
@@ -94,3 +98,65 @@ class AuditLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = AuditLog
         fields = "__all__"
+
+
+class POISerializer(serializers.ModelSerializer):
+    class Meta:
+        model = POI
+        fields = [
+            "poi_id",
+            "name",
+            "category",
+            "latitude",
+            "longitude",
+            "icon_url",
+            "is_active",
+            "created_at",
+            "updated_at",
+            "is_deleted",
+        ]
+
+
+class IncidentCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Incident
+        fields = [
+            "bottleneck",
+            "incident_type",
+            "severity",
+            "description",
+            "photo_url",
+            "latitude",
+            "longitude",
+        ]
+
+    def create(self, validated_data):
+        user = self.context.get("request").user if self.context.get("request") else None
+        if user and user.is_authenticated:
+            validated_data["reported_by"] = user
+        return super().create(validated_data)
+
+
+class IncidentResponseSerializer(serializers.ModelSerializer):
+    latitude = serializers.FloatField(required=False, allow_null=True)
+    longitude = serializers.FloatField(required=False, allow_null=True)
+
+    class Meta:
+        model = Incident
+        fields = [
+            "id",
+            "bottleneck",
+            "incident_type",
+            "severity",
+            "description",
+            "photo_url",
+            "timestamp",
+            "status",
+            "resolved_time",
+            "is_archived",
+            "latitude",
+            "longitude",
+            "reported_by",
+            "created_at",
+            "updated_at",
+        ]

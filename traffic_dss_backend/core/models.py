@@ -26,6 +26,9 @@ class Bottleneck(TimeStampedSoftDeleteModel):
 	latitude = models.FloatField()
 	longitude = models.FloatField()
 	road_priority_weight = models.FloatField(default=1.0)
+	tsi = models.FloatField(default=0.0)
+	heatmap_tsi = models.FloatField(null=True, blank=True)
+	is_archived = models.BooleanField(default=False, db_index=True)
 	district = models.CharField(max_length=120)
 	bottleneck_type = models.CharField(max_length=40, choices=BOTTLENECK_TYPES, default="other")
 
@@ -33,6 +36,7 @@ class Bottleneck(TimeStampedSoftDeleteModel):
 		indexes = [
 			models.Index(fields=["district"]),
 			models.Index(fields=["bottleneck_type"]),
+			models.Index(fields=["is_archived"]),
 		]
 
 	def __str__(self):
@@ -87,9 +91,10 @@ class Incident(TimeStampedSoftDeleteModel):
 		("active", "Active"),
 		("investigating", "Investigating"),
 		("resolved", "Resolved"),
+		("archived", "Archived"),
 	]
 
-	bottleneck = models.ForeignKey(Bottleneck, on_delete=models.PROTECT, related_name="incidents")
+	bottleneck = models.ForeignKey(Bottleneck, on_delete=models.PROTECT, related_name="incidents", null=True, blank=True)
 	incident_type = models.CharField(max_length=30, choices=TYPES, default="other")
 	severity = models.CharField(max_length=20, choices=SEVERITIES)
 	description = models.TextField()
@@ -97,12 +102,17 @@ class Incident(TimeStampedSoftDeleteModel):
 	reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="reported_incidents")
 	timestamp = models.DateTimeField(db_index=True)
 	status = models.CharField(max_length=20, choices=STATUSES, default="active", db_index=True)
+	resolved_time = models.DateTimeField(null=True, blank=True)
+	is_archived = models.BooleanField(default=False, db_index=True)
+	latitude = models.FloatField(null=True, blank=True)
+	longitude = models.FloatField(null=True, blank=True)
 
 	class Meta:
 		indexes = [
 			models.Index(fields=["timestamp"]),
 			models.Index(fields=["severity", "status"]),
 			models.Index(fields=["bottleneck", "status"]),
+			models.Index(fields=["is_archived"]),
 		]
 
 
@@ -206,3 +216,30 @@ class AuditLog(TimeStampedSoftDeleteModel):
 			models.Index(fields=["timestamp"]),
 			models.Index(fields=["resource", "action"]),
 		]
+
+
+class POI(TimeStampedSoftDeleteModel):
+	CATEGORIES = [
+		("hospital", "Hospital"),
+		("fire_station", "Fire Station"),
+		("police_station", "Police Station"),
+		("school", "School"),
+		("other", "Other"),
+	]
+
+	poi_id = models.CharField(max_length=50, unique=True)
+	name = models.CharField(max_length=255)
+	category = models.CharField(max_length=30, choices=CATEGORIES, default="other")
+	latitude = models.FloatField()
+	longitude = models.FloatField()
+	icon_url = models.URLField(blank=True)
+	is_active = models.BooleanField(default=True, db_index=True)
+
+	class Meta:
+		indexes = [
+			models.Index(fields=["category"]),
+			models.Index(fields=["is_active"]),
+		]
+
+	def __str__(self):
+		return f"{self.poi_id} - {self.name}"

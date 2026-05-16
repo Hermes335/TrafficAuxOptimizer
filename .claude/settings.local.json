@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "Bash(findstr tsconfig *)",
-      "Bash(python manage.py migrate)"
+      "Bash(python manage.py migrate)",
+      "Skill(keybindings-help)",
+      "Skill(keybindings-help:*)"
     ]
   }
 }

@@ -64,7 +64,8 @@ export function Dashboard() {
   const [selectedShift, setSelectedShift] = useState("Afternoon");
   const [filterTerm, setFilterTerm] = useState("");
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
-  const [isAddMode, setIsAddMode] = useState(false);
+  const [addMode, setAddMode] = useState<"bottleneck" | "incident" | "poi" | null>(null);
+  const [showAddMenu, setShowAddMenu] = useState(false);
   const [pendingPoint, setPendingPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [newBottleneckId, setNewBottleneckId] = useState("");
   const [newBottleneckName, setNewBottleneckName] = useState("");
@@ -98,6 +99,20 @@ export function Dashboard() {
   const [bottleneckActionNotice, setBottleneckActionNotice] = useState<string | null>(null);
   const [savingBottleneck, setSavingBottleneck] = useState(false);
   const [deletingBottleneckId, setDeletingBottleneckId] = useState<string | null>(null);
+  const [selectedBottleneckId, setSelectedBottleneckId] = useState<string | null>(null);
+  const [pois, setPois] = useState<Array<{ id: string; name: string; category: string; latitude: number; longitude: number }>>([]);
+  const [isEditingDetailPanel, setIsEditingDetailPanel] = useState(false);
+  const [detailPanelName, setDetailPanelName] = useState("");
+  const [detailPanelCongestion, setDetailPanelCongestion] = useState("");
+  const [detailPanelWeather, setDetailPanelWeather] = useState("");
+  const [detailPanelOfficersCurrent, setDetailPanelOfficersCurrent] = useState("");
+  const [detailPanelOfficersNeeded, setDetailPanelOfficersNeeded] = useState("");
+  const [detailPanelDistrict, setDetailPanelDistrict] = useState("Iloilo City");
+  const [detailPanelType, setDetailPanelType] = useState("intersection");
+  const [detailPanelWeight, setDetailPanelWeight] = useState("1.0");
+  const [detailPanelLatitude, setDetailPanelLatitude] = useState("");
+  const [detailPanelLongitude, setDetailPanelLongitude] = useState("");
+  const [detailPanelTsi, setDetailPanelTsi] = useState("");
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -212,6 +227,41 @@ export function Dashboard() {
         item.status.toLowerCase().includes(term),
     );
   }, [bottlenecks, filterTerm]);
+
+  const criticalBottleneckCount = useMemo(
+    () => bottlenecks.filter((item) => item.status === "critical" || Math.round((Number(item.tsi) || 0) * 100) >= 80).length,
+    [bottlenecks],
+  );
+
+  const getCongestionSeverity = (item: { status: string; tsi?: number }) => {
+    const tsiPercent = Math.round((Number(item.tsi) || 0) * 100);
+    if (item.status === "critical" || tsiPercent >= 80) {
+      return "critical" as const;
+    }
+    if (tsiPercent >= 60) {
+      return "heavy" as const;
+    }
+    if (tsiPercent >= 40) {
+      return "moderate" as const;
+    }
+    return "free" as const;
+  };
+
+  const congestionTone = {
+    free: { dot: "bg-emerald-500", text: "text-emerald-600" },
+    moderate: { dot: "bg-yellow-500", text: "text-yellow-600" },
+    heavy: { dot: "bg-orange-500", text: "text-orange-600" },
+    critical: { dot: "bg-red-500", text: "text-red-500" },
+  };
+
+  const hasIncidentForBottleneck = (bottleneckId: string, bottleneckName: string) => {
+    const idTerm = bottleneckId.toLowerCase();
+    const nameTerm = bottleneckName.toLowerCase();
+    return incidents.some((incident) => {
+      const label = incident.text.toLowerCase();
+      return label.includes(idTerm) || label.includes(nameTerm);
+    });
+  };
 
   const selectedIncident = useMemo(() => {
     if (incidents.length === 0) {
@@ -361,8 +411,63 @@ export function Dashboard() {
     const onMapClick = (event: maplibregl.MapMouseEvent) => {
       const latitude = Number(event.lngLat.lat.toFixed(6));
       const longitude = Number(event.lngLat.lng.toFixed(6));
-      if (isAddMode) {
-        setPendingPoint({ latitude, longitude });
+      if (addMode) {
+        if (addMode === "bottleneck") {
+          const id = `B-${Math.floor(Math.random() * 10000)}`;
+          const newBottleneck = {
+            id,
+            name: `New Bottleneck ${id}`,
+            status: "warning" as const,
+            latitude,
+            longitude,
+            tsi: 0.5,
+            road_priority_weight: 1.0,
+            weather_impact_factor: 1.0,
+            deployed_officers: 1,
+            required_officers: 2,
+          };
+          
+          // Optimistically add to state
+          setDashboardSnapshot(prev => ({
+            ...prev,
+            bottlenecks: [...prev.bottlenecks, newBottleneck]
+          }));
+          
+          setSelectedBottleneckId(id);
+          setIsEditingDetailPanel(true);
+          setDetailPanelName(newBottleneck.name);
+          setDetailPanelCongestion("50");
+          setDetailPanelWeather("30");
+          setDetailPanelOfficersCurrent("1");
+          setDetailPanelOfficersNeeded("2");
+          
+          setAddMode(null);
+        } else if (addMode === "incident") {
+          const id = Math.floor(Math.random() * 10000);
+          const newIncident = {
+            id,
+            text: `New Incident ${id}`,
+            type: "major" as const,
+            latitude,
+            longitude,
+          };
+          setDashboardSnapshot(prev => ({
+            ...prev,
+            incidents: [...prev.incidents, newIncident]
+          }));
+          setAddMode(null);
+        } else if (addMode === "poi") {
+          const id = `P-${Math.floor(Math.random() * 10000)}`;
+          const newPoi = {
+            id,
+            name: `New POI`,
+            category: "hospital",
+            latitude,
+            longitude,
+          };
+          setPois(prev => [...prev, newPoi]);
+          setAddMode(null);
+        }
       }
       if (editPickFromMap) {
         setEditLatitude(String(latitude));
@@ -372,7 +477,7 @@ export function Dashboard() {
       setBottleneckActionNotice(null);
     };
 
-    const enableClickCapture = isAddMode || editPickFromMap;
+    const enableClickCapture = Boolean(addMode) || editPickFromMap;
     map.getCanvas().style.cursor = enableClickCapture ? "crosshair" : "";
 
     if (enableClickCapture) {
@@ -383,7 +488,7 @@ export function Dashboard() {
       map.getCanvas().style.cursor = "";
       map.off("click", onMapClick);
     };
-  }, [isAddMode, editPickFromMap]);
+  }, [addMode, editPickFromMap, setDashboardSnapshot]);
 
   useEffect(() => {
     if (!mapRef.current) {
@@ -429,6 +534,21 @@ export function Dashboard() {
       }
       
       markerEl.appendChild(innerCircle);
+
+      // Add click handler to select bottleneck
+      markerEl.style.cursor = "pointer";
+      markerEl.addEventListener("click", () => {
+        setSelectedBottleneckId(bottleneck.id);
+        setIsEditingDetailPanel(false);
+        setDetailPanelName(bottleneck.name);
+        setDetailPanelCongestion(tsiPercent.toString());
+        setDetailPanelWeather(Math.round(((bottleneck as { heatmap_tsi?: number }).heatmap_tsi || 0.5) * 100 - 50).toString());
+        // TODO: Set officers based on deployment assignments
+        setDetailPanelOfficersCurrent("8");
+        setDetailPanelOfficersNeeded("10");
+        setDetailPanelLatitude(String(bottleneck.latitude));
+        setDetailPanelLongitude(String(bottleneck.longitude));
+      });
 
       const popup = new maplibregl.Popup({ offset: 10 }).setHTML(
         `<div><div style="font-weight:600">${bottleneck.id}</div><div>${bottleneck.name}</div><div style="font-size:12px;margin-top:4px">TSI: ${tsiPercent}%</div><div style="text-transform:uppercase;font-size:11px;color:#6b7280">${bottleneck.status}</div></div>`,
@@ -518,7 +638,7 @@ export function Dashboard() {
       setNewBottleneckId("");
       setNewBottleneckName("");
       setBottleneckActionNotice("Bottleneck added successfully.");
-      setIsAddMode(false);
+      setAddMode(null);
     } catch (actionError: unknown) {
       setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to create bottleneck.");
     } finally {
@@ -534,6 +654,7 @@ export function Dashboard() {
       await deleteDashboardBottleneck(bottleneckId);
       await reloadDashboard();
       setBottleneckActionNotice(`${bottleneckId} removed.`);
+      setSelectedBottleneckId(null);
     } catch (actionError: unknown) {
       setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to remove bottleneck.");
     } finally {
@@ -541,9 +662,93 @@ export function Dashboard() {
     }
   };
 
+  // Detail panel handlers
+  const getSelectedBottleneck = () => {
+    return dashboardSnapshot.bottlenecks.find((b) => b.id === selectedBottleneckId) || null;
+  };
+
+  const getIncidentsForBottleneck = (bottleneckId: string) => {
+    // TODO: Once backend provides bottleneck_id on incidents, filter by that field
+    // For now, return a filtered sample of critical incidents
+    // In production, this would be: dashboardSnapshot.incidents.filter(inc => inc.bottleneck_id === bottleneckId)
+    const selectedBottleneck = getSelectedBottleneck();
+    if (!selectedBottleneck) return [];
+    
+    // Placeholder: show incidents with proximity to bottleneck (currently all incidents if critical)
+    return dashboardSnapshot.incidents.filter((inc) => {
+      // Filter to show high-severity incidents for this bottleneck
+      // This is a temporary implementation until backend provides geographic filtering
+      return inc.type === "critical" || inc.type === "major";
+    }).slice(0, 3); // Limit to 3 incidents for display
+  };
+
+  const onSaveDetailPanel = async () => {
+    if (!selectedBottleneckId) return;
+    if (!detailPanelName.trim()) {
+      setBottleneckActionError("Name is required.");
+      return;
+    }
+
+    const currentBottleneck = dashboardSnapshot.bottlenecks.find(b => b.id === selectedBottleneckId);
+    const latitude = detailPanelLatitude && detailPanelLatitude.trim() ? Number(detailPanelLatitude) : (currentBottleneck?.latitude ?? NaN);
+    const longitude = detailPanelLongitude && detailPanelLongitude.trim() ? Number(detailPanelLongitude) : (currentBottleneck?.longitude ?? NaN);
+    const tsi = detailPanelCongestion && detailPanelCongestion.trim() ? Number(detailPanelCongestion) / 100 : (currentBottleneck?.tsi ?? NaN);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setBottleneckActionError("Valid latitude and longitude are required.");
+      return;
+    }
+
+    setSavingBottleneck(true);
+    setBottleneckActionError(null);
+    setBottleneckActionNotice(null);
+    try {
+      console.log("Saving detail panel bottleneck:", selectedBottleneckId, { name: detailPanelName.trim(), latitude, longitude, tsi });
+      await updateDashboardBottleneck(selectedBottleneckId, {
+        name: detailPanelName.trim(),
+        latitude,
+        longitude,
+        tsi: Number.isFinite(tsi) ? tsi : undefined,
+      });
+      console.log("Detail panel bottleneck updated successfully");
+
+      // Calculate new status based on TSI for immediate UI update
+      const tsiPercent = (Number.isFinite(tsi) ? tsi : 0) * 100;
+      let newStatus: "normal" | "warning" | "critical" = "normal";
+      if (tsiPercent >= 80) {
+        newStatus = "critical";
+      } else if (tsiPercent >= 40) {
+        newStatus = "warning";
+      }
+
+      // Update local state immediately for instant visual feedback
+      setDashboardSnapshot(prev => ({
+        ...prev,
+        bottlenecks: prev.bottlenecks.map(b =>
+          b.id === selectedBottleneckId
+            ? { ...b, name: detailPanelName.trim(), latitude, longitude, tsi: Number.isFinite(tsi) ? tsi : b.tsi, status: newStatus }
+            : b
+        )
+      }));
+
+      setBottleneckActionNotice("Bottleneck updated successfully.");
+      setIsEditingDetailPanel(false);
+    } catch (err: unknown) {
+      setBottleneckActionError(err instanceof Error ? err.message : "Failed to save.");
+    } finally {
+      setSavingBottleneck(false);
+    }
+  };
+
+  const onDeleteDetailBottleneck = async () => {
+    if (!selectedBottleneckId) return;
+    await onDeleteBottleneck(selectedBottleneckId);
+  };
+
   const startEditingBottleneck = (bottleneckId: string) => {
     const target = dashboardSnapshot.bottlenecks.find((item) => item.id === bottleneckId);
     if (!target) {
+      console.error("Bottleneck not found:", bottleneckId, "Available:", dashboardSnapshot.bottlenecks.map(b => b.id));
       return;
     }
 
@@ -552,16 +757,17 @@ export function Dashboard() {
     setEditBottleneckDistrict("Iloilo City");
     setEditBottleneckType("intersection");
     setEditBottleneckWeight("1.0");
-    setEditLatitude(String(target.latitude));
-    setEditLongitude(String(target.longitude));
+    setEditLatitude(target.latitude != null ? String(target.latitude) : "");
+    setEditLongitude(target.longitude != null ? String(target.longitude) : "");
     setEditPickFromMap(false);
-    setIsAddMode(false);
+    setAddMode(null);
     setBottleneckActionError(null);
     setBottleneckActionNotice(null);
   };
 
   const onSaveEditedBottleneck = async () => {
     if (!editingBottleneckId) {
+      console.error("No editing bottleneck ID set");
       return;
     }
 
@@ -570,17 +776,20 @@ export function Dashboard() {
       return;
     }
 
-    const latitude = Number(editLatitude);
-    const longitude = Number(editLongitude);
+    const latVal = editLatitude.trim() ? Number(editLatitude) : NaN;
+    const lonVal = editLongitude.trim() ? Number(editLongitude) : NaN;
     const weight = Number(editBottleneckWeight);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      setBottleneckActionError("Latitude and longitude must be valid numbers.");
+
+    if (!Number.isFinite(latVal) || !Number.isFinite(lonVal)) {
+      setBottleneckActionError("Valid latitude and longitude are required.");
       return;
     }
     if (!Number.isFinite(weight) || weight <= 0) {
       setBottleneckActionError("Priority weight must be greater than 0.");
       return;
     }
+
+    console.log("Saving bottleneck:", editingBottleneckId, { name: editBottleneckName.trim(), latVal, lonVal });
 
     setSavingEditBottleneck(true);
     setBottleneckActionError(null);
@@ -591,14 +800,16 @@ export function Dashboard() {
         district: editBottleneckDistrict.trim() || "Iloilo City",
         bottleneck_type: editBottleneckType as "intersection" | "bridge" | "school_zone" | "market" | "terminal" | "other",
         road_priority_weight: weight,
-        latitude,
-        longitude,
+        latitude: latVal,
+        longitude: lonVal,
       });
+      console.log("Bottleneck updated successfully");
       await reloadDashboard();
       setEditingBottleneckId(null);
       setEditPickFromMap(false);
       setBottleneckActionNotice("Bottleneck updated successfully.");
     } catch (actionError: unknown) {
+      console.error("Failed to update bottleneck:", actionError);
       setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to update bottleneck.");
     } finally {
       setSavingEditBottleneck(false);
@@ -836,220 +1047,240 @@ export function Dashboard() {
       {/* Main Content Area */}
       <div className="flex flex-1 overflow-hidden">
         {/* Left Sidebar - Bottlenecks List */}
-        <div className="w-full border-r bg-white md:w-80">
-          <div className="border-b p-4">
-            <div className="mb-4 flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-yellow-500" />
-              <h2 className="text-lg font-semibold">Bottlenecks</h2>
-              <span className="ml-auto rounded-full bg-gray-100 px-3 py-1 text-sm">{filteredBottlenecks.length} UNITS</span>
-            </div>
+        <div className="flex w-full flex-col border-r border-gray-200 bg-[#f8fafc] md:w-80">
+          <div className="border-b border-gray-200 bg-white px-4 py-4">
             <div className="mb-3 flex items-center gap-2">
-              <button
-                onClick={() => {
-                  setIsAddMode((current) => !current);
-                  setPendingPoint(null);
-                  setBottleneckActionError(null);
-                  setBottleneckActionNotice(null);
-                }}
-                className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
-                  isAddMode ? "bg-yellow-400 text-white" : "border text-gray-700 hover:bg-gray-50"
-                }`}
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {isAddMode ? "Cancel Add Mode" : "Add from Map"}
-              </button>
+              <AlertCircle className="h-4 w-4 text-yellow-500" />
+              <h2 className="text-xl font-semibold tracking-tight text-gray-900">Bottlenecks</h2>
+              <span className="ml-auto inline-flex items-center whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-600">{bottlenecks.length} TOTAL</span>
+              <span className="inline-flex items-center whitespace-nowrap rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-600">{criticalBottleneckCount} CRITICAL</span>
             </div>
+
             <input
               type="text"
-              placeholder="Filter stations..."
+              placeholder="Filter by name or ID..."
               value={filterTerm}
               onChange={(event) => setFilterTerm(event.target.value)}
-              className="w-full rounded-lg border px-3 py-2 text-sm"
+              className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400"
             />
+
+            <div className="mt-4 border-t border-gray-100 pt-3">
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Congestion Layer Key</div>
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-600">
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+                  Free
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-yellow-500" />
+                  Moderate
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-orange-500" />
+                  Heavy
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-full bg-red-500" />
+                  Critical
+                </div>
+              </div>
+            </div>
+
             {bottleneckActionError && <p className="mt-2 text-xs text-red-600">{bottleneckActionError}</p>}
             {bottleneckActionNotice && <p className="mt-2 text-xs text-green-700">{bottleneckActionNotice}</p>}
           </div>
 
-          <div className="overflow-y-auto" style={{ height: "calc(100% - 120px)" }}>
-            {filteredBottlenecks.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center gap-3 border-b px-4 py-3 hover:bg-gray-50"
-              >
-                {item.status === "critical" && (
-                  <div className="h-2 w-2 rounded-full bg-red-500"></div>
-                )}
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500">{item.id}</span>
-                    {item.badge && (
-                      <span className="rounded bg-red-500 px-2 py-0.5 text-xs text-white">
-                        {item.badge}
-                      </span>
-                    )}
-                  </div>
-                  <div className="font-medium">{item.name}</div>
-                </div>
-                <ConfirmDialog
-                  title="Remove Bottleneck"
-                  description={`Are you sure you want to remove ${item.id} (${item.name}) from active bottlenecks? This action cannot be undone.`}
-                  confirmText="Remove"
-                  isDangerous
-                  onConfirm={() => onDeleteBottleneck(item.id)}
-                  trigger={
-                    <button
-                      disabled={deletingBottleneckId === item.id}
-                      className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                      aria-label={`Remove bottleneck ${item.id}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  }
-                />
-                <button
-                  onClick={() => startEditingBottleneck(item.id)}
-                  className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600"
-                  aria-label={`Edit bottleneck ${item.id}`}
+          <div className="flex-1 overflow-y-auto bg-[#f8fafc]">
+            {filteredBottlenecks.map((item) => {
+              const tsiPercent = Math.round((Number(item.tsi) || 0) * 100);
+              const severity = getCongestionSeverity(item);
+              const hasIncident = hasIncidentForBottleneck(item.id, item.name);
+              const selected = selectedBottleneckId === item.id;
+
+              return (
+                <div
+                  key={item.id}
+                  className={`group flex items-center gap-2 border-b border-gray-200 px-3 py-3 transition-colors ${selected ? "bg-blue-50" : "hover:bg-gray-100"}`}
+                  onClick={() => {
+                    setSelectedBottleneckId(item.id);
+                    setIsEditingDetailPanel(false);
+                    setDetailPanelName(item.name);
+                    setDetailPanelCongestion(String(tsiPercent));
+                    setDetailPanelLatitude(String(item.latitude));
+                    setDetailPanelLongitude(String(item.longitude));
+                  }}
                 >
-                  <Pencil className="h-4 w-4" />
-                </button>
-                <ChevronRight className="h-4 w-4 text-gray-400" />
-              </div>
-            ))}
+                  <span className={`h-3 w-3 shrink-0 rounded-full ${congestionTone[severity].dot}`} />
+
+                  <div className="min-w-0 flex-1">
+                    <div className="mb-0.5 flex items-center gap-1.5">
+                      <span className="text-[11px] font-semibold tracking-wide text-gray-400">{item.id}</span>
+                      {(hasIncident || item.badge) && (
+                        <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
+                          Incident
+                        </span>
+                      )}
+                    </div>
+                    <div className="truncate text-[20px]/[22px] font-semibold text-gray-800">{item.name}</div>
+                  </div>
+
+                  <div className="ml-2 flex shrink-0 flex-col items-end gap-1">
+                    <span className={`text-sm font-semibold ${congestionTone[severity].text}`}>{tsiPercent}%</span>
+                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <ConfirmDialog
+                        title="Remove Bottleneck"
+                        description={`Are you sure you want to remove ${item.id} (${item.name}) from active bottlenecks? This action cannot be undone.`}
+                        confirmText="Remove"
+                        isDangerous
+                        onConfirm={() => onDeleteBottleneck(item.id)}
+                        trigger={
+                          <button
+                            disabled={deletingBottleneckId === item.id}
+                            className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            aria-label={`Remove bottleneck ${item.id}`}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        }
+                      />
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startEditingBottleneck(item.id);
+                        }}
+                        className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600"
+                        aria-label={`Edit bottleneck ${item.id}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 
         {/* Main Content - Map */}
         <div className="relative flex-1 bg-gray-100">
-          {/* View Mode Tabs */}
-          <div className="absolute left-4 top-4 z-20 flex gap-2 rounded-lg bg-white p-1 shadow-md">
-            <button className="rounded px-3 py-1.5 text-sm text-gray-600">VIEW MODES</button>
-            <button
-              onClick={() => {
-                setSelectedView("Congestion");
-                setShowWeatherOverlay(false);
-              }}
-              className={`rounded px-3 py-1.5 text-sm ${
-                selectedView === "Congestion"
-                  ? "bg-yellow-400 font-medium text-white"
-                  : "hover:bg-gray-100"
-              }`}
-            >
-              Congestion
+          {/* Top Left Controls */}
+          <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-3">
+            {/* View Mode Tabs */}
+            <div className="flex gap-1 rounded-full bg-white p-1 shadow-md">
+              <button
+                onClick={() => {
+                  setSelectedView("Congestion");
+                  setShowWeatherOverlay(false);
+                }}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  selectedView === "Congestion"
+                    ? "bg-yellow-400 text-white"
+                    : "text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                Congestion
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedView("Weather");
+                  setShowWeatherOverlay(true);
+                }}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  selectedView === "Weather" 
+                    ? "bg-yellow-400 text-white" 
+                    : "text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                Weather
+              </button>
+              <button
+                onClick={() => {
+                  setSelectedView("Assignments");
+                  setShowWeatherOverlay(false);
+                }}
+                className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                  selectedView === "Assignments"
+                    ? "bg-yellow-400 text-white"
+                    : "text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                Assignments
+              </button>
+            </div>
+
+            {/* Location Label */}
+            <div className="flex items-center rounded-full bg-white px-4 py-1.5 text-sm font-medium shadow-md">
+              <MapPin className="mr-1 h-4 w-4 text-pink-500" />
+              {dashboardSnapshot.cityLabel}
+            </div>
+
+            {/* Guide Button */}
+            <button className="flex items-center gap-1 rounded-full bg-white px-4 py-1.5 text-sm font-medium text-gray-700 shadow-md hover:bg-gray-50">
+              <AlertCircle className="h-4 w-4 text-orange-400" />
+              Guide
             </button>
-            <button
-              onClick={() => {
-                setSelectedView("Weather");
-                setShowWeatherOverlay(true);
-              }}
-              className={`rounded px-3 py-1.5 text-sm ${
-                selectedView === "Weather" ? "bg-yellow-400 font-medium text-white" : "hover:bg-gray-100"
-              }`}
-            >
-              Weather
-            </button>
-            <button
-              onClick={() => {
-                setSelectedView("Assignments");
-                setShowWeatherOverlay(false);
-              }}
-              className={`rounded px-3 py-1.5 text-sm ${
-                selectedView === "Assignments"
-                  ? "bg-yellow-400 font-medium text-white"
-                  : "hover:bg-gray-100"
-              }`}
-            >
-              Assignments
-            </button>
+
+            {/* Add Marker Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setShowAddMenu(!showAddMenu)}
+                className="flex items-center gap-1 rounded-full bg-orange-500 px-4 py-1.5 text-sm font-medium text-white shadow-md hover:bg-orange-600"
+              >
+                <Plus className="h-4 w-4" />
+                Add Marker
+                <ChevronRight className={`h-4 w-4 transition-transform ${showAddMenu ? "rotate-90" : "rotate-90"}`} />
+              </button>
+
+              {showAddMenu && (
+                <div className="absolute right-0 top-full mt-2 w-56 rounded-xl bg-white p-2 shadow-xl">
+                  <button
+                    onClick={() => {
+                      setAddMode("bottleneck");
+                      setShowAddMenu(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <div className="h-3 w-3 rounded-full bg-orange-400"></div>
+                    Bottleneck Node
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAddMode("incident");
+                      setShowAddMenu(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <div className="h-3 w-3 rounded-full bg-red-500"></div>
+                    Incident Marker
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAddMode("poi");
+                      setShowAddMenu(false);
+                    }}
+                    className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    <div className="h-3 w-3 rounded-full bg-blue-500"></div>
+                    Point of Interest
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Add Mode Banner */}
+          {addMode && (
+            <div className="absolute left-1/2 top-20 z-20 -translate-x-1/2 rounded-full bg-orange-500 px-6 py-2 text-sm font-bold text-white shadow-lg animate-pulse">
+              Click map to place {addMode}
+            </div>
+          )}
 
           {/* Map Container */}
           <div className="relative h-full w-full overflow-hidden bg-gray-100">
             <div ref={mapContainerRef} className="h-full w-full" />
 
-            {isAddMode && (
-              <div className="absolute right-4 top-20 z-30 w-80 rounded-xl border bg-white p-4 shadow-xl">
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">Add Bottleneck</h3>
-                  <button
-                    onClick={() => {
-                      setIsAddMode(false);
-                      setPendingPoint(null);
-                    }}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <p className="mb-3 text-xs text-gray-600">Click on the map to place the bottleneck, then complete details.</p>
-                <div className="mb-3 rounded bg-gray-50 p-2 text-xs text-gray-700">
-                  {pendingPoint
-                    ? `Point selected: ${pendingPoint.latitude}, ${pendingPoint.longitude}`
-                    : "No point selected yet."}
-                </div>
-                <div className="space-y-2">
-                  <input
-                    value={newBottleneckName}
-                    onChange={(event) => setNewBottleneckName(event.target.value)}
-                    placeholder="Name *"
-                    className="w-full rounded border px-2 py-1.5 text-sm"
-                  />
-                  <input
-                    value={newBottleneckId}
-                    onChange={(event) => setNewBottleneckId(event.target.value)}
-                    placeholder="Code (optional, e.g. B-031)"
-                    className="w-full rounded border px-2 py-1.5 text-sm"
-                  />
-                  <input
-                    value={newBottleneckDistrict}
-                    onChange={(event) => setNewBottleneckDistrict(event.target.value)}
-                    placeholder="District"
-                    className="w-full rounded border px-2 py-1.5 text-sm"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={newBottleneckType}
-                      onChange={(event) => setNewBottleneckType(event.target.value)}
-                      className="rounded border px-2 py-1.5 text-sm"
-                    >
-                      <option value="intersection">Intersection</option>
-                      <option value="bridge">Bridge</option>
-                      <option value="school_zone">School Zone</option>
-                      <option value="market">Market</option>
-                      <option value="terminal">Terminal</option>
-                      <option value="other">Other</option>
-                    </select>
-                    <input
-                      value={newBottleneckWeight}
-                      onChange={(event) => setNewBottleneckWeight(event.target.value)}
-                      placeholder="Priority Weight"
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      className="rounded border px-2 py-1.5 text-sm"
-                    />
-                  </div>
-                </div>
-                <div className="mt-3 flex gap-2">
-                  <button
-                    onClick={() => {
-                      setPendingPoint(null);
-                      setIsAddMode(false);
-                    }}
-                    className="flex-1 rounded border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={onCreateBottleneck}
-                    disabled={savingBottleneck}
-                    className="flex-1 rounded bg-yellow-400 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
-                  >
-                    {savingBottleneck ? "Saving..." : "Save Bottleneck"}
-                  </button>
-                </div>
-              </div>
-            )}
+
 
             {editingBottleneckId && (
               <div className="absolute right-4 top-20 z-30 w-80 rounded-xl border bg-white p-4 shadow-xl">
@@ -1071,7 +1302,7 @@ export function Dashboard() {
                   <button
                     onClick={() => {
                       setEditPickFromMap((current) => !current);
-                      setIsAddMode(false);
+                      setAddMode(null);
                     }}
                     className={`rounded px-2 py-1 font-medium ${editPickFromMap ? "bg-yellow-400 text-white" : "border text-gray-700"}`}
                   >
@@ -1229,11 +1460,6 @@ export function Dashboard() {
             <div className="pointer-events-none absolute bottom-1 right-2 z-20 rounded bg-white/85 px-2 py-0.5 text-xs text-gray-700">
               Map data © TomTom, © OpenStreetMap contributors
             </div>
-
-            {/* Location Label */}
-              <div className="pointer-events-none absolute left-1/2 top-16 z-30 -translate-x-1/2 rounded-full bg-white/90 px-4 py-2 text-sm font-medium shadow-md backdrop-blur-sm">
-              📍 {dashboardSnapshot.cityLabel}
-            </div>
           </div>
 
           {/* Incident Modal */}
@@ -1292,6 +1518,248 @@ export function Dashboard() {
 
         {/* Right Sidebar - Quick Optimize & Incident Ticker */}
         <div className="w-full space-y-4 overflow-y-auto bg-white p-4 md:w-96">
+          {/* Bottleneck Detail Panel */}
+          {selectedBottleneckId && getSelectedBottleneck() && (
+            <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-4">
+              <div className="mb-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MapPin className="h-5 w-5 text-blue-600" />
+                  <h3 className="font-semibold text-blue-900">{isEditingDetailPanel ? "Edit Bottleneck" : "Bottleneck Details"}</h3>
+                </div>
+                <button
+                  onClick={() => setSelectedBottleneckId(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Read Mode */}
+              {!isEditingDetailPanel && (
+                <div className="space-y-4">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-600">NAME</div>
+                    <div className="text-lg font-bold text-blue-900">{detailPanelName}</div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs font-semibold text-gray-600">CONGESTION</div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1">
+                        <div className="relative h-2 overflow-hidden rounded-full bg-gray-200">
+                          <div
+                            className="h-full bg-red-500 transition-all"
+                            style={{ width: `${detailPanelCongestion}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                      <span className="font-bold text-red-600">{detailPanelCongestion}%</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-gray-600">WEATHER IMPACT</div>
+                      <div className="font-bold text-orange-600">{detailPanelWeather}%</div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-gray-600">OFFICERS</div>
+                      <div className="font-bold text-purple-600">
+                        {detailPanelOfficersCurrent}/{detailPanelOfficersNeeded}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active Incidents */}
+                  <div>
+                    <div className="mb-2 text-xs font-semibold text-gray-600">ACTIVE INCIDENTS</div>
+                    {getIncidentsForBottleneck(selectedBottleneckId).length === 0 ? (
+                      <div className="rounded-lg bg-green-50 p-2 text-center text-sm font-medium text-green-700">
+                        CLEAR
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {getIncidentsForBottleneck(selectedBottleneckId).map((inc) => (
+                          <div
+                            key={inc.id}
+                            className={`rounded-lg p-2 text-xs font-medium ${
+                              inc.type === "critical"
+                                ? "bg-red-100 text-red-700"
+                                : inc.type === "major"
+                                  ? "bg-orange-100 text-orange-700"
+                                  : "bg-yellow-100 text-yellow-700"
+                            }`}
+                          >
+                            {inc.type.toUpperCase()} - {inc.text}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setIsEditingDetailPanel(true);
+                      }}
+                      className="flex-1 rounded-lg border border-blue-600 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => onDeleteDetailBottleneck()}
+                      className="flex-1 rounded-lg border border-red-600 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Edit Mode */}
+              {isEditingDetailPanel && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600">NAME</label>
+                    <input
+                      type="text"
+                      value={detailPanelName}
+                      onChange={(e) => setDetailPanelName(e.target.value)}
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600">CONGESTION %</label>
+                    <input
+                      type="number"
+                      value={detailPanelCongestion}
+                      onChange={(e) => setDetailPanelCongestion(e.target.value)}
+                      min="0"
+                      max="100"
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600">WEATHER IMPACT %</label>
+                    <input
+                      type="number"
+                      value={detailPanelWeather}
+                      onChange={(e) => setDetailPanelWeather(e.target.value)}
+                      className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600">OFFICERS CURRENT</label>
+                      <input
+                        type="number"
+                        value={detailPanelOfficersCurrent}
+                        onChange={(e) => setDetailPanelOfficersCurrent(e.target.value)}
+                        min="0"
+                        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-600">OFFICERS NEEDED</label>
+                      <input
+                        type="number"
+                        value={detailPanelOfficersNeeded}
+                        onChange={(e) => setDetailPanelOfficersNeeded(e.target.value)}
+                        min="0"
+                        className="mt-1 w-full rounded-lg border px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Save/Cancel Buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={onSaveDetailPanel}
+                      disabled={savingBottleneck}
+                      className="flex-1 rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600 disabled:opacity-50"
+                    >
+                      {savingBottleneck ? "Saving..." : "Save"}
+                    </button>
+                    <button
+                      onClick={() => setIsEditingDetailPanel(false)}
+                      className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+
+                  {/* Error/Notice Display */}
+                  {bottleneckActionError && (
+                    <div className="rounded-lg bg-red-50 p-2 text-xs text-red-700">{bottleneckActionError}</div>
+                  )}
+                  {bottleneckActionNotice && (
+                    <div className="rounded-lg bg-green-50 p-2 text-xs text-green-700">{bottleneckActionNotice}</div>
+                  )}
+                </div>
+              )}
+
+              {/* Quick Optimize Section */}
+              <div className="mt-4 border-t pt-4">
+                <h4 className="mb-3 text-sm font-semibold text-gray-700">Quick Optimize</h4>
+
+                {/* Shift Selector */}
+                <div className="mb-3">
+                  <label className="mb-2 block text-xs font-medium text-gray-600">SELECT SHIFT</label>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSelectedShift("Morning")}
+                      className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-all ${
+                        selectedShift === "Morning"
+                          ? "bg-yellow-400 text-white"
+                          : "bg-white text-gray-700 border hover:bg-gray-50"
+                      }`}
+                    >
+                      Morning <div className="text-xs opacity-75">6AM-2PM</div>
+                    </button>
+                    <button
+                      onClick={() => setSelectedShift("Afternoon")}
+                      className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-all ${
+                        selectedShift === "Afternoon"
+                          ? "bg-yellow-400 text-white"
+                          : "bg-white text-gray-700 border hover:bg-gray-50"
+                      }`}
+                    >
+                      Afternoon <div className="text-xs opacity-75">2PM-10PM</div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Optimization Info */}
+                <div className="space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-600">Impact Radius</span>
+                    <span className="font-bold">{impactRadiusKm} KM</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-600">Est. Clear Time</span>
+                    <span className="font-bold">{estimatedClearMinutes} MIN</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-gray-600">Network Health</span>
+                    <span className={`font-bold ${networkHealthClass}`}>{networkHealthLabel}</span>
+                  </div>
+                </div>
+
+                {/* Run Optimization */}
+                <Link
+                  to="/optimization"
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-yellow-400 px-3 py-2 text-xs font-semibold text-white hover:bg-yellow-500"
+                >
+                  ⚡ Run Optimization
+                </Link>
+              </div>
+            </div>
+          )}
+
           {/* Incident Ticker */}
           <div className="rounded-lg border bg-white p-4">
             <div className="mb-3 flex items-center gap-2">

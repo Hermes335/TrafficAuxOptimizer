@@ -4,9 +4,10 @@ from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from math import radians, sin, cos, sqrt, atan2
 
-from core.models import Bottleneck, Incident, Officer, OptimizationRun, TrafficData, WeatherData
-from core.serializers import BottleneckSerializer, OfficerSerializer
+from core.models import Bottleneck, Incident, Officer, OptimizationRun, POI, TrafficData, WeatherData
+from core.serializers import BottleneckSerializer, OfficerSerializer, IncidentCreateSerializer, IncidentResponseSerializer, POISerializer
 from core.utils import write_audit_log
 
 
@@ -63,7 +64,8 @@ class DashboardBottlenecksView(APIView):
 			active_incident = b.incidents.filter(is_deleted=False, status="active").order_by("-timestamp").first()
 			deployments = b.deployments.filter(is_deleted=False, status="assigned").select_related("officer")
 			assigned = deployments.first().officer.badge_number if deployments.exists() else None
-			tsi_val = latest_traffic.traffic_severity_index if latest_traffic else 0.0
+			# Use bottleneck's tsi field if available, otherwise fall back to traffic data
+			tsi_val = b.tsi if b.tsi and b.tsi > 0 else (latest_traffic.traffic_severity_index if latest_traffic else 0.0)
 			status_value = "normal"
 			if active_incident or tsi_val >= 0.8:
 				status_value = "critical"
@@ -76,7 +78,7 @@ class DashboardBottlenecksView(APIView):
 					"latitude": b.latitude,
 					"longitude": b.longitude,
 					"status": status_value,
-					"tsi": round(latest_traffic.traffic_severity_index, 2) if latest_traffic else 0.0,
+					"tsi": round(tsi_val, 2),
 					"assigned_officer": assigned,
 				}
 			)
@@ -123,6 +125,13 @@ class DashboardBottleneckManageView(APIView):
 			return Response({"detail": "Bottleneck not found."}, status=status.HTTP_404_NOT_FOUND)
 
 		payload = request.data or {}
+		tsi_raw = payload.get("tsi")
+		# Convert to float, default to existing value if None
+		try:
+			tsi_val = float(tsi_raw) if tsi_raw is not None else bottleneck.tsi
+		except (TypeError, ValueError):
+			tsi_val = bottleneck.tsi
+
 		allowed_fields = {
 			"name": payload.get("name", bottleneck.name),
 			"latitude": payload.get("latitude", bottleneck.latitude),
@@ -130,6 +139,8 @@ class DashboardBottleneckManageView(APIView):
 			"district": payload.get("district", bottleneck.district),
 			"bottleneck_type": payload.get("bottleneck_type", bottleneck.bottleneck_type),
 			"road_priority_weight": payload.get("road_priority_weight", bottleneck.road_priority_weight),
+			"tsi": tsi_val,
+			"heatmap_tsi": tsi_val,
 		}
 
 		serializer = BottleneckSerializer(bottleneck, data=allowed_fields, partial=True)
@@ -205,15 +216,123 @@ class ActiveIncidentsView(APIView):
 			.select_related("bottleneck")
 			.order_by("-timestamp")[:50]
 		)
-		data = [
-			{
+		data = []
+		for i in incidents:
+			lat = i.latitude
+			lon = i.longitude
+			if not lat and i.bottleneck:
+				lat = i.bottleneck.latitude
+				lon = i.bottleneck.longitude
+			data.append({
 				"id": i.id,
-				"text": f"{i.severity.title()}: {i.description} - {i.bottleneck.id} {i.bottleneck.name}",
+				"text": f"{i.severity.title()}: {i.description} - {i.bottleneck.id if i.bottleneck else 'N/A'} {i.bottleneck.name if i.bottleneck else 'Unknown'}",
 				"type": "critical" if i.severity == "critical" else ("major" if i.severity == "major" else "minor"),
-			}
-			for i in incidents
-		]
+				"latitude": lat,
+				"longitude": lon,
+				"severity": i.severity,
+				"incident_type": i.incident_type,
+				"description": i.description,
+				"timestamp": i.timestamp.isoformat() if i.timestamp else None,
+			})
 		return Response(data)
+
+
+class IncidentListCreateView(APIView):
+	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+	def get(self, request):
+		status_filter = request.query_params.get("status", "active")
+		incidents = (
+			Incident.objects.filter(is_deleted=False, status=status_filter)
+			.select_related("bottleneck", "reported_by")
+			.order_by("-timestamp")[:100]
+		)
+		return Response(IncidentResponseSerializer(incidents, many=True).data)
+
+	def post(self, request):
+		serializer = IncidentCreateSerializer(data=request.data, context={"request": request})
+		serializer.is_valid(raise_exception=True)
+		incident = serializer.save()
+		write_audit_log(request.user, "create", "incident", {"incident_id": incident.id})
+		return Response(IncidentResponseSerializer(incident).data, status=status.HTTP_201_CREATED)
+
+
+class IncidentDetailView(APIView):
+	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+	def get(self, request, incident_id):
+		incident = Incident.objects.filter(id=incident_id, is_deleted=False).select_related("bottleneck", "reported_by").first()
+		if not incident:
+			return Response({"detail": "Incident not found"}, status=status.HTTP_404_NOT_FOUND)
+		return Response(IncidentResponseSerializer(incident).data)
+
+	def put(self, request, incident_id):
+		incident = Incident.objects.filter(id=incident_id, is_deleted=False).first()
+		if not incident:
+			return Response({"detail": "Incident not found"}, status=status.HTTP_404_NOT_FOUND)
+		serializer = IncidentCreateSerializer(incident, data=request.data, partial=True)
+		serializer.is_valid(raise_exception=True)
+		incident = serializer.save()
+		write_audit_log(request.user, "update", "incident", {"incident_id": incident.id})
+		return Response(IncidentResponseSerializer(incident).data)
+
+
+class POIListView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def get(self, request):
+		pois = POI.objects.filter(is_deleted=False, is_active=True)
+		return Response(POISerializer(pois, many=True).data)
+
+
+def _haversine_distance(lat1, lon1, lat2, lon2):
+	"""Calculate the great circle distance in kilometers between two points."""
+	R = 6371  # Earth's radius in kilometers
+	lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+	dlat = lat2 - lat1
+	dlon = lon2 - lon1
+	a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+	c = 2 * atan2(sqrt(a), sqrt(1 - a))
+	return R * c
+
+
+class TrafficSampleView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def get(self, request):
+		try:
+			lat = float(request.query_params.get("lat"))
+			lon = float(request.query_params.get("lon"))
+		except (TypeError, ValueError):
+			return Response({"detail": "Invalid lat/lon parameters"}, status=status.HTTP_400_BAD_REQUEST)
+
+		# Find nearest bottleneck with traffic data
+		bottlenecks = Bottleneck.objects.filter(is_deleted=False)
+		nearest = None
+		min_dist = float("inf")
+
+		for b in bottlenecks:
+			dist = _haversine_distance(lat, lon, b.latitude, b.longitude)
+			if dist < min_dist:
+				min_dist = dist
+				nearest = b
+
+		if nearest and min_dist <= 10:  # Within 10km
+			latest_traffic = nearest.traffic_data.filter(is_deleted=False).order_by("-timestamp").first()
+			if latest_traffic:
+				return Response({
+					"heatmap_tsi": nearest.heatmap_tsi or latest_traffic.traffic_severity_index,
+					"severity_index": min(3, int(latest_traffic.traffic_severity_index * 3)),
+					"bottleneck_id": nearest.id,
+					"distance_km": round(min_dist, 2),
+				})
+
+		return Response({
+			"heatmap_tsi": None,
+			"severity_index": None,
+			"bottleneck_id": None,
+			"distance_km": round(min_dist, 2) if nearest else None,
+		})
 
 
 class DashboardMapDataView(APIView):

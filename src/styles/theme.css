@@ -17,6 +17,33 @@
   animation: beacon-pulse 2s infinite;
 }
 
+/* Marker discrepancy flash */
+@keyframes marker-flash {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.85; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.marker-flash {
+  animation: marker-flash 0.7s ease-in-out 0s 6;
+}
+
+/* POI icons */
+.poi-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.9);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  border: 1px solid rgba(0,0,0,0.06);
+}
+.poi-hospital { background: #ef4444; color: white; }
+.poi-fire { background: #f97316; color: white; }
+.poi-school { background: #10b981; color: white; }
+
 :root {
   --font-size: 16px;
   --background: #ffffff;

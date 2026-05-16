@@ -9,6 +9,10 @@ export interface Bottleneck {
   latitude: number;
   longitude: number;
   tsi?: number;
+  road_priority_weight?: number;
+  weather_impact_factor?: number;
+  deployed_officers?: number;
+  required_officers?: number;
 }
 
 export interface Incident {
@@ -248,6 +252,7 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
     status: item.status,
     latitude: item.latitude,
     longitude: item.longitude,
+    tsi: item.tsi,
   }));
 
   return {
@@ -499,6 +504,7 @@ export interface DashboardBottleneckPayload {
   district?: string;
   bottleneck_type?: "intersection" | "bridge" | "school_zone" | "market" | "terminal" | "other";
   road_priority_weight?: number;
+  tsi?: number;
 }
 
 export interface DashboardOfficerRecord {
