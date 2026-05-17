@@ -31,7 +31,7 @@ class IncidentMetaView(APIView):
 
 
 class IncidentReportView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	parser_classes = [MultiPartParser, FormParser]
 
 	def post(self, request):
@@ -68,10 +68,19 @@ class IncidentReportView(APIView):
 			except Exception:
 				pass
 
+		incident_type = request.data.get("incident_type", "other")
+		severity = request.data.get("severity", "minor")
+		valid_types = {t[0] for t in Incident.TYPES}
+		valid_severities = {s[0] for s in Incident.SEVERITIES}
+		if incident_type not in valid_types:
+			return Response({"detail": f"Invalid incident_type. Valid: {valid_types}"}, status=status.HTTP_400_BAD_REQUEST)
+		if severity not in valid_severities:
+			return Response({"detail": f"Invalid severity. Valid: {valid_severities}"}, status=status.HTTP_400_BAD_REQUEST)
+
 		incident = Incident.objects.create(
 			bottleneck=bottleneck,
-			incident_type=request.data.get("incident_type", "other"),
-			severity=request.data.get("severity", "minor"),
+			incident_type=incident_type,
+			severity=severity,
 			description=request.data.get("description", ""),
 			photo_url=photo_url,
 			reported_by=actor,
@@ -121,7 +130,7 @@ class IncidentListView(APIView):
 
 
 class IncidentResolveView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def put(self, request, incident_id: int):
 		incident = Incident.objects.filter(pk=incident_id, is_deleted=False).first()

@@ -22,7 +22,11 @@ def _generate_next_bottleneck_id() -> str:
 			max_number = max(max_number, int(raw_id.split("-")[1]))
 		except (IndexError, ValueError):
 			continue
-	return f"B-{max_number + 1:03d}"
+	candidate = f"B-{max_number + 1:03d}"
+	if Bottleneck.objects.filter(pk=candidate).exists():
+		import uuid
+		candidate = f"B-{uuid.uuid4().hex[:6]}"
+	return candidate
 
 
 class DashboardKPIsView(APIView):
@@ -94,7 +98,7 @@ class DashboardOfficersView(APIView):
 
 
 class DashboardBottleneckManageView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
 		payload = request.data or {}
@@ -132,6 +136,9 @@ class DashboardBottleneckManageView(APIView):
 		except (TypeError, ValueError):
 			tsi_val = bottleneck.tsi
 
+		if tsi_val is not None and (tsi_val < 0 or tsi_val > 1):
+			return Response({"detail": "TSI must be between 0 and 1."}, status=status.HTTP_400_BAD_REQUEST)
+
 		allowed_fields = {
 			"name": payload.get("name", bottleneck.name),
 			"latitude": payload.get("latitude", bottleneck.latitude),
@@ -140,7 +147,6 @@ class DashboardBottleneckManageView(APIView):
 			"bottleneck_type": payload.get("bottleneck_type", bottleneck.bottleneck_type),
 			"road_priority_weight": payload.get("road_priority_weight", bottleneck.road_priority_weight),
 			"tsi": tsi_val,
-			"heatmap_tsi": tsi_val,
 		}
 
 		serializer = BottleneckSerializer(bottleneck, data=allowed_fields, partial=True)
@@ -171,7 +177,7 @@ class DashboardBottleneckManageView(APIView):
 
 
 class DashboardOfficerManageView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
 		payload = request.data or {}
@@ -344,7 +350,7 @@ class DashboardMapDataView(APIView):
 
 
 class QuickOptimizeView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
 		payload = request.data or {}
@@ -364,4 +370,9 @@ class QuickOptimizeView(APIView):
 			created_by=created_by,
 		)
 		write_audit_log(created_by, "create", "optimization_run", {"run_id": run.run_id, "mode": "quick"})
+		try:
+			from optimization.tasks import run_optimization
+			run_optimization.delay(run.run_id)
+		except Exception:
+			pass
 		return Response({"run_id": run.run_id, "status": run.status}, status=status.HTTP_202_ACCEPTED)

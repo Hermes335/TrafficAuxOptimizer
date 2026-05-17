@@ -1,116 +1,72 @@
+# TrafficAuxOptimizer
 
-  # TrafficAuxOptimizer
+A Traffic Decision Support System (DSS) for the Iloilo City Traffic Management Office (ICTMO). It uses an NSGA-II multi-objective genetic algorithm to optimize traffic officer deployment across bottleneck locations, with real-time WebSocket progress, Pareto front visualization, and deployment scheduling.
 
-  This repository contains the TrafficAuxOptimizer application.
+## Quick Start
 
-  ## Running the code
-
-  Run `npm i` to install the dependencies.
-
-  Run `npm run dev` for the basic renderer + desktop flow.
-
-  Run `npm run dev:local` for the stable Windows local stack (backend + Celery worker + renderer + desktop).
-
-  Run `npm run stop:local` to stop the local stack processes in one command.
-
-  Optional for scheduled jobs: run `npm run dev:beat` in a separate terminal.
-
-  The renderer runs on Vite at `http://127.0.0.1:5173`, and the Electron backend listens on `http://127.0.0.1:3001`.
-
-
-Still needs your intervention:
-
-PostgreSQL/PostGIS runtime setup and confirmation.
-Redis runtime setup for cache and Channels/Celery.
-Celery worker and beat processes.
-Real external API keys for TomTom, and a PAGASA endpoint if you use one.
-Final auth policy for desktop mode versus full JWT enforcement.
-WebSocket auth policy for desktop mode versus token-required connections.
-Production env values, including secrets, database URL, Redis URL, and VITE_API_BASE_URL if you want to override the default.
-Docker/production deployment target and host/port mapping.
-Real performance validation on your dataset and infra.
-Full smoke test of login/logout, WebSockets, and Docker compose in your environment.
-  
-List of Items added to gitignore:
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# Build outputs
-dist/
-build/
-coverage/
-
-# Python
-.venv/
-venv/
-__pycache__/
-*.py[cod]
-*.sqlite3
-
-# Env files
-.env
-.env.*
-!.env.example
-
-# OS/editor noise
-.DS_Store
-Thumbs.db
-.vscode/settings.json
-
-Set up PostgreSQL/PostGIS first. This is the foundation for the real backend data model, and it removes the current SQLite fallback from the normal path.
-
-Start Redis next. Channels and Celery both depend on it, so there’s no point bringing workers up before Redis is stable.
-
-Run Celery worker and beat. That gets weather, traffic, cleanup, and optimization background jobs actually executing.
-
-Decide the auth policy for desktop mode versus full JWT mode. That choice affects API behavior and websocket behavior, so it should be locked before testing the app flow.
-
-Decide the websocket auth policy. Keep it aligned with the API auth decision so you do not end up with one open and the other locked down.
-
-Fill real production env values. At minimum, set secrets, database URL, Redis URL, and VITE_API_BASE_URL if you want the renderer to point somewhere other than localhost.
-
-Confirm TomTom and PAGASA configuration. TomTom key is already important for traffic/map overlays, and PAGASA only matters if you want that fallback path.
-
-Choose the deployment target and port mapping. Do this before packaging so the final host/port layout does not need rework.
-
-Run performance validation on your real dataset and infrastructure. This should happen after the stack is stable, not before.
-
-Finish with a full smoke test: login/logout, websocket reconnects, optimization flow, and Docker compose if you are deploying with containers.
-
-You found the conflict: Windows is running a Redis service on port 6379.
-
-Next step:
-
-Open PowerShell as Administrator.
-Stop the Windows Redis service:
-Stop-Service Redis
-Optional, prevent it from coming back on boot:
-Set-Service Redis -StartupType Disabled
-Verify the port is free:
-netstat -ano | findstr :6379
-You want no LISTENING line anymore.
-
-Start Redis
-Start-Service Redis
-
-Confirm it is running
-Get-Service Redis
-
-Confirm port 6379 is listening
-netstat -ano | findstr :6379
-
-Go back to Ubuntu and make sure WSL Redis is still running:
-sudo service redis-server start
-redis-cli ping
-You want PONG.
-
-Use this to verify server version each time:
-redis-cli INFO SERVER | findstr redis_version
-
-Then in the project root, restart the app stack:
-npm run stop:local
+```bash
+npm install
 npm run dev:local
+```
+
+Open http://127.0.0.1:5173/login and use one of the test accounts (see SETUP.md).
+
+## Architecture
+
+```
+Frontend (React + TypeScript + Vite)
+  Dashboard      -- Live map, KPIs, bottleneck list, incident/weather context
+  Optimization   -- Configure shift, weights, GA parameters; start runs
+  Gantt Chart    -- Deployment schedule, coverage matrix, publish from optimization
+
+Backend (Django + Celery + Channels)
+  optimization/  -- NSGA-II engine, Celery task, WebSocket progress, Pareto data
+  dashboard/     -- KPIs, bottleneck/officer CRUD, map data
+  deployments/   -- Schedule, assign, publish optimization results
+  incidents/     -- Incident reporting, resolution, WebSocket alerts
+  external/      -- TomTom traffic tiles, PAGASA/Open-Meteo weather, OSM fallback
+```
+
+## Optimization Flow
+
+1. Supervisor clicks **Run Optimization** from Dashboard or navigates to `/optimization`
+2. Selects **shift** (Morning 6AM-2PM / Afternoon 2PM-10PM)
+3. Adjusts **objective weights** (TSI, WIF, RPW, Resource Utilization) or picks a preset (Normal, Typhoon, Special Event, Balanced)
+4. Tunes **GA parameters** (population size, generations, mutation rate, crossover rate, elitism)
+5. Clicks **Run Algorithm** -- navigates to `/optimization-running`
+6. Backend fetches officers, bottlenecks, weather data; runs NSGA-II optimization
+7. **WebSocket broadcasts** generation-by-generation progress (fitness, convergence)
+8. On completion, results page shows:
+   - Top 3 non-dominated deployment plans with officer assignments
+   - Pareto front visualization (coverage vs response time, weather responsiveness, resource balance)
+   - Convergence chart and early-stop status
+9. Supervisor clicks **Publish to Schedule** -- deployments appear on Gantt Chart
+10. Dashboard remains the live operational view with map markers, KPIs, and incidents
+
+## Key Features
+
+- **NSGA-II Multi-Objective Optimization** -- Non-dominated sorting, crowding distance, Pareto front preservation
+- **4 Objectives** -- Coverage efficiency, response time, road priority coverage, resource utilization
+- **Hard Constraint Penalties** -- Minimum 60% coverage, over-assignment limits
+- **Convergence Detection** -- Hypervolume-based early stopping (20-generation window)
+- **Scenario Presets** -- Typhoon mode (high WIF), Special Event (high TSI), Balanced, Normal
+- **Real-Time Progress** -- WebSocket streaming per generation with estimated completion
+- **Pareto Visualization** -- Bubble plot metadata (coverage, response time, weather responsiveness, resource balance)
+- **Deployment Publishing** -- Publish top solution directly to Gantt Chart schedule
+
+## Services
+
+| Service | Command | Port |
+|---------|---------|------|
+| Frontend (Vite) | `npm run dev:renderer` | 5173 |
+| Backend (Django) | `npm run dev:backend` | 8000 |
+| Celery Worker | `npm run dev:worker` | -- |
+| Celery Beat | `npm run dev:beat` | -- |
+| Desktop (Electron) | `npm run dev:desktop` | 3001 |
+
+Start all: `npm run dev:local` | Stop all: `npm run stop:local`
+
+## Documentation
+
+- [SETUP.md](SETUP.md) -- Full setup guide with prerequisites, database, Redis, test accounts
+- [API Docs](http://127.0.0.1:8000/api/docs/) -- Swagger UI (when backend is running)

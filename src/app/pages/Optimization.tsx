@@ -23,6 +23,7 @@ const DEFAULT_PARAMS = {
 };
 
 export function Optimization() {
+  const [selectedShift, setSelectedShift] = useState<"morning" | "afternoon">("afternoon");
   const [populationSize, setPopulationSize] = useState(DEFAULT_PARAMS.populationSize);
   const [generationLimit, setGenerationLimit] = useState(DEFAULT_PARAMS.generationLimit);
   const [crossoverRate, setCrossoverRate] = useState(DEFAULT_PARAMS.crossoverRate);
@@ -48,7 +49,7 @@ export function Optimization() {
       generations: generationLimit,
       mutation_rate: Number((mutationRate / 100).toFixed(2)),
       crossover_rate: Number((crossoverRate / 100).toFixed(2)),
-      elitism_count: Math.max(1, Math.round((elitismRate / 100) * 10)),
+      elitism_count: Math.max(1, Math.round((elitismRate / 100) * populationSize)),
       tsi_weight: Number((tsiWeight / 100).toFixed(2)),
       wif_weight: Number((wifWeight / 100).toFixed(2)),
       rpw_weight: Number((rpwWeight / 100).toFixed(2)),
@@ -128,37 +129,24 @@ export function Optimization() {
     setSelectedPreset(preset);
     switch (preset) {
       case "normal":
-        setMutationRate(10);
-        setCrossoverRate(80);
-        setElitismRate(10);
-        setPopulationSize(200);
-        setGenerationLimit(300);
-        setTsiWeight(35);
-        setWifWeight(25);
-        setRpwWeight(25);
-        setResourceUtilizationWeight(15);
+        setMutationRate(10); setCrossoverRate(80); setElitismRate(10);
+        setPopulationSize(200); setGenerationLimit(300);
+        setTsiWeight(35); setWifWeight(25); setRpwWeight(25); setResourceUtilizationWeight(15);
         break;
-      case "weather":
-        setMutationRate(8);
-        setCrossoverRate(78);
-        setElitismRate(12);
-        setPopulationSize(240);
-        setGenerationLimit(350);
-        setTsiWeight(30);
-        setWifWeight(35);
-        setRpwWeight(20);
-        setResourceUtilizationWeight(15);
+      case "typhoon":
+        setMutationRate(8); setCrossoverRate(78); setElitismRate(12);
+        setPopulationSize(240); setGenerationLimit(350);
+        setTsiWeight(30); setWifWeight(50); setRpwWeight(15); setResourceUtilizationWeight(5);
         break;
-      case "event":
-        setMutationRate(12);
-        setCrossoverRate(85);
-        setElitismRate(15);
-        setPopulationSize(180);
-        setGenerationLimit(250);
-        setTsiWeight(40);
-        setWifWeight(20);
-        setRpwWeight(25);
-        setResourceUtilizationWeight(15);
+      case "special_event":
+        setMutationRate(12); setCrossoverRate(85); setElitismRate(15);
+        setPopulationSize(180); setGenerationLimit(250);
+        setTsiWeight(50); setWifWeight(15); setRpwWeight(25); setResourceUtilizationWeight(10);
+        break;
+      case "balanced":
+        setMutationRate(10); setCrossoverRate(80); setElitismRate(10);
+        setPopulationSize(200); setGenerationLimit(300);
+        setTsiWeight(25); setWifWeight(25); setRpwWeight(25); setResourceUtilizationWeight(25);
         break;
     }
   };
@@ -403,11 +391,36 @@ export function Optimization() {
 
         <div className="mb-6">
           <div className="mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-yellow-500" />
+            <h2 className="font-semibold">SHIFT PERIOD</h2>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedShift === "morning" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
+              }`}
+              onClick={() => setSelectedShift("morning")}
+            >
+              Morning (6AM - 2PM)
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedShift === "afternoon" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
+              }`}
+              onClick={() => setSelectedShift("afternoon")}
+            >
+              Afternoon (2PM - 10PM)
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <div className="mb-4 flex items-center gap-2">
             <Target className="h-5 w-5 text-yellow-500" />
             <h2 className="font-semibold">PARAMETER PRESETS</h2>
           </div>
 
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                 selectedPreset === "normal" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
@@ -418,19 +431,27 @@ export function Optimization() {
             </button>
             <button
               className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "weather" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
+                selectedPreset === "typhoon" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
               }`}
-              onClick={() => applyPreset("weather")}
+              onClick={() => applyPreset("typhoon")}
             >
-              Weather
+              Typhoon
             </button>
             <button
               className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "event" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
+                selectedPreset === "special_event" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
               }`}
-              onClick={() => applyPreset("event")}
+              onClick={() => applyPreset("special_event")}
             >
-              Event
+              Special Event
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedPreset === "balanced" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
+              }`}
+              onClick={() => applyPreset("balanced")}
+            >
+              Balanced
             </button>
           </div>
         </div>
@@ -454,7 +475,7 @@ export function Optimization() {
             Reset Defaults
           </button>
           <Link
-            to={weightsValid ? `/optimization-running?population_size=${populationSize}&generations=${generationLimit}&mutation_rate=${(mutationRate / 100).toFixed(2)}&crossover_rate=${(crossoverRate / 100).toFixed(2)}&elitism_count=${Math.max(1, Math.round((elitismRate / 100) * 10))}&tsi_weight=${(tsiWeight / 100).toFixed(2)}&wif_weight=${(wifWeight / 100).toFixed(2)}&rpw_weight=${(rpwWeight / 100).toFixed(2)}&resource_utilization_weight=${(resourceUtilizationWeight / 100).toFixed(2)}` : "#"}
+            to={weightsValid ? `/optimization-running?shift=${selectedShift}&population_size=${populationSize}&generations=${generationLimit}&mutation_rate=${(mutationRate / 100).toFixed(2)}&crossover_rate=${(crossoverRate / 100).toFixed(2)}&elitism_count=${Math.max(1, Math.round((elitismRate / 100) * populationSize))}&tsi_weight=${(tsiWeight / 100).toFixed(2)}&wif_weight=${(wifWeight / 100).toFixed(2)}&rpw_weight=${(rpwWeight / 100).toFixed(2)}&resource_utilization_weight=${(resourceUtilizationWeight / 100).toFixed(2)}` : "#"}
             aria-disabled={!weightsValid}
             tabIndex={weightsValid ? 0 : -1}
             onClick={(e) => {

@@ -42,6 +42,14 @@ class LogoutView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
+        try:
+            from rest_framework_simplejwt.tokens import RefreshToken
+            refresh_token = (request.data or {}).get("refresh")
+            if refresh_token:
+                token = RefreshToken(refresh_token)
+                token.blacklist()
+        except Exception:
+            pass
         return Response(status=204)
 
 

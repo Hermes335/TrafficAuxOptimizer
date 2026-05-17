@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import timedelta
 
 from asgiref.sync import async_to_sync
@@ -34,6 +35,25 @@ def _broadcast_dashboard_alert(payload: dict):
     )
 
 
+def _fetch_single_traffic(bottleneck):
+    """Fetch traffic data for a single bottleneck. Called in parallel."""
+    snapshot = None
+    source = None
+    try:
+        snapshot = fetch_tomtom_traffic(bottleneck.latitude, bottleneck.longitude)
+        source = "tomtom"
+    except ProviderError:
+        try:
+            snapshot = fetch_osm_overpass_traffic(bottleneck.latitude, bottleneck.longitude)
+            source = "osm_overpass"
+        except ProviderError:
+            cached = cache.get(f"{TRAFFIC_CACHE_KEY}:{bottleneck.id}")
+            if cached:
+                snapshot = cached
+                source = "cache"
+    return bottleneck, snapshot, source
+
+
 @shared_task
 def fetch_traffic_data():
     created = 0
@@ -41,46 +61,39 @@ def fetch_traffic_data():
     critical_alerts = 0
     now = timezone.now()
 
-    bottlenecks = Bottleneck.objects.filter(is_deleted=False)
-    for bottleneck in bottlenecks:
-        snapshot = None
-        try:
-            snapshot = fetch_tomtom_traffic(bottleneck.latitude, bottleneck.longitude)
-            source_counts["tomtom"] += 1
-        except ProviderError:
-            try:
-                snapshot = fetch_osm_overpass_traffic(bottleneck.latitude, bottleneck.longitude)
-                source_counts["osm_overpass"] += 1
-            except ProviderError:
-                cached = cache.get(f"{TRAFFIC_CACHE_KEY}:{bottleneck.id}")
-                if cached:
-                    snapshot = cached
-                    source_counts["cache"] += 1
+    bottlenecks = list(Bottleneck.objects.filter(is_deleted=False))
 
-        if not snapshot:
-            continue
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = {executor.submit(_fetch_single_traffic, b): b for b in bottlenecks}
+        for future in as_completed(futures):
+            bottleneck, snapshot, source = future.result()
+            if not snapshot:
+                continue
 
-        cache.set(f"{TRAFFIC_CACHE_KEY}:{bottleneck.id}", snapshot, timeout=60 * 30)
-        TrafficData.objects.create(
-            bottleneck=bottleneck,
-            timestamp=now,
-            traffic_severity_index=float(snapshot.get("tsi", 0.0)),
-            vehicle_count=int(snapshot.get("vehicle_count", 0)),
-            avg_speed=float(snapshot.get("current_speed", 0.0)),
-        )
-        created += 1
+            if source:
+                source_counts[source] += 1
 
-        if float(snapshot.get("tsi", 0.0)) >= 0.80:
-            critical_alerts += 1
-            _broadcast_dashboard_alert(
-                {
-                    "event": "tsi_threshold_exceeded",
-                    "bottleneck_id": bottleneck.id,
-                    "bottleneck_name": bottleneck.name,
-                    "tsi": round(float(snapshot.get("tsi", 0.0)), 3),
-                    "timestamp": now.isoformat(),
-                }
+            cache.set(f"{TRAFFIC_CACHE_KEY}:{bottleneck.id}", snapshot, timeout=60 * 30)
+            TrafficData.objects.create(
+                bottleneck=bottleneck,
+                timestamp=now,
+                traffic_severity_index=float(snapshot.get("tsi", 0.0)),
+                vehicle_count=int(snapshot.get("vehicle_count", 0)),
+                avg_speed=float(snapshot.get("current_speed", 0.0)),
             )
+            created += 1
+
+            if float(snapshot.get("tsi", 0.0)) >= 0.80:
+                critical_alerts += 1
+                _broadcast_dashboard_alert(
+                    {
+                        "event": "tsi_threshold_exceeded",
+                        "bottleneck_id": bottleneck.id,
+                        "bottleneck_name": bottleneck.name,
+                        "tsi": round(float(snapshot.get("tsi", 0.0)), 3),
+                        "timestamp": now.isoformat(),
+                    }
+                )
 
     return {
         "status": "ok",

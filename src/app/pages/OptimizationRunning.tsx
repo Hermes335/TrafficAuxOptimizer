@@ -13,22 +13,12 @@ import {
   subscribeToOptimizationStream,
   type OptimizationStatus,
 } from "../services/backend";
+import { type ConvergencePoint, upsertConvergencePoint, getRunStatusToneClass } from "../types/optimization";
 
-type ConvergencePoint = { id: string; x: number; best: number; avg: number };
 type RunEvent = {
   label: string;
   tone: "neutral" | "success" | "warning" | "danger";
 };
-
-function upsertConvergencePoint(prev: ConvergencePoint[], nextPoint: ConvergencePoint) {
-  const existingIndex = prev.findIndex((item) => item.x === nextPoint.x);
-  if (existingIndex >= 0) {
-    const next = [...prev];
-    next[existingIndex] = nextPoint;
-    return next;
-  }
-  return [...prev, nextPoint].slice(-120);
-}
 
 export function OptimizationRunning() {
   const navigate = useNavigate();
@@ -53,7 +43,7 @@ export function OptimizationRunning() {
     if (convergenceData.length === 0) {
       return 0;
     }
-    const total = convergenceData.reduce((sum, point) => sum + point.best, 0);
+    const total = convergenceData.reduce((sum, point) => sum + point.bestFitness, 0);
     return total / convergenceData.length;
   }, [convergenceData]);
 
@@ -61,7 +51,7 @@ export function OptimizationRunning() {
     if (convergenceData.length < 2) {
       return 0;
     }
-    return convergenceData[convergenceData.length - 1].best - convergenceData[0].best;
+    return convergenceData[convergenceData.length - 1].bestFitness - convergenceData[0].bestFitness;
   }, [convergenceData]);
 
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
@@ -101,14 +91,7 @@ export function OptimizationRunning() {
 
   const latestEventLabel = runEvents[runEvents.length - 1]?.label ?? "Waiting for optimization events...";
 
-  const statusToneClass =
-    status?.status === "completed"
-      ? "bg-green-100 text-green-700"
-      : status?.status === "failed"
-        ? "bg-red-100 text-red-700"
-        : status?.status === "cancelled"
-          ? "bg-gray-100 text-gray-700"
-        : "bg-yellow-100 text-yellow-700";
+  const statusToneClass = getRunStatusToneClass(status?.status);
 
   const currentEventIcon = useMemo(() => {
     if (!status) {
@@ -161,7 +144,7 @@ export function OptimizationRunning() {
     let pollTimer: number | undefined;
 
     const payload = {
-      shift: "afternoon",
+      shift: query.get("shift") || "afternoon",
       population_size: Number(query.get("population_size") || 200),
       generations: Number(query.get("generations") || 300),
       mutation_rate: Number(query.get("mutation_rate") || 0.1),
@@ -184,9 +167,9 @@ export function OptimizationRunning() {
             setConvergenceData((prev) =>
               upsertConvergencePoint(prev, {
                 id: `point-${event.current_generation}`,
-                x: event.current_generation,
-                best: event.current_fitness ?? 0,
-                avg: Math.max(0, (event.current_fitness ?? 0) * 0.82),
+                generation: event.current_generation,
+                bestFitness: event.current_fitness ?? 0,
+                avgFitness: Math.max(0, (event.current_fitness ?? 0) * 0.82),
               }),
             );
           }
@@ -206,7 +189,7 @@ export function OptimizationRunning() {
             },
           ].slice(-8));
 
-          if (event.status === "completed" || event.status === "failed") {
+          if (event.status === "completed" || event.status === "failed" || event.status === "cancelled") {
             if (pollTimer) {
               window.clearInterval(pollTimer);
               pollTimer = undefined;
@@ -231,9 +214,9 @@ export function OptimizationRunning() {
               setConvergenceData((prev) =>
                 upsertConvergencePoint(prev, {
                   id: `poll-${latest.current_generation}`,
-                  x: latest.current_generation,
-                  best: latest.current_fitness,
-                  avg: Math.max(0, latest.current_fitness * 0.82),
+                  generation: latest.current_generation,
+                  bestFitness: latest.current_fitness,
+                  avgFitness: Math.max(0, latest.current_fitness * 0.82),
                 }),
               );
 
@@ -249,9 +232,9 @@ export function OptimizationRunning() {
                     }
                     const rebuilt = result.fitness_scores.map((score, index) => ({
                       id: `final-${index + 1}`,
-                      x: index + 1,
-                      best: score,
-                      avg: Math.max(0, score * 0.82),
+                      generation: index + 1,
+                      bestFitness: score,
+                      avgFitness: Math.max(0, score * 0.82),
                     }));
                     setConvergenceData(rebuilt.slice(-120));
                   })
@@ -592,8 +575,8 @@ export function OptimizationRunning() {
           {/* Chart with axis labels */}
           <div className="relative h-80">
             <PrettyCurve
-              values={convergenceData.map((d) => d.best)}
-              secondaryValues={convergenceData.map((d) => d.avg)}
+              values={convergenceData.map((d) => d.bestFitness)}
+              secondaryValues={convergenceData.map((d) => d.avgFitness)}
               color="#facc15"
               colorSecondary="#6b7280"
             />

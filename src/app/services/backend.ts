@@ -327,6 +327,11 @@ export async function fetchOptimizationConfig(
     body: JSON.stringify(request),
   });
 
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(`Failed to fetch optimization config: ${response.status} ${errorBody}`);
+  }
+
   return response.json() as Promise<OptimizationConfigResponse>;
 }
 
@@ -356,24 +361,42 @@ export async function fetchOptimizationStatus(runId: string): Promise<Optimizati
   return response.json() as Promise<OptimizationStatus>;
 }
 
+export interface ParetoPoint {
+  fitness?: number;
+  coverage_efficiency?: number;
+  avg_response_time?: number;
+  resource_utilization?: number;
+  road_priority_coverage?: number;
+  coverage?: number;
+  inverse_response_time?: number;
+  weather_responsiveness?: number;
+  resource_balance?: number;
+}
+
 export interface OptimizationResults {
   run_id: string;
   status: string;
   fitness_scores?: number[];
   total_generations?: number;
   top_solutions: Array<{
-    score?: number;
-    efficiency?: number;
-    coverage?: number;
-    congestion_reduction?: number;
-    officer_utilization?: number;
+    rank?: number;
+    fitness?: number;
+    coverage_efficiency?: number;
+    avg_response_time?: number;
+    resource_utilization?: number;
+    road_priority_coverage?: number;
+    constraints_violated?: boolean;
+    generated_at?: string;
     assignments?: Array<{
+      officer_id?: number;
+      badge_number?: string;
       bottleneck_id?: string;
       bottleneck_name?: string;
-      officers?: string[];
-      required_officers?: number;
     }>;
   }>;
+  pareto_curve_data?: ParetoPoint[];
+  converged_early?: boolean;
+  synthetic_data_used?: string[] | null;
 }
 
 export async function fetchOptimizationResults(runId: string): Promise<OptimizationResults> {
@@ -442,8 +465,10 @@ export async function fetchDeploymentSchedule(): Promise<DeploymentScheduleItem[
   return response.json() as Promise<DeploymentScheduleItem[]>;
 }
 
-export async function clearDeploymentSchedule(): Promise<{ cleared: number }> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/schedule/`, {
+export async function clearDeploymentSchedule(shift?: string): Promise<{ cleared: number }> {
+  const url = new URL(`${getApiBaseUrl()}/api/deployments/schedule/`);
+  if (shift) url.searchParams.set("shift", shift);
+  const response = await fetchWithTimeout(url.toString(), {
     method: "DELETE",
   });
 

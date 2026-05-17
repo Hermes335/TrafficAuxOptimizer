@@ -92,14 +92,17 @@ class AnalyticsTrendsView(APIView):
 
 
 class TomTomTileProxyView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def get(self, request, z: int, x: int, y: int):
 		api_key = getattr(settings, "TOMTOM_API_KEY", "")
 		if not api_key:
 			return Response({"detail": "TOMTOM_API_KEY is not configured."}, status=503)
 
+		allowed_styles = {"basic/main", "basic/night", "hybrid/main", "labels/light", "labels/dark"}
 		style = request.query_params.get("style", "basic/main")
+		if style not in allowed_styles:
+			return Response({"detail": f"Invalid style. Allowed: {allowed_styles}"}, status=400)
 		url = f"https://api.tomtom.com/map/1/tile/{style}/{z}/{x}/{y}.png"
 
 		try:
@@ -117,14 +120,17 @@ class TomTomTileProxyView(APIView):
 
 
 class TomTomTrafficTileProxyView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def get(self, request, z: int, x: int, y: int):
 		api_key = getattr(settings, "TOMTOM_API_KEY", "")
 		if not api_key:
 			return Response({"detail": "TOMTOM_API_KEY is not configured."}, status=503)
 
+		allowed_styles = {"relative0", "relative", "absolute", "reduced"}
 		style = request.query_params.get("style", "relative0")
+		if style not in allowed_styles:
+			return Response({"detail": f"Invalid style. Allowed: {allowed_styles}"}, status=400)
 		url = f"https://api.tomtom.com/traffic/map/4/tile/flow/{style}/{z}/{x}/{y}.png"
 
 		try:

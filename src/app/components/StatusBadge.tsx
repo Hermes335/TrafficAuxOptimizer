@@ -1,9 +1,9 @@
 import { AlertCircle, CheckCircle, Clock, Loader, XCircle } from "lucide-react";
 
-type OptimizationStatus = "queued" | "running" | "completed" | "cancelled" | "failed" | "starting";
+type StatusBadgeVariant = "queued" | "running" | "completed" | "cancelled" | "failed" | "starting";
 
 interface StatusBadgeProps {
-  status: OptimizationStatus | string;
+  status: StatusBadgeVariant | string;
   size?: "sm" | "md" | "lg";
 }
 

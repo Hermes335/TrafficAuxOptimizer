@@ -7,37 +7,27 @@
 | Node.js | 18+ | Frontend build (Vite) |
 | Python | 3.10+ | Django backend |
 | PostgreSQL | 14+ | Database with PostGIS |
-| Redis | 6+ | Cache & message broker |
-| SUMO (optional) | 1.18+ | Traffic simulation |
+| Redis | 6+ | Cache, Celery broker, Channels layer |
 
 ---
 
-## 1. Environment Setup
-
-### 1.1 Clone & Install Dependencies
+## 1. Clone & Install
 
 ```bash
-# Clone repository
 git clone <repo-url>
 cd "TrafficAuxOptimizer Design Help and Demo"
-
-# Install Node dependencies
 npm install
 ```
 
-### 1.2 Create Python Virtual Environment
+### Python Virtual Environment
 
 ```bash
-# Create virtual environment
 python -m venv .venv
-
-# Activate (Windows)
+# Windows:
 .venv\Scripts\activate
-
-# Activate (Linux/Mac)
+# Linux/Mac:
 source .venv/bin/activate
 
-# Install Python dependencies
 cd traffic_dss_backend
 pip install -r requirements.txt
 ```
@@ -46,351 +36,221 @@ pip install -r requirements.txt
 
 ## 2. Database Setup (PostgreSQL + PostGIS)
 
-### 2.1 Install PostgreSQL with PostGIS
-
-**Ubuntu:**
+### Ubuntu
 ```bash
 sudo apt update
 sudo apt install postgresql postgresql-contrib postgis
-
-# Create database
 sudo -u postgres createdb traffic_dss
 sudo -u postgres psql -d traffic_dss -c "CREATE EXTENSION postgis;"
 ```
 
-**Windows:**
-1. Download & install PostgreSQL from https://www.postgresql.org/download/windows/
+### Windows
+1. Download PostgreSQL from https://www.postgresql.org/download/windows/
 2. During installation, check "PostGIS"
 3. Create database via pgAdmin or CLI
 
-### 2.2 Configure Database
+---
+
+## 3. Environment Configuration
 
 Create `traffic_dss_backend/.env`:
 
 ```env
 DEBUG=True
-SECRET_KEY=your-secret-key-here
+SECRET_KEY=your-secret-key-at-least-32-chars
+JWT_SECRET_KEY=your-jwt-secret-at-least-32-chars
 ALLOWED_HOSTS=localhost,127.0.0.1
 
 # Database
-DATABASE_URL=postgis://postgres:password@localhost:5432/traffic_dss
+DATABASE_URL=postgis://postgres:yourpassword@localhost:5432/traffic_dss
 
 # Redis
 REDIS_URL=redis://localhost:6379/0
 
-# Optional: External APIs
+# External APIs (optional)
 TOMTOM_API_KEY=your-tomtom-key
 PAGASA_API_ENDPOINT=https://api.pagasa.dost.gov.ph/api/v1/
-OPENWEATHER_API_KEY=your-key
-
-# Coordinates
-ILOILO_LATITUDE=10.7202
-ILOILO_LONGITUDE=122.5621
 ```
+
+**Important:** Never commit `.env` to git. The `.gitignore` already excludes it.
 
 ---
 
-## 3. Redis Setup
+## 4. Redis Setup
 
-### 3.1 Install Redis
-
-**Ubuntu:**
+### Ubuntu
 ```bash
 sudo apt install redis-server
 sudo service redis-server start
 redis-cli ping  # Should return PONG
 ```
 
-**Windows (via WSL or Memurai):**
+### Windows
 ```powershell
-# Option 1: Use WSL
+# Option 1: Windows Redis service
+Start-Service Redis
+redis-cli ping
+
+# Option 2: WSL
 wsl -d Ubuntu -e bash
 sudo service redis-server start
-
-# Option 2: Use Memurai (Redis for Windows)
-# Download from https://www.memurai.com/
 ```
 
-### 3.2 Verify Redis
-
-```bash
-redis-cli ping
-# Expected: PONG
-
-redis-cli INFO SERVER | grep redis_version
+If port 6379 is in use:
+```powershell
+netstat -ano | findstr :6379
+Stop-Service Redis
+Start-Service Redis
 ```
 
 ---
 
-## 4. Backend Initialization
+## 5. Backend Initialization
 
 ```bash
 cd traffic_dss_backend
 
-# Run migrations
+# Run migrations (includes token_blacklist for JWT logout)
 python manage.py migrate
 
-# Create superuser (optional)
-python manage.py createsuperuser
-```
-
-### 4.1 Create Test Accounts
-
-The project includes a management command to create test user accounts for different roles:
-
-```bash
-# Create Supervisor account
+# Create test accounts
 python manage.py create_test_user --username supervisor --password supervisor123 --badge 1001 --role supervisor
-
-# Create Dispatcher account
 python manage.py create_test_user --username dispatcher --password dispatcher123 --badge 2001 --role dispatcher
-
-# Create Administrator account
 python manage.py create_test_user --username admin --password admin123 --badge 0001 --role administrator
 ```
 
-**Test Login Credentials:**
+### Test Credentials
 
-| Role | Username | Password | Badge | Access Level |
-|------|-----------|-----------|-------|--------------|
-| Supervisor | `supervisor` | `supervisor123` | 1001 | Full optimization & deployment controls |
-| Dispatcher | `dispatcher` | `dispatcher123` | 2001 | Read-only monitoring |
-| Administrator | `admin` | `admin123` | 0001 | System settings & user management |
-
-**Usage:**
-1. Start the backend: `npm run dev:backend`
-2. Start the frontend: `npm run dev:renderer`
-3. Open http://127.0.0.1:5173/login
-4. Enter any of the credentials above
-
-**Note:** The login page requires the backend to be running. If testing frontend-only, you can temporarily disable authentication in `src/app/routes.tsx` by removing the `ProtectedRoute` wrapper.
+| Role | Username | Password | Access |
+|------|----------|----------|--------|
+| Supervisor | `supervisor` | `supervisor123` | Optimization, deployment, full dashboard |
+| Dispatcher | `dispatcher` | `dispatcher123` | Dashboard monitoring, incident reporting |
+| Administrator | `admin` | `admin123` | System settings, user management, audit logs |
 
 ---
 
-## 5. Import Data (CSV)
+## 6. Import Data
 
-### 5.1 Import Officers & Bottlenecks
-
-The project includes a management command to import from CSV:
-
+### Officers & Bottlenecks from CSV
 ```bash
 python manage.py import_officers_bottlenecks
 ```
 
-Default expected CSV: `Traffic Officer Assignments and Badge Numbers - Traffic Officer Assignments and Badge Numbers.csv`
-
-**CSV format expected:**
-| Name | Badge Number | Relief | Area of Assignment | District |
-|------|--------------|--------|-------------------|----------|
-| John Doe | B001 | 1st Relief | Iloilo City Plaza | Central |
-
-### 5.2 Import Bottlenecks from CSV (Alternative)
-
-```bash
-python manage.py replace_bottlenecks_from_csv bottlenecks.csv
-```
-
-### 5.3 Seed Dashboard Data
-
+### Seed Demo Data
 ```bash
 python manage.py seed_dashboard_data
 ```
 
+### Import POIs from OpenStreetMap
+```bash
+python manage.py import_pois_overpass
+```
+
 ---
 
-## 6. Running the Application
+## 7. Running the Application
 
-### 6.1 Full Local Stack (Windows)
-
+### All Services (Recommended)
 ```bash
-# Start everything (backend + worker + renderer + desktop)
 npm run dev:local
 ```
 
-### 6.2 Individual Services
+This starts: Django backend, Celery worker, Celery beat, Vite frontend, Electron desktop.
 
-**Backend (Django):**
-```bash
-npm run dev:backend
-# Or manually:
-cd traffic_dss_backend
-python manage.py runserver 127.0.0.1:8000
-```
+### Individual Services
 
-**Frontend (Vite):**
-```bash
-npm run dev:renderer
-# Runs on http://127.0.0.1:5173
-```
+| Service | Command | URL |
+|---------|---------|-----|
+| Backend | `npm run dev:backend` | http://127.0.0.1:8000 |
+| Frontend | `npm run dev:renderer` | http://127.0.0.1:5173 |
+| Celery Worker | `npm run dev:worker` | -- |
+| Celery Beat | `npm run dev:beat` | -- |
+| Desktop | `npm run dev:desktop` | http://127.0.0.1:3001 |
 
-**Desktop (Electron):**
-```bash
-npm run dev:desktop
-```
-
-**Celery Worker (Background Tasks):**
-```bash
-npm run dev:worker
-# Or manually:
-cd traffic_dss_backend
-python -m celery -A config worker -l info --pool=solo
-```
-
-**Celery Beat (Scheduled Tasks):**
-```bash
-npm run dev:beat
-# Or manually:
-cd traffic_dss_backend
-python -m celery -A config beat -l info
-```
-
-### 6.3 Stop All Services
-
+### Stop All
 ```bash
 npm run stop:local
 ```
 
 ---
 
-## 7. Background Tasks (Celery)
-
-The following tasks run automatically via Celery Beat:
+## 8. Background Tasks (Celery)
 
 | Task | Schedule | Function |
 |------|----------|----------|
-| `fetch_traffic_data` | Every 5 min | Fetch TSI from TomTom for each bottleneck |
+| `fetch_traffic_data` | Every 5 min | Fetch TSI from TomTom (parallel HTTP) |
 | `fetch_weather_data` | Every 15 min | Fetch WIF from PAGASA/Open-Meteo |
+| `incident_lifecycle` | Every 5 min | Auto-resolve stale incidents (4h) |
+| `incident_archive` | Daily | Archive resolved incidents (24h) |
+| `compute_heatmap_tsi` | Every 5/15 min | Update heatmap TSI (peak/off-peak) |
 | `cleanup_old_data` | Daily | Soft-delete data older than 90 days |
 
-**Monitoring Celery:**
-```bash
-# View worker logs
-python -m celery -A config worker -l info
-
-# View beat logs
-python -m celery -A config beat -l info
-```
+**Note:** The Celery worker must be running for optimization runs to execute. If the worker is not running, optimization runs will stay in "queued" status forever.
 
 ---
 
-## 8. External APIs Configuration
+## 9. External APIs
 
-### 8.1 TomTom (Traffic Data)
-
+### TomTom (Traffic Tiles)
 1. Get API key from https://developer.tomtom.com/
-2. Add to `.env`:
-   ```
-   TOMTOM_API_KEY=your-api-key
-   ```
+2. Add `TOMTOM_API_KEY=your-key` to `.env`
+3. The tile proxy endpoints require authentication (`IsAuthenticated`)
 
-### 8.2 Weather APIs
-
-**Option A: PAGASA (Philippines)**
-```
-PAGASA_API_ENDPOINT=https://api.pagasa.dost.gov.ph/api/v1/
-```
-
-**Option B: Open-Meteo (Fallback - Free)**
-- No API key needed - configured by default
+### Weather
+- **PAGASA** (Philippines): Set `PAGASA_API_ENDPOINT` in `.env`
+- **Open-Meteo** (Fallback): No API key needed, configured by default
 
 ---
 
-## 9. GitIgnore Files
+## 10. API Endpoints
 
-The following are already excluded in `.gitignore`:
+### Authentication
+| Endpoint | Method | Auth |
+|----------|--------|------|
+| `/api/auth/login/` | POST | Public |
+| `/api/auth/refresh/` | POST | Public |
+| `/api/auth/logout/` | POST | Public (blacklists refresh token) |
 
-```gitignore
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
+### Dashboard (Public Read)
+| Endpoint | Method | Auth |
+|----------|--------|------|
+| `/api/dashboard/kpis/` | GET | Public |
+| `/api/dashboard/bottlenecks/` | GET | Public |
+| `/api/dashboard/officers/` | GET | Public |
+| `/api/dashboard/incidents/active/` | GET | Public |
 
-# Build outputs
-dist/
-build/
-coverage/
+### Dashboard (Authenticated Write)
+| Endpoint | Method | Auth |
+|----------|--------|------|
+| `/api/dashboard/bottlenecks/manage/` | POST | Required |
+| `/api/dashboard/bottlenecks/manage/<id>/` | PUT/DELETE | Required |
+| `/api/dashboard/officers/manage/` | POST | Required |
+| `/api/dashboard/officers/manage/<id>/` | PUT/DELETE | Required |
 
-# Python
-.venv/
-venv/
-__pycache__/
-*.py[cod]
-*.sqlite3
+### Optimization
+| Endpoint | Method | Auth |
+|----------|--------|------|
+| `/api/optimization/configure/` | POST | Required |
+| `/api/optimization/start/` | POST | Required |
+| `/api/optimization/cancel/<run_id>/` | POST | Required |
+| `/api/optimization/status/<run_id>/` | GET | Public |
+| `/api/optimization/results/<run_id>/` | GET | Public |
+| `/api/optimization/history/` | GET | Public |
 
-# Env files
-.env
-.env.*
-!.env.example
+### Deployments
+| Endpoint | Method | Auth |
+|----------|--------|------|
+| `/api/deployments/schedule/` | GET | Required |
+| `/api/deployments/schedule/` | DELETE | Required (`?shift=morning` or `?shift=afternoon`) |
+| `/api/deployments/assign/` | POST | Required |
+| `/api/deployments/publish-optimization/` | POST | Required |
 
-# OS/Editor
-.DS_Store
-Thumbs.db
-.vscode/settings.json
-```
-
-**Additional recommended exclusions:**
-
-```gitignore
-# Django
-media/
-staticfiles/
-*.log
-
-# Celery
-celerybeat-schedule
-celerybeat.pid
-
-# Testing
-.pytest_cache/
-htmlcov/
-
-# IDE
-.idea/
-*.swp
-*.swo
-```
-
----
-
-## 10. Troubleshooting
-
-### Redis Port Conflict (Windows)
-
-If Redis fails to start due to port conflict:
-
-```powershell
-# Check what's using port 6379
-netstat -ano | findstr :6379
-
-# Stop Windows Redis service (if running)
-Stop-Service Redis
-
-# Start WSL Redis instead
-wsl -d Ubuntu -e bash
-sudo service redis-server start
-```
-
-### Database Connection Issues
-
-```bash
-# Test PostgreSQL connection
-psql -U postgres -d traffic_dss -c "SELECT postgis_version();"
-
-# Should return: POSTGIS="3.x" ...
-```
-
-### Celery Worker Not Starting
-
-```bash
-# Check Redis is running
-redis-cli ping
-
-# Check Celery configuration
-cd traffic_dss_backend
-python -c "from django.conf import settings; print(settings.CELERY_BROKER_URL)"
-```
+### WebSocket
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `ws/dashboard/` | Token optional | Live dashboard events |
+| `ws/optimization/<run_id>/` | Token optional | Optimization progress |
+| `ws/incidents/` | Token required | Incident alerts |
 
 ---
 
@@ -398,31 +258,46 @@ python -c "from django.conf import settings; print(settings.CELERY_BROKER_URL)"
 
 | Service | URL |
 |---------|-----|
-| Frontend (Vite) | http://127.0.0.1:5173 |
-| Login Page | http://127.0.0.1:5173/login |
-| Django API | http://127.0.0.1:8000 |
-| Electron Desktop | http://127.0.0.1:3001 |
-| Admin Panel | http://127.0.0.1:8000/admin |
+| Login | http://127.0.0.1:5173/login |
+| Dashboard | http://127.0.0.1:5173/ |
+| Optimization | http://127.0.0.1:5173/optimization |
+| Gantt Chart | http://127.0.0.1:5173/gantt-chart |
 | API Docs (Swagger) | http://127.0.0.1:8000/api/docs/ |
+| Django Admin | http://127.0.0.1:8000/admin |
 
 ---
 
-## 12. Development Commands Summary
+## 12. Troubleshooting
 
+### Celery worker not picking up tasks
+Restart the worker after code changes:
 ```bash
-# Full local dev (all services)
-npm run dev:local
+# Stop with Ctrl+C, then:
+cd traffic_dss_backend
+celery -A config worker --loglevel=info
+```
 
-# Frontend only
-npm run dev:renderer
+### Optimization shows 0 fitness
+- Check that Celery worker is running
+- Check that Redis is running (`redis-cli ping`)
+- Restart the worker after engine changes
 
-# Backend only
-npm run dev:backend
+### Redis connection refused
+```bash
+redis-cli ping
+# If no PONG:
+# Windows: Start-Service Redis
+# Linux: sudo service redis-server start
+```
 
-# Background workers
-npm run dev:worker    # Celery worker
-npm run dev:beat     # Celery beat (schedules)
+### Database migration errors
+```bash
+python manage.py migrate --run-syncdb
+python manage.py showmigrations  # Check for unapplied migrations
+```
 
-# Stop
-npm run stop:local
+### Token blacklist errors
+If logout fails with database errors, run:
+```bash
+python manage.py migrate token_blacklist
 ```

@@ -74,15 +74,19 @@ def run_optimization(run_id: str):
         for bottleneck in bottlenecks_qs
     ]
 
+    synthetic_flags = []
+
     all_weights = [b["road_priority_weight"] for b in bottlenecks]
     if len(set(all_weights)) == 1:
         for i, bottleneck in enumerate(bottlenecks):
             bottleneck["road_priority_weight"] = 0.5 + (i % 3) * 0.3
+        synthetic_flags.append("road_priority_weight")
 
     tsi_values = [b["tsi"] for b in bottlenecks]
     if all(tsi == 0.0 for tsi in tsi_values):
         for i, bottleneck in enumerate(bottlenecks):
             bottleneck["tsi"] = 0.3 + (i % 5) * 0.12
+        synthetic_flags.append("tsi")
 
     weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
     wif = float(getattr(weather, "weather_impact_factor", 1.0))
@@ -92,7 +96,14 @@ def run_optimization(run_id: str):
 
     total_generations = max(50, min(1000, int(params.get("generations", 300))))
 
+    start_time = timezone.now()
+
     def progress_callback(current_generation: int, _: int, current_fitness: float):
+        elapsed = (timezone.now() - start_time).total_seconds()
+        rate = current_generation / max(elapsed, 1)
+        remaining = (total_generations - current_generation) / max(rate, 0.001)
+        est_completion = (timezone.now() + timedelta(seconds=remaining)).isoformat()
+
         payload = {
             "event": "optimization_progress",
             "run_id": run_id,
@@ -100,7 +111,7 @@ def run_optimization(run_id: str):
             "current_generation": current_generation,
             "total_generations": total_generations,
             "current_fitness": round(current_fitness, 4),
-            "estimated_completion": (timezone.now() + timedelta(minutes=3)).isoformat(),
+            "estimated_completion": est_completion,
             "updated_at": timezone.now().isoformat(),
         }
         save_progress(run_id, payload)
@@ -136,15 +147,19 @@ def run_optimization(run_id: str):
     run.result_data = {
         "top_solutions": result.top_solutions,
         "weather_impact_factor": wif,
+        "synthetic_data_used": synthetic_flags if synthetic_flags else None,
+        "pareto_curve_data": result.pareto_curve_data,
+        "converged_early": result.converged_early,
     }
     run.status = result.status
     run.save(update_fields=["fitness_scores", "result_data", "status", "updated_at"])
 
     if result.status != "completed":
+        event_name = "optimization_cancelled" if result.status == "cancelled" else "optimization_failed"
         failed_payload = {
-            "event": "optimization_failed",
+            "event": event_name,
             "run_id": run_id,
-            "status": "failed",
+            "status": result.status,
             "current_generation": len(result.generation_fitness),
             "total_generations": total_generations,
             "current_fitness": round(result.best_fitness, 4),

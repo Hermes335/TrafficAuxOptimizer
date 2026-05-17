@@ -14,7 +14,7 @@ from core.utils import write_audit_log
 
 
 class DeploymentScheduleView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def get(self, request):
 		queryset = Deployment.objects.filter(is_deleted=False).select_related("officer", "bottleneck").order_by("start_time")
@@ -35,25 +35,26 @@ class DeploymentScheduleView(APIView):
 		return Response(data)
 
 	def delete(self, request):
-		cleared = Deployment.objects.filter(is_deleted=False).update(is_deleted=True, updated_at=timezone.now())
-		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
-		if actor is None:
-			actor = get_user_model().objects.create_user(username="desktop-runner")
-		write_audit_log(actor, "delete", "deployment_schedule", {"cleared": cleared})
+		shift = request.query_params.get("shift")
+		if not shift:
+			return Response({"detail": "shift query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+		deleted_count, _ = Deployment.objects.filter(is_deleted=False, shift=shift).update(is_deleted=True, updated_at=timezone.now())
+		write_audit_log(request.user, "delete", "deployment_schedule", {"shift": shift, "cleared": deleted_count})
 		broadcast(
 			"dashboard_live",
 			"dashboard_event",
 			{
 				"event": "deployment_schedule_cleared",
-				"cleared": cleared,
+				"shift": shift,
+				"cleared": deleted_count,
 				"timestamp": timezone.now().isoformat(),
 			},
 		)
-		return Response({"cleared": cleared})
+		return Response({"cleared": deleted_count, "shift": shift})
 
 
 class DeploymentAssignView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
 		officer = Officer.objects.filter(pk=request.data.get("officer"), is_deleted=False).first()
@@ -84,7 +85,7 @@ class DeploymentAssignView(APIView):
 
 
 class DeploymentUpdateView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def put(self, request, deployment_id: int):
 		deployment = Deployment.objects.filter(pk=deployment_id, is_deleted=False).first()
@@ -113,7 +114,7 @@ class DeploymentUpdateView(APIView):
 
 
 class OfficerDeploymentView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def get(self, request, officer_id: int):
 		deployments = Deployment.objects.filter(officer_id=officer_id, is_deleted=False).order_by("-start_time")
@@ -131,7 +132,7 @@ def _default_shift_window(shift: str):
 
 
 class DeploymentPublishOptimizationView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
 		run_id = str((request.data or {}).get("run_id", "")).strip()

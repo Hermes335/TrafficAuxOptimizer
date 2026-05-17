@@ -6,12 +6,17 @@ from django.conf import settings
 from redis import Redis
 from redis.exceptions import RedisError
 
+_client: Redis | None = None
+
 
 def _redis_client() -> Redis | None:
-    try:
-        return Redis.from_url(settings.REDIS_URL, decode_responses=True)
-    except Exception:
-        return None
+    global _client
+    if _client is None:
+        try:
+            _client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
+        except Exception:
+            return None
+    return _client
 
 
 def progress_key(run_id: str) -> str:

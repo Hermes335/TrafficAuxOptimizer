@@ -4,8 +4,8 @@ from .models import AuditLog
 
 
 def write_audit_log(user, action: str, resource: str, changes: dict):
-    if not user or not user.is_authenticated:
-        return
+    if user and not user.is_authenticated:
+        user = None
 
     AuditLog.objects.create(
         user=user,

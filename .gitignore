@@ -22,6 +22,10 @@ __pycache__/
 .env.*
 !.env.example
 
+# Database dumps
+dump.rdb
+celerybeat-schedule.*
+
 # OS/editor noise
 .DS_Store
 Thumbs.db

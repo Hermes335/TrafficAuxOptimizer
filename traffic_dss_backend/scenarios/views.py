@@ -9,7 +9,7 @@ from core.utils import write_audit_log
 
 
 class ScenarioListCreateView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def get(self, request):
 		queryset = Scenario.objects.filter(is_deleted=False).order_by("-is_default", "name")
@@ -27,7 +27,7 @@ class ScenarioListCreateView(APIView):
 
 
 class ScenarioDetailView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def get(self, request, scenario_id: int):
 		scenario = Scenario.objects.filter(pk=scenario_id, is_deleted=False).first()

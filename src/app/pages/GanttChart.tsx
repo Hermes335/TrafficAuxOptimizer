@@ -3,16 +3,14 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorFeedback } from "../components/ErrorFeedback";
+import { useOfficerManagement } from "../hooks/useOfficerManagement";
 import {
-  createDashboardOfficer,
   clearDeploymentSchedule,
-  deleteDashboardOfficer,
   fetchBottlenecks,
   fetchDashboardOfficers,
   fetchDeploymentSchedule,
   fetchOptimizationHistory,
   publishDeploymentsFromOptimization,
-  updateDashboardOfficer,
   type BottleneckOption,
   type DashboardOfficerRecord,
   type DeploymentScheduleItem,
@@ -30,17 +28,11 @@ export function GanttChart() {
   const [query, setQuery] = useState("");
   const [shiftFilter, setShiftFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
-  const [officerError, setOfficerError] = useState<string | null>(null);
-  const [officerNotice, setOfficerNotice] = useState<string | null>(null);
-  const [addingOfficer, setAddingOfficer] = useState(false);
-  const [editingOfficerId, setEditingOfficerId] = useState<number | null>(null);
-  const [savingOfficer, setSavingOfficer] = useState(false);
-  const [deletingOfficerId, setDeletingOfficerId] = useState<number | null>(null);
-  const [officerName, setOfficerName] = useState("");
-  const [officerBadge, setOfficerBadge] = useState("");
-  const [officerShift, setOfficerShift] = useState<"morning" | "afternoon">("afternoon");
-  const [officerStatus, setOfficerStatus] = useState<"available" | "deployed" | "off_duty" | "unavailable">("available");
-  const [officerSkillsInput, setOfficerSkillsInput] = useState("");
+  const reloadOfficers = async () => {
+    const rows = await fetchDashboardOfficers();
+    setOfficers(rows);
+  };
+  const officerMgmt = useOfficerManagement({ reloadOfficers });
   const [completedRuns, setCompletedRuns] = useState<OptimizationHistoryItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [publishingSchedule, setPublishingSchedule] = useState(false);
@@ -180,116 +172,9 @@ export function GanttChart() {
     { label: "Critical (0 Officers)", className: "bg-rose-100" },
   ];
 
-  const resetOfficerForm = () => {
-    setOfficerName("");
-    setOfficerBadge("");
-    setOfficerShift("afternoon");
-    setOfficerStatus("available");
-    setOfficerSkillsInput("");
-  };
-
-  const reloadOfficers = async () => {
-    const rows = await fetchDashboardOfficers();
-    setOfficers(rows);
-  };
-
   const reloadSchedule = async () => {
     const rows = await fetchDeploymentSchedule();
     setSchedule(rows);
-  };
-
-  const onAddOfficer = async () => {
-    if (!officerName.trim() || !officerBadge.trim()) {
-      setOfficerError("Officer name and badge number are required.");
-      return;
-    }
-    const skills = officerSkillsInput.split(",").map((item) => item.trim()).filter(Boolean);
-    setSavingOfficer(true);
-    setOfficerError(null);
-    setOfficerNotice(null);
-    try {
-      await createDashboardOfficer({
-        name: officerName.trim(),
-        badge_number: officerBadge.trim(),
-        shift: officerShift,
-        status: officerStatus,
-        skills,
-      });
-      await reloadOfficers();
-      resetOfficerForm();
-      setAddingOfficer(false);
-      setOfficerNotice("Officer added successfully.");
-    } catch (actionError: unknown) {
-      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to add officer.");
-    } finally {
-      setSavingOfficer(false);
-    }
-  };
-
-  const startEditingOfficer = (officer: DashboardOfficerRecord) => {
-    setEditingOfficerId(officer.id);
-    setOfficerName(officer.name);
-    setOfficerBadge(officer.badge_number);
-    setOfficerShift(officer.shift);
-    setOfficerStatus(officer.status);
-    setOfficerSkillsInput((officer.skills ?? []).join(", "));
-    setAddingOfficer(false);
-    setOfficerError(null);
-    setOfficerNotice(null);
-  };
-
-  const onUpdateOfficer = async () => {
-    if (!editingOfficerId) {
-      return;
-    }
-    if (!officerName.trim() || !officerBadge.trim()) {
-      setOfficerError("Officer name and badge number are required.");
-      return;
-    }
-    const skills = officerSkillsInput.split(",").map((item) => item.trim()).filter(Boolean);
-    setSavingOfficer(true);
-    setOfficerError(null);
-    setOfficerNotice(null);
-    try {
-      await updateDashboardOfficer(editingOfficerId, {
-        name: officerName.trim(),
-        badge_number: officerBadge.trim(),
-        shift: officerShift,
-        status: officerStatus,
-        skills,
-      });
-      await reloadOfficers();
-      setEditingOfficerId(null);
-      resetOfficerForm();
-      setOfficerNotice("Officer updated successfully.");
-    } catch (actionError: unknown) {
-      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to update officer.");
-    } finally {
-      setSavingOfficer(false);
-    }
-  };
-
-  const onDeleteOfficer = async (officerId: number, badge: string) => {
-    const confirmed = window.confirm(`Remove officer ${badge}?`);
-    if (!confirmed) {
-      return;
-    }
-    setDeletingOfficerId(officerId);
-    setOfficerError(null);
-    setOfficerNotice(null);
-    try {
-      await deleteDashboardOfficer(officerId);
-      await reloadOfficers();
-      if (editingOfficerId === officerId) {
-        setEditingOfficerId(null);
-        resetOfficerForm();
-      }
-      setOfficerNotice(`Officer ${badge} removed.`);
-    } catch (actionError: unknown) {
-      setOfficerError(actionError instanceof Error ? actionError.message : "Failed to remove officer.");
-    } finally {
-      setDeletingOfficerId(null);
-    }
   };
 
   const onPublishSchedule = async () => {
@@ -328,7 +213,7 @@ export function GanttChart() {
     setPublishError(null);
     setPublishNotice(null);
     try {
-      const result = await clearDeploymentSchedule();
+      const result = await clearDeploymentSchedule(shiftFilter !== "all" ? shiftFilter : undefined);
       await reloadSchedule();
       setPublishNotice(`Cleared ${result.cleared} deployment${result.cleared === 1 ? "" : "s"}.`);
     } catch (clearError: unknown) {
@@ -635,50 +520,50 @@ export function GanttChart() {
               <div className="mb-3 flex gap-2">
                 <button
                   onClick={() => {
-                    setAddingOfficer((current) => !current);
-                    setEditingOfficerId(null);
-                    resetOfficerForm();
-                    setOfficerError(null);
-                    setOfficerNotice(null);
+                    officerMgmt.setAddingOfficer((current: boolean) => !current);
+                    officerMgmt.setEditingOfficerId(null);
+                    officerMgmt.resetOfficerForm();
+                    officerMgmt.setOfficerError(null);
+                    officerMgmt.setOfficerNotice(null);
                   }}
                   className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
-                    addingOfficer ? "bg-yellow-400 text-white" : "border text-gray-700 hover:bg-gray-50"
+                    officerMgmt.addingOfficer ? "bg-yellow-400 text-white" : "border text-gray-700 hover:bg-gray-50"
                   }`}
                 >
                   <UserPlus className="h-3.5 w-3.5" />
-                  {addingOfficer ? "Cancel" : "Add Officer"}
+                  {officerMgmt.addingOfficer ? "Cancel" : "Add Officer"}
                 </button>
               </div>
 
-              {officerError && <p className="mb-2 text-xs text-red-600">{officerError}</p>}
-              {officerNotice && <p className="mb-2 text-xs text-green-700">{officerNotice}</p>}
+              {officerMgmt.officerError && <p className="mb-2 text-xs text-red-600">{officerMgmt.officerError}</p>}
+              {officerMgmt.officerNotice && <p className="mb-2 text-xs text-green-700">{officerMgmt.officerNotice}</p>}
 
-              {(addingOfficer || editingOfficerId !== null) && (
+              {(officerMgmt.addingOfficer || officerMgmt.editingOfficerId !== null) && (
                 <div className="mb-3 space-y-2 rounded-lg border bg-gray-50 p-3">
                   <input
-                    value={officerName}
-                    onChange={(event) => setOfficerName(event.target.value)}
+                    value={officerMgmt.officerName}
+                    onChange={(event) => officerMgmt.setOfficerName(event.target.value)}
                     placeholder="Officer name"
                     className="w-full rounded border px-2 py-1.5 text-sm"
                   />
                   <input
-                    value={officerBadge}
-                    onChange={(event) => setOfficerBadge(event.target.value)}
+                    value={officerMgmt.officerBadge}
+                    onChange={(event) => officerMgmt.setOfficerBadge(event.target.value)}
                     placeholder="Badge number"
                     className="w-full rounded border px-2 py-1.5 text-sm"
                   />
                   <div className="grid grid-cols-2 gap-2">
                     <select
-                      value={officerShift}
-                      onChange={(event) => setOfficerShift(event.target.value as "morning" | "afternoon")}
+                      value={officerMgmt.officerShift}
+                      onChange={(event) => officerMgmt.setOfficerShift(event.target.value as "morning" | "afternoon")}
                       className="rounded border px-2 py-1.5 text-sm"
                     >
                       <option value="morning">Morning (6AM-2PM)</option>
                       <option value="afternoon">Afternoon (2PM-10PM)</option>
                     </select>
                     <select
-                      value={officerStatus}
-                      onChange={(event) => setOfficerStatus(event.target.value as "available" | "deployed" | "off_duty" | "unavailable")}
+                      value={officerMgmt.officerStatus}
+                      onChange={(event) => officerMgmt.setOfficerStatus(event.target.value as "available" | "deployed" | "off_duty" | "unavailable")}
                       className="rounded border px-2 py-1.5 text-sm"
                     >
                       <option value="available">Available</option>
@@ -688,28 +573,28 @@ export function GanttChart() {
                     </select>
                   </div>
                   <input
-                    value={officerSkillsInput}
-                    onChange={(event) => setOfficerSkillsInput(event.target.value)}
+                    value={officerMgmt.officerSkillsInput}
+                    onChange={(event) => officerMgmt.setOfficerSkillsInput(event.target.value)}
                     placeholder="Skills (comma-separated)"
                     className="w-full rounded border px-2 py-1.5 text-sm"
                   />
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
-                        setAddingOfficer(false);
-                        setEditingOfficerId(null);
-                        resetOfficerForm();
+                        officerMgmt.setAddingOfficer(false);
+                        officerMgmt.setEditingOfficerId(null);
+                        officerMgmt.resetOfficerForm();
                       }}
                       className="flex-1 rounded border px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-white"
                     >
                       Cancel
                     </button>
                     <button
-                      onClick={editingOfficerId !== null ? onUpdateOfficer : onAddOfficer}
-                      disabled={savingOfficer}
+                      onClick={officerMgmt.editingOfficerId !== null ? officerMgmt.onUpdateOfficer : officerMgmt.onAddOfficer}
+                      disabled={officerMgmt.savingOfficer}
                       className="flex-1 rounded bg-yellow-400 px-2 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
                     >
-                      {savingOfficer ? "Saving..." : editingOfficerId !== null ? "Update" : "Create"}
+                      {officerMgmt.savingOfficer ? "Saving..." : officerMgmt.editingOfficerId !== null ? "Update" : "Create"}
                     </button>
                   </div>
                 </div>
@@ -726,15 +611,15 @@ export function GanttChart() {
                       </div>
                       <div className="flex gap-1">
                         <button
-                          onClick={() => startEditingOfficer(officer)}
+                          onClick={() => officerMgmt.startEditingOfficer(officer)}
                           className="rounded p-1 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
                           title="Edit officer"
                         >
                           <Pencil className="h-3.5 w-3.5" />
                         </button>
                         <button
-                          onClick={() => onDeleteOfficer(officer.id, officer.badge_number)}
-                          disabled={deletingOfficerId === officer.id}
+                          onClick={() => officerMgmt.onDeleteOfficer(officer.id, officer.badge_number)}
+                          disabled={officerMgmt.deletingOfficerId === officer.id}
                           className="rounded p-1 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Remove officer"
                         >

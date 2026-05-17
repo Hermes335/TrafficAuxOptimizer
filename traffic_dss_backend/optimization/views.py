@@ -32,7 +32,7 @@ def _weight_total(params: dict) -> float:
 
 
 class OptimizationConfigureView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
 		params = {**DEFAULT_GA_PARAMETERS, **(request.data or {})}
@@ -64,10 +64,23 @@ class OptimizationConfigureView(APIView):
 
 
 class OptimizationStartView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
 		params = {**DEFAULT_GA_PARAMETERS, **(request.data or {})}
+		errors = {}
+		if not 50 <= int(params.get("population_size", 200)) <= 500:
+			errors["population_size"] = "Must be between 50 and 500."
+		if not 50 <= int(params.get("generations", 300)) <= 1000:
+			errors["generations"] = "Must be between 50 and 1000."
+		if not 0.01 <= float(params.get("mutation_rate", 0.1)) <= 0.30:
+			errors["mutation_rate"] = "Must be between 0.01 and 0.30."
+		if not 0.50 <= float(params.get("crossover_rate", 0.8)) <= 0.95:
+			errors["crossover_rate"] = "Must be between 0.50 and 0.95."
+		if not 1 <= int(params.get("elitism_count", 5)) <= 20:
+			errors["elitism_count"] = "Must be between 1 and 20."
+		if errors:
+			return Response({"detail": "Invalid parameters.", "errors": errors}, status=status.HTTP_400_BAD_REQUEST)
 		if _weight_total(params) <= 0:
 			return Response(
 				{"detail": "At least one objective weight must be greater than 0."},
@@ -101,7 +114,7 @@ class OptimizationStartView(APIView):
 
 
 class OptimizationCancelView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request, run_id: str):
 		run = OptimizationRun.objects.filter(run_id=run_id, is_deleted=False).first()
@@ -142,19 +155,21 @@ class OptimizationStatusView(APIView):
 		if progress:
 			return Response(progress)
 
-		generation = int((timezone.now() - run.timestamp).total_seconds()) % max(1, int(run.parameters.get("generations", 300)))
-		current_fitness = 0.0
-		if run.fitness_scores:
-			current_fitness = float(run.fitness_scores[min(max(0, generation - 1), len(run.fitness_scores) - 1)])
+		total_gens = int(run.parameters.get("generations", 300))
+		if run.status == "completed":
+			current_gen = total_gens
+		else:
+			current_gen = len(run.fitness_scores) if run.fitness_scores else 0
+		current_fitness = float(run.fitness_scores[-1]) if run.fitness_scores else 0.0
 
 		return Response(
 			{
 				"run_id": run.run_id,
 				"status": run.status,
-				"current_generation": generation,
-				"total_generations": run.parameters.get("generations", 300),
+				"current_generation": current_gen,
+				"total_generations": total_gens,
 				"current_fitness": current_fitness,
-				"estimated_completion": (run.timestamp + timedelta(minutes=5)).isoformat(),
+				"estimated_completion": run.updated_at.isoformat() if run.status in ("completed", "failed", "cancelled") else None,
 			}
 		)
 

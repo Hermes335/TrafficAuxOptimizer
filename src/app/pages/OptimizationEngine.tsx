@@ -7,28 +7,13 @@ import { LoadingState, EmptyState } from "../components/LoadingState";
 import {
   fetchOptimizationResults,
   fetchOptimizationStatus,
+  publishDeploymentsFromOptimization,
   type OptimizationResults,
   type OptimizationStatus,
 } from "../services/backend";
+import { type ConvergencePoint, upsertConvergencePoint, getRunStatusToneClass } from "../types/optimization";
 
-interface Point {
-  id: string;
-  generation: number;
-  bestFitness: number;
-  avgFitness: number;
-}
-
-function upsertPoint(prev: Point[], nextPoint: Point) {
-  const index = prev.findIndex((item) => item.generation === nextPoint.generation);
-  if (index >= 0) {
-    const next = [...prev];
-    next[index] = nextPoint;
-    return next;
-  }
-  return [...prev, nextPoint].slice(-200);
-}
-
-function buildConvergenceFromScores(scores: number[]): Point[] {
+function buildConvergenceFromScores(scores: number[]): ConvergencePoint[] {
   let runningTotal = 0;
   return scores.map((score, index) => {
     runningTotal += score;
@@ -46,7 +31,25 @@ export function OptimizationEngine() {
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
   const [results, setResults] = useState<OptimizationResults | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [convergenceData, setConvergenceData] = useState<Point[]>([]);
+  const [convergenceData, setConvergenceData] = useState<ConvergencePoint[]>([]);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishNotice, setPublishNotice] = useState<string | null>(null);
+
+  const onPublish = async () => {
+    if (!runId) return;
+    setPublishing(true);
+    setPublishError(null);
+    setPublishNotice(null);
+    try {
+      const result = await publishDeploymentsFromOptimization({ run_id: runId, shift: "afternoon", replace_existing: true });
+      setPublishNotice(`Published ${result.created} deployments.`);
+    } catch (e: unknown) {
+      setPublishError(e instanceof Error ? e.message : "Failed to publish.");
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   useEffect(() => {
     if (!runId) {
@@ -65,7 +68,7 @@ export function OptimizationEngine() {
         }
         setStatus(latestStatus);
         setConvergenceData((prev) =>
-          upsertPoint(prev, {
+          upsertConvergencePoint(prev, {
             id: `status-${latestStatus.current_generation}`,
             generation: latestStatus.current_generation,
             bestFitness: latestStatus.current_fitness,
@@ -121,14 +124,7 @@ export function OptimizationEngine() {
 
   const bestSolution = results?.top_solutions?.[0];
   const assignments = bestSolution?.assignments ?? [];
-  const statusToneClass =
-    status?.status === "completed"
-      ? "bg-green-100 text-green-700"
-      : status?.status === "failed"
-        ? "bg-red-100 text-red-700"
-        : status?.status === "cancelled"
-          ? "bg-gray-100 text-gray-700"
-        : "bg-yellow-100 text-yellow-700";
+  const statusToneClass = getRunStatusToneClass(status?.status);
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50 p-8">
@@ -189,8 +185,8 @@ export function OptimizationEngine() {
               icon={<Users className="h-4 w-4" />}
             />
             <StatCard
-              label="Predicted Efficiency"
-              value={bestSolution?.efficiency ? `${bestSolution.efficiency.toFixed(1)}%` : "pending"}
+              label="Coverage Efficiency"
+              value={bestSolution?.coverage_efficiency ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}
               icon={<TrendingDown className="h-4 w-4" />}
             />
           </div>
@@ -237,7 +233,7 @@ export function OptimizationEngine() {
                   <div className="mb-1 text-xs text-gray-500">{assignment.bottleneck_id ?? "BOTTLENECK"}</div>
                   <div className="font-medium">{assignment.bottleneck_name ?? "Unknown"}</div>
                   <div className="mt-1 text-sm text-gray-600">
-                    Required: {assignment.required_officers ?? 0} | Assigned: {assignment.officers?.length ?? 0}
+                    Officer: {assignment.badge_number ?? "N/A"} (ID: {assignment.officer_id ?? "—"})
                   </div>
                 </div>
               ))}
@@ -248,15 +244,77 @@ export function OptimizationEngine() {
             <div className="rounded-xl bg-white p-6 shadow-sm">
               <h3 className="mb-3 font-semibold">Solution Summary</h3>
               <div className="space-y-2 text-sm text-gray-700">
-                <div>Coverage: {bestSolution?.coverage ? `${bestSolution.coverage}%` : "pending"}</div>
-                <div>Congestion Reduction: {bestSolution?.congestion_reduction ? `${bestSolution.congestion_reduction}%` : "pending"}</div>
-                <div>Officer Utilization: {bestSolution?.officer_utilization ? `${bestSolution.officer_utilization}%` : "pending"}</div>
+                <div>Coverage Efficiency: {bestSolution?.coverage_efficiency ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}</div>
+                <div>Avg Response Time: {bestSolution?.avg_response_time ? `${bestSolution.avg_response_time.toFixed(1)} min` : "pending"}</div>
+                <div>Resource Utilization: {bestSolution?.resource_utilization ? `${bestSolution.resource_utilization.toFixed(1)}%` : "pending"}</div>
+                <div>Road Priority Coverage: {bestSolution?.road_priority_coverage ? `${bestSolution.road_priority_coverage.toFixed(1)}%` : "pending"}</div>
               </div>
             </div>
 
+            {/* Pareto Front Visualization */}
+            {results?.pareto_curve_data && results.pareto_curve_data.length > 0 && (
+              <div className="rounded-xl bg-white p-6 shadow-sm">
+                <div className="mb-4 flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-yellow-500" />
+                  <h2 className="font-semibold">Pareto Front (Trade-off Analysis)</h2>
+                </div>
+                <p className="mb-4 text-sm text-gray-600">
+                  Each bubble represents a non-dominated solution. X = coverage, Y = response time efficiency.
+                  Bubble size = weather responsiveness, color = resource balance.
+                </p>
+                <div className="grid grid-cols-5 gap-2 text-xs font-medium text-gray-500 mb-2">
+                  <span>Solution</span>
+                  <span>Coverage</span>
+                  <span>Response</span>
+                  <span>Weather</span>
+                  <span>Balance</span>
+                </div>
+                {results.pareto_curve_data.map((point, i) => {
+                  const balanceColor = (point.resource_balance ?? 0) >= 70 ? "text-green-600" : (point.resource_balance ?? 0) >= 40 ? "text-yellow-600" : "text-red-600";
+                  return (
+                    <div key={i} className="grid grid-cols-5 gap-2 border-t py-2 text-sm">
+                      <span className="font-medium text-gray-900">#{i + 1}</span>
+                      <span>{point.coverage?.toFixed(1) ?? point.coverage_efficiency?.toFixed(1) ?? "—"}%</span>
+                      <span>{point.inverse_response_time?.toFixed(1) ?? "—"}%</span>
+                      <span>{point.weather_responsiveness?.toFixed(1) ?? "—"}%</span>
+                      <span className={balanceColor}>{point.resource_balance?.toFixed(1) ?? "—"}%</span>
+                    </div>
+                  );
+                })}
+                {results.converged_early && (
+                  <div className="mt-3 rounded-lg bg-green-50 p-2 text-xs text-green-700">
+                    Converged early — hypervolume stabilized, no further improvement detected.
+                  </div>
+                )}
+                {results.synthetic_data_used && results.synthetic_data_used.length > 0 && (
+                  <div className="mt-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-700">
+                    Synthetic data used for: {results.synthetic_data_used.join(", ")}. Results are approximate.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {status?.status === "completed" && (
+              <div className="rounded-xl bg-white p-6 shadow-sm">
+                <h2 className="mb-3 font-semibold">Publish Deployment</h2>
+                <p className="mb-3 text-sm text-gray-600">
+                  Publish the top solution as the deployment schedule for this shift.
+                </p>
+                <button
+                  onClick={onPublish}
+                  disabled={publishing}
+                  className="w-full rounded-lg bg-yellow-400 px-4 py-3 font-semibold text-white hover:bg-yellow-500 disabled:opacity-50"
+                >
+                  {publishing ? "Publishing..." : "Publish to Schedule"}
+                </button>
+                {publishError && <p className="mt-2 text-sm text-red-600">{publishError}</p>}
+                {publishNotice && <p className="mt-2 text-sm text-green-600">{publishNotice}</p>}
+              </div>
+            )}
+
             <Link
               to="/gantt-chart"
-              className="block rounded-lg bg-yellow-400 px-4 py-3 text-center font-semibold text-white hover:bg-yellow-500"
+              className="block rounded-lg border border-yellow-400 px-4 py-3 text-center font-medium text-yellow-700 hover:bg-yellow-50"
             >
               Open Deployment Schedule
             </Link>
