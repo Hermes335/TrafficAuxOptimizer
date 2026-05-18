@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronRight, Cloud, CloudRain, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { getApiBaseUrl, fetchDeploymentSchedule, type DeploymentScheduleItem } from "../services/backend";
+import { getApiBaseUrl, fetchDeploymentSchedule, resolveIncident, type DeploymentScheduleItem } from "../services/backend";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useBottleneckActions } from "../hooks/useBottleneckActions";
 import { useMapIntegration } from "../hooks/useMapIntegration";
@@ -150,13 +150,30 @@ export function Dashboard() {
     ba.setSelectedBottleneckId(bottleneck.id);
   };
 
+  // --- Incident remove handler ---
+  const onRemoveIncident = async (id: number) => {
+    // Remove from local state immediately
+    setDashboardSnapshot((prev) => ({
+      ...prev,
+      incidents: prev.incidents.filter((inc) => inc.id !== id),
+    }));
+    // Try to resolve on backend (silently fail if it's a local-only incident)
+    try {
+      await resolveIncident(id);
+    } catch {
+      // Incident may not exist on backend (local-only), ignore
+    }
+  };
+
   // --- Map markers hook ---
   useMapMarkers({
     mapRef: map.mapRef,
     markersRef: map.markersRef,
     hasFittedRef: map.hasFittedRef,
     filteredBottlenecks,
+    incidents,
     onMarkerClick,
+    onIncidentRemove: onRemoveIncident,
   });
 
   // --- Assignment lines hook (shows officer->bottleneck lines when Assignments view active) ---
@@ -296,7 +313,7 @@ export function Dashboard() {
               deletingId={data.deletingBottleneckId}
             />
           )}
-          <IncidentTicker incidents={incidents} />
+          <IncidentTicker incidents={incidents} onRemoveIncident={onRemoveIncident} />
           <QuickOptimizeCard
             selectedShift={selectedShift} setSelectedShift={setSelectedShift}
             WeatherIndicatorIcon={WeatherIndicatorIcon} weatherStyle={weatherStyle} weatherLabel={weatherLabel}

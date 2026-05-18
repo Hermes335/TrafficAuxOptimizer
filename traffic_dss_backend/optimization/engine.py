@@ -91,12 +91,50 @@ class GeneticDeploymentOptimizer:
             return 3.0
         return geodesic((lat, lng), (bottleneck["latitude"], bottleneck["longitude"])).km
 
+    @staticmethod
+    def _compute_incident_boosts(
+        bottlenecks: list[dict],
+        incidents: list[dict],
+        radius_km: float = 0.5,
+    ) -> dict[int, dict]:
+        """For each bottleneck, compute priority boosts from nearby incidents.
+        Incidents increase road_priority_weight so the optimizer assigns more officers there."""
+        boosts: dict[int, dict] = {}
+        severity_multiplier = {"critical": 3.0, "major": 2.0, "minor": 1.0}
+
+        for b_idx, bn in enumerate(bottlenecks):
+            priority_boost = 0.0
+            nearby_count = 0
+
+            for inc in incidents:
+                inc_lat = inc.get("latitude")
+                inc_lng = inc.get("longitude")
+                if inc_lat is None or inc_lng is None:
+                    continue
+                dist = geodesic((inc_lat, inc_lng), (bn["latitude"], bn["longitude"])).km
+                if dist <= radius_km:
+                    sev = inc.get("severity", "minor")
+                    mult = severity_multiplier.get(sev, 1.0)
+                    # Closer incidents have stronger effect
+                    proximity = 1.0 - (dist / radius_km)
+                    priority_boost += mult * proximity
+                    nearby_count += 1
+
+            if nearby_count > 0:
+                boosts[b_idx] = {
+                    "priority_boost": priority_boost,
+                    "incident_count": nearby_count,
+                }
+
+        return boosts
+
     def _evaluate_objectives(
         self,
         chromosome: list[int],
         officers: list[dict],
         bottlenecks: list[dict],
         weather_impact_factor: float,
+        incident_boosts: dict[int, dict] | None = None,
     ) -> dict:
         """Evaluate 4 independent objectives (no weighting). Returns raw scores."""
         assigned_indices = [idx for idx in chromosome if 0 <= idx < len(bottlenecks)]
@@ -113,15 +151,34 @@ class GeneticDeploymentOptimizer:
                 continue
             officer = officers[officer_idx]
             bottleneck = bottlenecks[bottleneck_idx]
-            assigned_priority_weight += max(0.0, float(bottleneck.get("road_priority_weight", 1.0)))
-            speed_kmh = max(8.0, 28.0 * (1.0 - float(bottleneck.get("tsi", 0.0))))
+
+            # Apply incident boost to priority (not TSI - boosting TSI penalizes assignments)
+            effective_tsi = float(bottleneck.get("tsi", 0.0))
+            effective_priority = max(0.0, float(bottleneck.get("road_priority_weight", 1.0)))
+            if incident_boosts and bottleneck_idx in incident_boosts:
+                effective_priority += incident_boosts[bottleneck_idx]["priority_boost"]
+
+            assigned_priority_weight += effective_priority
+            speed_kmh = max(8.0, 28.0 * (1.0 - effective_tsi))
             travel_minutes = (self._distance_km(officer, bottleneck) / speed_kmh) * 60.0
             response_minutes.append(travel_minutes * weather_impact_factor)
 
         priority_denominator = sum(max(0.0, float(item.get("road_priority_weight", 1.0))) for item in bottlenecks)
+        # Add incident priority boosts to denominator
+        if incident_boosts:
+            for b_idx, boost in incident_boosts.items():
+                priority_denominator += boost["priority_boost"]
         road_priority_coverage = 100.0 if priority_denominator <= 0 else min(100.0, (assigned_priority_weight / priority_denominator) * 100.0)
         avg_response_time = sum(response_minutes) / max(1, len(response_minutes))
         response_time_score = max(0.0, 100.0 - (avg_response_time * 2.0))
+
+        # Incident coverage: bonus for assigning officers to bottlenecks near incidents
+        incident_coverage_score = 0.0
+        if incident_boosts:
+            incident_bottlenecks = set(incident_boosts.keys())
+            incident_covered = incident_bottlenecks & covered
+            if incident_bottlenecks:
+                incident_coverage_score = (len(incident_covered) / len(incident_bottlenecks)) * 100.0
 
         return {
             "coverage_efficiency": round(coverage_efficiency, 3),
@@ -129,6 +186,7 @@ class GeneticDeploymentOptimizer:
             "road_priority_coverage": round(road_priority_coverage, 3),
             "resource_utilization": round(resource_utilization, 3),
             "avg_response_time": round(avg_response_time, 3),
+            "incident_coverage_score": round(incident_coverage_score, 3),
         }
 
     def _check_constraints(
@@ -173,9 +231,10 @@ class GeneticDeploymentOptimizer:
         bottlenecks: list[dict],
         weather_impact_factor: float,
         weights: dict,
+        incident_boosts: dict[int, dict] | None = None,
     ) -> dict:
         """Full evaluation: 4 objectives + weighted fitness + constraint penalty."""
-        objectives = self._evaluate_objectives(chromosome, officers, bottlenecks, weather_impact_factor)
+        objectives = self._evaluate_objectives(chromosome, officers, bottlenecks, weather_impact_factor, incident_boosts)
         constraints_violated, violations = self._check_constraints(chromosome, officers, bottlenecks)
 
         fitness = (
@@ -184,6 +243,11 @@ class GeneticDeploymentOptimizer:
             + (objectives["road_priority_coverage"] * weights["rpw_weight"])
             + (objectives["resource_utilization"] * weights["resource_utilization_weight"])
         )
+
+        # Incident coverage bonus: reward covering bottlenecks near active incidents
+        # Uses a fixed 15% weight when incidents are present
+        if incident_boosts and objectives.get("incident_coverage_score", 0) > 0:
+            fitness += objectives["incident_coverage_score"] * 0.15
 
         # Hard constraint penalty: multiply by 1e-6
         if constraints_violated:
@@ -399,6 +463,7 @@ class GeneticDeploymentOptimizer:
         bottlenecks: list[dict],
         parameters: dict,
         weather_impact_factor: float = 1.0,
+        incidents: list[dict] | None = None,
         seed: int | None = None,
         cancel_check: Callable[[], bool] | None = None,
         progress_callback: Callable[[int, int, float], None] | None = None,
@@ -409,6 +474,9 @@ class GeneticDeploymentOptimizer:
             return GARunResult(best_fitness=0.0, top_solutions=[], generation_fitness=[], status="failed")
 
         config = self._clamp_parameters(parameters)
+
+        # Pre-compute incident boosts for each bottleneck
+        incident_boosts = self._compute_incident_boosts(bottlenecks, incidents or []) if incidents else {}
         pop = self._init_population(config["population_size"], len(officers), len(bottlenecks))
         generation_fitness: list[float] = []
         hypervolume_history: list[float] = []
@@ -425,7 +493,7 @@ class GeneticDeploymentOptimizer:
 
             # Evaluate all individuals
             scored = [
-                (chromosome, self._evaluate(chromosome, officers, bottlenecks, weather_impact_factor, config))
+                (chromosome, self._evaluate(chromosome, officers, bottlenecks, weather_impact_factor, config, incident_boosts))
                 for chromosome in pop
             ]
 
@@ -507,7 +575,7 @@ class GeneticDeploymentOptimizer:
 
         # Final evaluation
         scored = [
-            (chromosome, self._evaluate(chromosome, officers, bottlenecks, weather_impact_factor, config))
+            (chromosome, self._evaluate(chromosome, officers, bottlenecks, weather_impact_factor, config, incident_boosts))
             for chromosome in pop
         ]
         fronts = self._fast_non_dominated_sort(scored)

@@ -63,7 +63,7 @@ export function useMapClickHandler({
           const id = Math.floor(Math.random() * 10000);
           setDashboardSnapshot((prev) => ({
             ...prev,
-            incidents: [...prev.incidents, { id, text: `New Incident ${id}`, type: "major" as const }],
+            incidents: [...prev.incidents, { id, text: `New Incident ${id}`, type: "major" as const, latitude, longitude }],
           }));
           setAddMode(null);
         } else if (addMode === "poi") {

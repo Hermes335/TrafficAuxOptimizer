@@ -155,17 +155,25 @@ python manage.py import_pois_overpass
 npm run dev:local
 ```
 
-This starts: Django backend, Celery worker, Celery beat, Vite frontend, Electron desktop.
-
-### Individual Services
+This starts all services concurrently:
 
 | Service | Command | URL |
 |---------|---------|-----|
-| Backend | `npm run dev:backend` | http://127.0.0.1:8000 |
-| Frontend | `npm run dev:renderer` | http://127.0.0.1:5173 |
-| Celery Worker | `npm run dev:worker` | -- |
-| Celery Beat | `npm run dev:beat` | -- |
-| Desktop | `npm run dev:desktop` | http://127.0.0.1:3001 |
+| Django Backend | `dev:backend` | http://127.0.0.1:8000 |
+| Celery Worker | `dev:worker` | Executes background tasks |
+| Celery Beat | `dev:beat` | Triggers periodic tasks (traffic/weather fetch) |
+| Vite Frontend | `dev:renderer` | http://127.0.0.1:5173 |
+| Electron Desktop | `dev:desktop:local` | http://127.0.0.1:3001 |
+
+### Individual Services
+
+```bash
+npm run dev:backend     # Django only
+npm run dev:worker      # Celery worker only
+npm run dev:beat        # Celery beat only
+npm run dev:renderer    # Frontend only
+npm run dev:desktop     # Electron only
+```
 
 ### Stop All
 ```bash
@@ -176,29 +184,33 @@ npm run stop:local
 
 ## 8. Background Tasks (Celery)
 
+Celery beat schedules periodic tasks. Celery worker executes them.
+
 | Task | Schedule | Function |
 |------|----------|----------|
-| `fetch_traffic_data` | Every 5 min | Fetch TSI from TomTom (parallel HTTP) |
+| `fetch_traffic_data` | Every 5 min | Fetch TSI from TomTom (parallel HTTP, updates bottleneck.tsi) |
 | `fetch_weather_data` | Every 15 min | Fetch WIF from PAGASA/Open-Meteo |
 | `incident_lifecycle` | Every 5 min | Auto-resolve stale incidents (4h) |
 | `incident_archive` | Daily | Archive resolved incidents (24h) |
 | `compute_heatmap_tsi` | Every 5/15 min | Update heatmap TSI (peak/off-peak) |
 | `cleanup_old_data` | Daily | Soft-delete data older than 90 days |
 
-**Note:** The Celery worker must be running for optimization runs to execute. If the worker is not running, optimization runs will stay in "queued" status forever.
+**Important:** Both `dev:worker` AND `dev:beat` must be running for periodic tasks to execute. `npm run dev:local` starts both.
 
 ---
 
 ## 9. External APIs
 
-### TomTom (Traffic Tiles)
+### TomTom (Traffic Tiles & Flow Data)
 1. Get API key from https://developer.tomtom.com/
 2. Add `TOMTOM_API_KEY=your-key` to `.env`
-3. The tile proxy endpoints require authentication (`IsAuthenticated`)
+3. Used for: map tiles (AllowAny), traffic flow data (TSI calculation)
+4. TSI formula: `1 - (current_speed / free_flow_speed)`
 
 ### Weather
 - **PAGASA** (Philippines): Set `PAGASA_API_ENDPOINT` in `.env`
 - **Open-Meteo** (Fallback): No API key needed, configured by default
+- Weather Impact Factor (WIF) multiplies officer travel times
 
 ---
 
@@ -241,9 +253,18 @@ npm run stop:local
 | Endpoint | Method | Auth |
 |----------|--------|------|
 | `/api/deployments/schedule/` | GET | Required |
-| `/api/deployments/schedule/` | DELETE | Required (`?shift=morning` or `?shift=afternoon`) |
+| `/api/deployments/schedule/` | DELETE | Required (`?shift=morning` or `?shift=afternoon` or no param for all) |
 | `/api/deployments/assign/` | POST | Required |
 | `/api/deployments/publish-optimization/` | POST | Required |
+
+### Incidents
+| Endpoint | Method | Auth |
+|----------|--------|------|
+| `/api/incidents/meta/` | GET | Public |
+| `/api/incidents/report/` | POST | Required |
+| `/api/incidents/` | GET | Public |
+| `/api/incidents/<id>/resolve/` | PUT | Required |
+| `/api/incidents/<id>/` | DELETE | Admin only |
 
 ### WebSocket
 | Endpoint | Auth | Purpose |
@@ -261,26 +282,67 @@ npm run stop:local
 | Login | http://127.0.0.1:5173/login |
 | Dashboard | http://127.0.0.1:5173/ |
 | Optimization | http://127.0.0.1:5173/optimization |
+| Optimization Running | http://127.0.0.1:5173/optimization-running |
+| Optimization Results | http://127.0.0.1:5173/optimization-engine |
 | Gantt Chart | http://127.0.0.1:5173/gantt-chart |
 | API Docs (Swagger) | http://127.0.0.1:8000/api/docs/ |
 | Django Admin | http://127.0.0.1:8000/admin |
 
 ---
 
-## 12. Troubleshooting
+## 12. Officer Status Lifecycle
 
-### Celery worker not picking up tasks
-Restart the worker after code changes:
+| Action | Officer Status |
+|--------|---------------|
+| Officer created | `available` |
+| Deployment published | `deployed` |
+| Schedule cleared | `available` (if no remaining deployments) |
+| Deployment replaced | Old officers → `available`, new officers → `deployed` |
+
+**Resource Utilization KPI** = deployed / (available + deployed) × 100%
+
+---
+
+## 13. Optimization Data Flow
+
+```
+TomTom API → fetch_traffic_data (every 5 min) → bottleneck.tsi field
+                                                    ↓
+Dashboard ← DashboardBottlenecksView ← bottleneck.tsi + assigned_officers
+                                                    ↓
+Optimization → run_optimization task → NSGA-II engine → Pareto front
+                                                    ↓
+Results → OptimizationEngine page → top solutions + Pareto chart
+                                                    ↓
+Publish → DeploymentPublishOptimizationView → officer.status = "deployed"
+                                                    ↓
+Gantt Chart ← fetchDeploymentSchedule ← Deployment table
+```
+
+**Incidents in Optimization:**
+- Active incidents within 500m of a bottleneck boost its road priority weight
+- Critical incidents: +3.0, Major: +2.0, Minor: +1.0 priority boost
+- Incident coverage bonus: +15% fitness for covering bottleneck clusters near incidents
+
+---
+
+## 14. Troubleshooting
+
+### Celery not picking up tasks
+Restart both worker and beat:
 ```bash
-# Stop with Ctrl+C, then:
-cd traffic_dss_backend
-celery -A config worker --loglevel=info
+npm run stop:local
+npm run dev:local
 ```
 
 ### Optimization shows 0 fitness
 - Check that Celery worker is running
 - Check that Redis is running (`redis-cli ping`)
-- Restart the worker after engine changes
+- Restart after engine changes
+
+### Map dots not updating
+- Check that Celery beat is running (triggers `fetch_traffic_data` every 5 min)
+- Manually refresh: `python -c "import os,django;os.environ.setdefault('DJANGO_SETTINGS_MODULE','config.settings');django.setup();from external.tasks import fetch_traffic_data;fetch_traffic_data()"`
 
 ### Redis connection refused
 ```bash
@@ -300,4 +362,10 @@ python manage.py showmigrations  # Check for unapplied migrations
 If logout fails with database errors, run:
 ```bash
 python manage.py migrate token_blacklist
+```
+
+### Login throttle (429 Too Many Requests)
+Login is rate-limited to 10 attempts per minute. Wait 1 minute or clear cache:
+```bash
+python -c "import os,django;os.environ.setdefault('DJANGO_SETTINGS_MODULE','config.settings');django.setup();from django.core.cache import cache;cache.clear()"
 ```

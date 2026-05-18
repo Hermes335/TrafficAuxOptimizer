@@ -13,7 +13,7 @@
     "dev:worker": "cd traffic_dss_backend && ..\\.venv\\Scripts\\python.exe -m celery -A config worker -l info --pool=solo",
     "dev:beat": "cd traffic_dss_backend && ..\\.venv\\Scripts\\python.exe -m celery -A config beat -l info",
     "dev:desktop:local": "set SKIP_DJANGO_BACKEND=true&& npm run dev:desktop",
-    "dev:local": "concurrently -k \"npm:dev:backend\" \"npm:dev:worker\" \"npm:dev:renderer\" \"npm:dev:desktop:local\"",
+    "dev:local": "concurrently -k \"npm:dev:backend\" \"npm:dev:worker\" \"npm:dev:beat\" \"npm:dev:renderer\" \"npm:dev:desktop:local\"",
     "stop:local": "node scripts/stop-local-dev.cjs",
     "build:renderer": "vite build",
     "build": "npm run build:renderer",

@@ -25,6 +25,8 @@ export interface Incident {
   id: number;
   text: string;
   type: IncidentType;
+  latitude?: number;
+  longitude?: number;
 }
 
 export interface DashboardSnapshot {
@@ -755,6 +757,15 @@ export async function reportIncident(payload: IncidentReportPayload): Promise<vo
   });
   if (!response.ok) {
     throw new Error(`Failed to submit incident: ${response.status}`);
+  }
+}
+
+export async function resolveIncident(incidentId: number): Promise<void> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/incidents/${incidentId}/resolve/`, {
+    method: "PUT",
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to resolve incident: ${response.status}`);
   }
 }
 
