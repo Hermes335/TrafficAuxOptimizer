@@ -89,7 +89,7 @@ export function useDashboardData() {
       .then((rows) => {
         if (active) {
           setOfficers(rows);
-          setTotalOfficersCount(rows.length);
+          setTotalOfficersCount(rows.filter((o) => o.status === "available" || o.status === "deployed").length);
           setDeployedOfficersCount(rows.filter((o) => o.status === "deployed").length);
         }
       })
@@ -115,7 +115,7 @@ export function useDashboardData() {
   const reloadOfficers = async () => {
     const rows = await fetchDashboardOfficers();
     setOfficers(rows);
-    setTotalOfficersCount(rows.length);
+    setTotalOfficersCount(rows.filter((o) => o.status === "available" || o.status === "deployed").length);
     setDeployedOfficersCount(rows.filter((o) => o.status === "deployed").length);
   };
 

@@ -415,17 +415,21 @@ export function GanttChart() {
               Coverage: {coverage.covered}/{coverage.total} bottlenecks with active assignments ({coverage.percent}%)
             </div>
 
-            <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+            <div className="mt-3 grid grid-cols-4 gap-3 text-sm">
               <div className="rounded-lg border bg-white px-3 py-2">
                 <div className="text-xs text-gray-500">Active Assignments</div>
                 <div className="font-semibold">{activeAssignments}</div>
               </div>
               <div className="rounded-lg border bg-white px-3 py-2">
-                <div className="text-xs text-gray-500">Filtered Bottlenecks</div>
-                <div className="font-semibold">{new Set(filteredSchedule.map((item) => item.bottleneck)).size}</div>
+                <div className="text-xs text-gray-500">Morning Shift</div>
+                <div className="font-semibold">{filteredSchedule.filter((d) => d.shift === "morning").length}</div>
               </div>
               <div className="rounded-lg border bg-white px-3 py-2">
-                <div className="text-xs text-gray-500">Coverage of All Bottlenecks</div>
+                <div className="text-xs text-gray-500">Afternoon Shift</div>
+                <div className="font-semibold">{filteredSchedule.filter((d) => d.shift === "afternoon").length}</div>
+              </div>
+              <div className="rounded-lg border bg-white px-3 py-2">
+                <div className="text-xs text-gray-500">Coverage</div>
                 <div className="font-semibold">{coverage.percent}%</div>
               </div>
             </div>
@@ -499,7 +503,12 @@ export function GanttChart() {
                     <td className="px-4 py-3">{new Date(item.end_time).toLocaleString()}</td>
                     <td className="px-4 py-3 capitalize">{item.assignment_type}</td>
                     <td className="px-4 py-3">
-                      <span className="rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-700 capitalize">
+                      <span className={`rounded px-2 py-1 text-xs font-medium capitalize ${
+                        item.status === "assigned" ? "bg-blue-100 text-blue-700" :
+                        item.status === "published" ? "bg-green-100 text-green-700" :
+                        item.status === "completed" ? "bg-gray-100 text-gray-700" :
+                        "bg-yellow-100 text-yellow-700"
+                      }`}>
                         {item.status}
                       </span>
                     </td>
@@ -640,13 +649,23 @@ export function GanttChart() {
             <div className="rounded-xl border bg-white p-4">
               <h3 className="mb-3 font-semibold">Coverage Matrix</h3>
               <div className="space-y-1">
+                {/* Hour header */}
+                <div className="grid grid-cols-10 gap-1 text-[10px] text-gray-500">
+                  <div className="truncate pr-1" title="Bottleneck">BN</div>
+                  {hourSlots.map((hour) => (
+                    <div key={hour} className="text-center">{hour}:00</div>
+                  ))}
+                </div>
                 {matrixRows.map(({ row, cells }) => (
-                  <div key={row.id} className="grid grid-cols-9 gap-1">
+                  <div key={row.id} className="grid grid-cols-10 gap-1">
+                    <div className="truncate pr-1 text-[10px] font-medium text-gray-600" title={row.name ?? row.id}>
+                      {(row.id ?? "").replace("bn-", "").slice(0, 6)}
+                    </div>
                     {cells.map((count, index) => (
                       <div
                         key={`${row.id}-${hourSlots[index]}`}
                         className={`h-6 rounded ${count >= 2 ? "bg-yellow-400" : count === 1 ? "bg-yellow-200" : "bg-rose-100"}`}
-                        title={`${row.id} @ ${hourSlots[index]}:00 -> ${count} officer(s)`}
+                        title={`${row.name ?? row.id} @ ${hourSlots[index]}:00 -> ${count} officer(s)`}
                       />
                     ))}
                   </div>

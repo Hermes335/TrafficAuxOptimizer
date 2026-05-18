@@ -33,6 +33,7 @@ User = get_user_model()
 
 class HealthCheckView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = []
 
     def get(self, request):
         return Response({"status": "ok"})
@@ -55,6 +56,7 @@ class LogoutView(APIView):
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_scope = "login"
 
     def post(self, request):
         from django.contrib.auth import authenticate

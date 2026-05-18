@@ -145,6 +145,7 @@ class OptimizationCancelView(APIView):
 
 class OptimizationStatusView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request, run_id: str):
 		run = OptimizationRun.objects.filter(run_id=run_id, is_deleted=False).first()
@@ -176,6 +177,7 @@ class OptimizationStatusView(APIView):
 
 class OptimizationResultsView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request, run_id: str):
 		run = OptimizationRun.objects.filter(run_id=run_id, is_deleted=False).first()
@@ -194,6 +196,7 @@ class OptimizationResultsView(APIView):
 
 class OptimizationHistoryView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		runs = OptimizationRun.objects.filter(is_deleted=False).order_by("-timestamp")[:100]

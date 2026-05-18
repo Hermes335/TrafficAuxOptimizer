@@ -59,20 +59,21 @@ def run_optimization(run_id: str):
     ]
 
     bottlenecks_qs = Bottleneck.objects.filter(is_deleted=False).order_by("id")
-    bottlenecks = [
-        {
+    bottlenecks = []
+    for bottleneck in bottlenecks_qs:
+        # TSI priority: bottleneck.tsi field > latest TrafficData record > 0.0
+        tsi_val = float(bottleneck.tsi) if bottleneck.tsi and bottleneck.tsi > 0 else (
+            bottleneck.traffic_data.filter(is_deleted=False).order_by("-timestamp").values_list("traffic_severity_index", flat=True).first()
+            or 0.0
+        )
+        bottlenecks.append({
             "id": bottleneck.id,
             "name": bottleneck.name,
             "latitude": bottleneck.latitude,
             "longitude": bottleneck.longitude,
             "road_priority_weight": bottleneck.road_priority_weight,
-            "tsi": (
-                bottleneck.traffic_data.filter(is_deleted=False).order_by("-timestamp").values_list("traffic_severity_index", flat=True).first()
-                or 0.0
-            ),
-        }
-        for bottleneck in bottlenecks_qs
-    ]
+            "tsi": tsi_val,
+        })
 
     synthetic_flags = []
 

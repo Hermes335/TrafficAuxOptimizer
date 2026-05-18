@@ -22,12 +22,14 @@ type RunEvent = {
 
 export function OptimizationRunning() {
   const navigate = useNavigate();
-  const [runId, setRunId] = useState<string | null>(null);
+  const query = useMemo(() => new URLSearchParams(window.location.search), []);
+  const existingRunId = query.get("run_id");
+  const [runId, setRunId] = useState<string | null>(existingRunId);
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [convergenceData, setConvergenceData] = useState<ConvergencePoint[]>([]);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
-  const startedRef = useRef(false);
+  const startedRef = useRef(!!existingRunId);
 
   const progress = useMemo(() => {
     if (!status || status.total_generations <= 0) {
@@ -54,7 +56,6 @@ export function OptimizationRunning() {
     return convergenceData[convergenceData.length - 1].bestFitness - convergenceData[0].bestFitness;
   }, [convergenceData]);
 
-  const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const config = useMemo(
     () => ({
       populationSize: Number(query.get("population_size") || 200),
@@ -142,6 +143,39 @@ export function OptimizationRunning() {
     startedRef.current = true;
     let unsubscribe: (() => void) | undefined;
     let pollTimer: number | undefined;
+
+    // If run_id is in URL, connect to existing run instead of starting new one
+    if (existingRunId) {
+      setRunEvents([{ label: `Reconnected to run: ${existingRunId}`, tone: "neutral" }]);
+
+      unsubscribe = subscribeToOptimizationStream(existingRunId, (event) => {
+        if (event.current_generation !== undefined) {
+          setConvergenceData((prev) =>
+            upsertConvergencePoint(prev, {
+              id: `point-${event.current_generation}`,
+              generation: event.current_generation,
+              bestFitness: event.current_fitness ?? 0,
+              avgFitness: Math.max(0, (event.current_fitness ?? 0) * 0.82),
+            }),
+          );
+        }
+        if (event.status) setStatus((prev) => ({ ...prev, ...event } as OptimizationStatus));
+        if (event.event === "optimization_complete") setRunEvents((prev) => [...prev, { label: "Optimization completed!", tone: "success" }]);
+        if (event.event === "optimization_failed") setRunEvents((prev) => [...prev, { label: `Optimization failed: ${event.error ?? "unknown"}`, tone: "danger" }]);
+        if (event.event === "optimization_cancelled") setRunEvents((prev) => [...prev, { label: "Optimization cancelled", tone: "warning" }]);
+      });
+
+      pollTimer = window.setInterval(async () => {
+        try {
+          const latestStatus = await fetchOptimizationStatus(existingRunId);
+          setStatus((prev) => ({ ...prev, ...latestStatus }));
+          if (latestStatus.status === "completed" || latestStatus.status === "failed" || latestStatus.status === "cancelled") {
+            if (pollTimer) window.clearInterval(pollTimer);
+          }
+        } catch { /* ignore poll errors */ }
+      }, 1500);
+      return () => { unsubscribe?.(); if (pollTimer) window.clearInterval(pollTimer); };
+    }
 
     const payload = {
       shift: query.get("shift") || "afternoon",
@@ -266,7 +300,7 @@ export function OptimizationRunning() {
   return (
     <div className="flex h-full">
       {/* Left Panel - Configuration */}
-      <div className="w-80 border-r bg-white p-6">
+      <div className="w-80 flex-shrink-0 border-r bg-white overflow-y-auto p-6">
         <div className="mb-6">
           <div className={`mb-2 inline-block rounded px-3 py-1 text-sm font-medium ${statusToneClass}`}>
             {status?.status ? status.status.toUpperCase() : "STARTING"}
@@ -463,7 +497,7 @@ export function OptimizationRunning() {
       </div>
 
       {/* Center Panel - Progress */}
-      <div className="flex flex-1 flex-col bg-gray-50 p-8">
+      <div className="flex flex-1 flex-col min-w-0 bg-gray-50 p-8 overflow-y-auto">
         <div className="mb-8">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-3">

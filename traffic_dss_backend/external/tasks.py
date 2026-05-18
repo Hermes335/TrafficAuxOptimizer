@@ -63,6 +63,7 @@ def fetch_traffic_data():
 
     bottlenecks = list(Bottleneck.objects.filter(is_deleted=False))
 
+    updated_bottlenecks = []
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(_fetch_single_traffic, b): b for b in bottlenecks}
         for future in as_completed(futures):
@@ -73,27 +74,36 @@ def fetch_traffic_data():
             if source:
                 source_counts[source] += 1
 
+            tsi_val = float(snapshot.get("tsi", 0.0))
             cache.set(f"{TRAFFIC_CACHE_KEY}:{bottleneck.id}", snapshot, timeout=60 * 30)
             TrafficData.objects.create(
                 bottleneck=bottleneck,
                 timestamp=now,
-                traffic_severity_index=float(snapshot.get("tsi", 0.0)),
+                traffic_severity_index=tsi_val,
                 vehicle_count=int(snapshot.get("vehicle_count", 0)),
                 avg_speed=float(snapshot.get("current_speed", 0.0)),
             )
+
+            # Update bottleneck TSI so dashboard map dots reflect real traffic
+            bottleneck.tsi = tsi_val
+            updated_bottlenecks.append(bottleneck)
             created += 1
 
-            if float(snapshot.get("tsi", 0.0)) >= 0.80:
+            if tsi_val >= 0.80:
                 critical_alerts += 1
                 _broadcast_dashboard_alert(
                     {
                         "event": "tsi_threshold_exceeded",
                         "bottleneck_id": bottleneck.id,
                         "bottleneck_name": bottleneck.name,
-                        "tsi": round(float(snapshot.get("tsi", 0.0)), 3),
+                        "tsi": round(tsi_val, 3),
                         "timestamp": now.isoformat(),
                     }
                 )
+
+    # Bulk update all bottleneck TSI values
+    if updated_bottlenecks:
+        Bottleneck.objects.bulk_update(updated_bottlenecks, ["tsi", "updated_at"])
 
     return {
         "status": "ok",

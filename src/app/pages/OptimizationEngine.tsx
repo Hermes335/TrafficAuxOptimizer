@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, CheckCircle, ChevronLeft, Clock, Target, TrendingDown, Users, TrendingUp } from "lucide-react";
+import { ResponsiveContainer, ComposedChart, Scatter, Cell, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 import { Link } from "react-router";
 import PrettyCurve from "../components/PrettyCurve";
 import { StatusBadge } from "../components/StatusBadge";
@@ -137,11 +138,11 @@ export function OptimizationEngine() {
           <div className="text-right flex-shrink-0">
             <div className="mb-2 flex justify-end gap-2">
               <Link
-                to={runId ? `/optimization-running?run_id=${encodeURIComponent(runId)}` : "/optimization-running"}
+                to="/optimization"
                 className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
               >
                 <ChevronLeft className="h-4 w-4" />
-                Back
+                Back to Optimization
               </Link>
               <Link
                 to="/optimization"
@@ -149,6 +150,7 @@ export function OptimizationEngine() {
               >
                 New Run
               </Link>
+              <span /> {/* spacer */}
             </div>
             <div className="text-sm text-gray-600">RUN ID</div>
             <div className="text-lg font-semibold">{runId ?? "Pending"}</div>
@@ -205,14 +207,20 @@ export function OptimizationEngine() {
             <div className="flex gap-4 text-sm">
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-yellow-400" />
-                <span className="text-gray-700">Best Fitness (Per Generation)</span>
+                <span className="text-gray-700">Best Fitness</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-gray-400" />
+                <span className="text-gray-700">Average Fitness</span>
               </div>
             </div>
 
             <div className="h-80">
-              <PrettyCurve 
-                values={convergenceData.map((p) => p.bestFitness)} 
-                color="#facc15" 
+              <PrettyCurve
+                values={convergenceData.map((p) => p.bestFitness)}
+                secondaryValues={convergenceData.map((p) => p.avgFitness)}
+                color="#facc15"
+                colorSecondary="#9ca3af"
                 yAxisFormatter={(v) => v.toFixed(1)}
               />
             </div>
@@ -228,15 +236,36 @@ export function OptimizationEngine() {
               </div>
             )}
             <div className="space-y-3">
-              {assignments.map((assignment, index) => (
-                <div key={`${assignment.bottleneck_id ?? "b"}-${index}`} className="rounded-lg border p-4">
-                  <div className="mb-1 text-xs text-gray-500">{assignment.bottleneck_id ?? "BOTTLENECK"}</div>
-                  <div className="font-medium">{assignment.bottleneck_name ?? "Unknown"}</div>
-                  <div className="mt-1 text-sm text-gray-600">
-                    Officer: {assignment.badge_number ?? "N/A"} (ID: {assignment.officer_id ?? "—"})
+              {/* Group assignments by bottleneck */}
+              {(() => {
+                const grouped = new Map<string, typeof assignments>();
+                for (const a of assignments) {
+                  const key = a.bottleneck_id ?? "unknown";
+                  const existing = grouped.get(key) ?? [];
+                  existing.push(a);
+                  grouped.set(key, existing);
+                }
+                return Array.from(grouped.entries()).map(([bnId, officers]) => (
+                  <div key={bnId} className="rounded-lg border p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                      <div>
+                        <div className="text-xs text-gray-500">{bnId}</div>
+                        <div className="font-medium">{officers[0]?.bottleneck_name ?? "Unknown"}</div>
+                      </div>
+                      <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+                        {officers.length} officer{officers.length > 1 ? "s" : ""}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {officers.map((a, i) => (
+                        <span key={i} className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
+                          {a.badge_number ?? "N/A"}
+                        </span>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ));
+              })()}
             </div>
           </div>
 
@@ -259,9 +288,70 @@ export function OptimizationEngine() {
                   <h2 className="font-semibold">Pareto Front (Trade-off Analysis)</h2>
                 </div>
                 <p className="mb-4 text-sm text-gray-600">
-                  Each bubble represents a non-dominated solution. X = coverage, Y = response time efficiency.
-                  Bubble size = weather responsiveness, color = resource balance.
+                  Each point represents a non-dominated solution. X = coverage efficiency, Y = response time efficiency.
                 </p>
+
+                {/* Scatter Chart */}
+                <div className="mb-4 h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#eef2ff" />
+                      <XAxis
+                        type="number"
+                        dataKey="coverage_efficiency"
+                        domain={[0, 100]}
+                        tick={{ fontSize: 11 }}
+                        axisLine={false}
+                        label={{ value: "Coverage Efficiency (%)", position: "insideBottom", offset: -4, fontSize: 11, fill: "#6b7280" }}
+                      />
+                      <YAxis
+                        type="number"
+                        dataKey="inverse_response_time"
+                        domain={[0, 100]}
+                        tick={{ fontSize: 11 }}
+                        axisLine={false}
+                        width={45}
+                        label={{ value: "Response Time Score (%)", angle: -90, position: "insideLeft", fontSize: 11, fill: "#6b7280" }}
+                      />
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const p = payload[0].payload;
+                          return (
+                            <div className="rounded border bg-white p-3 text-sm shadow-lg">
+                              <div className="font-semibold mb-1">Solution</div>
+                              <div>Coverage: {p.coverage_efficiency?.toFixed(1)}%</div>
+                              <div>Response Score: {p.inverse_response_time?.toFixed(1)}%</div>
+                              <div>Weather: {p.weather_responsiveness?.toFixed(1)}%</div>
+                              <div>Balance: {p.resource_balance?.toFixed(1)}%</div>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Scatter
+                        data={results.pareto_curve_data.map((p, i) => ({ ...p, index: i }))}
+                        fill="#facc15"
+                        stroke="#d97706"
+                        strokeWidth={2}
+                      >
+                        {results.pareto_curve_data.map((point, i) => {
+                          const balance = point.resource_balance ?? 50;
+                          const fill = balance >= 70 ? "#22c55e" : balance >= 40 ? "#facc15" : "#ef4444";
+                          return <Cell key={i} fill={fill} />;
+                        })}
+                      </Scatter>
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {/* Legend for scatter */}
+                <div className="mb-4 flex gap-4 text-xs">
+                  <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-full bg-green-500" /> High Balance (70%+)</div>
+                  <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-full bg-yellow-400" /> Medium (40-70%)</div>
+                  <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-full bg-red-500" /> Low Balance (&lt;40%)</div>
+                </div>
+
+                {/* Data Table */}
                 <div className="grid grid-cols-5 gap-2 text-xs font-medium text-gray-500 mb-2">
                   <span>Solution</span>
                   <span>Coverage</span>

@@ -1,180 +1,123 @@
-import { MapPin, X } from "lucide-react";
-import { Link } from "react-router";
-import type { Incident } from "../../../services/backend";
+import { MapPin, X, User } from "lucide-react";
+import type { Bottleneck } from "../../../services/backend";
 
 interface BottleneckDetailPanelProps {
-  detailPanelName: string;
-  detailPanelCongestion: string;
-  detailPanelWeather: string;
-  detailPanelOfficersCurrent: string;
-  detailPanelOfficersNeeded: string;
-  isEditingDetailPanel: boolean;
-  setIsEditingDetailPanel: (v: boolean) => void;
-  setDetailPanelName: (v: string) => void;
-  setDetailPanelCongestion: (v: string) => void;
-  setDetailPanelWeather: (v: string) => void;
-  setDetailPanelOfficersCurrent: (v: string) => void;
-  setDetailPanelOfficersNeeded: (v: string) => void;
+  bottleneck: Bottleneck;
   onClose: () => void;
-  onSave: () => Promise<void>;
-  onDelete: () => Promise<void>;
-  savingBottleneck: boolean;
-  bottleneckActionError: string | null;
-  bottleneckActionNotice: string | null;
-  incidentsForBottleneck: Incident[];
-  selectedShift: string;
-  setSelectedShift: (v: string) => void;
-  impactRadiusKm: number;
-  estimatedClearMinutes: number;
-  networkHealthLabel: string;
-  networkHealthClass: string;
+  onDelete: (id: string) => Promise<void>;
+  deletingId: string | null;
 }
 
 export function BottleneckDetailPanel({
-  detailPanelName,
-  detailPanelCongestion,
-  detailPanelWeather,
-  detailPanelOfficersCurrent,
-  detailPanelOfficersNeeded,
-  isEditingDetailPanel,
-  setIsEditingDetailPanel,
-  setDetailPanelName,
-  setDetailPanelCongestion,
-  setDetailPanelWeather,
-  setDetailPanelOfficersCurrent,
-  setDetailPanelOfficersNeeded,
+  bottleneck,
   onClose,
-  onSave,
   onDelete,
-  savingBottleneck,
-  bottleneckActionError,
-  bottleneckActionNotice,
-  incidentsForBottleneck,
-  selectedShift,
-  setSelectedShift,
-  impactRadiusKm,
-  estimatedClearMinutes,
-  networkHealthLabel,
-  networkHealthClass,
+  deletingId,
 }: BottleneckDetailPanelProps) {
+  const tsiPercent = Math.round((bottleneck.tsi ?? 0) * 100);
+  const weatherImpact = bottleneck.weather_impact_factor ?? 1.0;
+  const assignedOfficers = bottleneck.assigned_officers ?? [];
+  const deployedCount = bottleneck.deployed_officers ?? assignedOfficers.length;
+  const requiredCount = bottleneck.required_officers ?? 2;
+
+  const tsiColor = tsiPercent >= 80 ? "text-red-600" : tsiPercent >= 60 ? "text-orange-600" : tsiPercent >= 40 ? "text-yellow-600" : "text-green-600";
+  const weatherColor = weatherImpact >= 1.7 ? "text-red-600" : weatherImpact >= 1.3 ? "text-orange-600" : "text-green-600";
+  const officerColor = deployedCount >= requiredCount ? "text-green-600" : deployedCount > 0 ? "text-yellow-600" : "text-red-600";
+
   return (
     <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-4">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MapPin className="h-5 w-5 text-blue-600" />
-          <h3 className="font-semibold text-blue-900">{isEditingDetailPanel ? "Edit Bottleneck" : "Bottleneck Details"}</h3>
+          <h3 className="font-semibold text-blue-900">Bottleneck Details</h3>
         </div>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
           <X className="h-4 w-4" />
         </button>
       </div>
 
-      {!isEditingDetailPanel && (
-        <div className="space-y-4">
-          <div>
-            <div className="text-xs font-semibold text-gray-600">NAME</div>
-            <div className="text-lg font-bold text-blue-900">{detailPanelName}</div>
+      <div className="space-y-4">
+        {/* Name and ID */}
+        <div>
+          <div className="text-xs font-semibold text-gray-600">NAME</div>
+          <div className="text-lg font-bold text-blue-900">{bottleneck.name}</div>
+          <div className="text-xs text-gray-500">{bottleneck.id}</div>
+        </div>
+
+        {/* TSI - Traffic Severity Index */}
+        <div>
+          <div className="text-xs font-semibold text-gray-600">TRAFFIC SEVERITY INDEX (TSI)</div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1">
+              <div className="relative h-2 overflow-hidden rounded-full bg-gray-200">
+                <div
+                  className={`h-full transition-all ${tsiPercent >= 80 ? "bg-red-500" : tsiPercent >= 60 ? "bg-orange-500" : tsiPercent >= 40 ? "bg-yellow-500" : "bg-green-500"}`}
+                  style={{ width: `${Math.min(100, tsiPercent)}%` }}
+                />
+              </div>
+            </div>
+            <span className={`font-bold ${tsiColor}`}>{tsiPercent}%</span>
           </div>
+          <div className="mt-1 text-xs text-gray-500">
+            {tsiPercent >= 80 ? "Critical congestion" : tsiPercent >= 60 ? "Heavy congestion" : tsiPercent >= 40 ? "Moderate congestion" : "Free flow"}
+          </div>
+        </div>
+
+        {/* Weather Impact Factor */}
+        <div>
+          <div className="text-xs font-semibold text-gray-600">WEATHER IMPACT FACTOR (WIF)</div>
+          <div className="flex items-center gap-2">
+            <span className={`text-2xl font-bold ${weatherColor}`}>
+              {weatherImpact.toFixed(2)}x
+            </span>
+          </div>
+          <div className="mt-1 text-xs text-gray-500">
+            {weatherImpact >= 1.7 ? "Severe impact - rainfall/conditions slowing traffic" : weatherImpact >= 1.3 ? "Moderate impact - conditions affecting travel times" : "Low impact - normal conditions"}
+          </div>
+        </div>
+
+        {/* Officers */}
+        <div>
+          <div className="text-xs font-semibold text-gray-600">ASSIGNED OFFICERS</div>
+          <div className="flex items-center gap-2">
+            <span className={`text-2xl font-bold ${officerColor}`}>{deployedCount}</span>
+            <span className="text-gray-500">/ {requiredCount} required</span>
+          </div>
+          <div className="mt-1 text-xs text-gray-500">
+            {deployedCount >= requiredCount ? "Fully staffed" : deployedCount > 0 ? "Understaffed" : "No officers assigned"}
+          </div>
+        </div>
+
+        {/* Officer List */}
+        {assignedOfficers.length > 0 && (
           <div>
-            <div className="text-xs font-semibold text-gray-600">CONGESTION</div>
-            <div className="flex items-center gap-3">
-              <div className="flex-1">
-                <div className="relative h-2 overflow-hidden rounded-full bg-gray-200">
-                  <div className="h-full bg-red-500 transition-all" style={{ width: `${detailPanelCongestion}%` }} />
+            <div className="mb-2 text-xs font-semibold text-gray-600">OFFICER ROSTER</div>
+            <div className="max-h-32 space-y-1.5 overflow-y-auto">
+              {assignedOfficers.map((officer, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg bg-white px-3 py-1.5 text-sm">
+                  <User className="h-3.5 w-3.5 text-gray-400" />
+                  <span className="font-medium text-gray-900">{officer.name}</span>
+                  <span className="ml-auto rounded bg-gray-100 px-1.5 py-0.5 text-xs font-mono text-gray-600">{officer.badge_number}</span>
                 </div>
-              </div>
-              <span className="font-bold text-red-600">{detailPanelCongestion}%</span>
+              ))}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <div className="text-xs font-semibold text-gray-600">WEATHER IMPACT</div>
-              <div className="font-bold text-orange-600">{detailPanelWeather}%</div>
-            </div>
-            <div>
-              <div className="text-xs font-semibold text-gray-600">OFFICERS</div>
-              <div className="font-bold text-purple-600">{detailPanelOfficersCurrent}/{detailPanelOfficersNeeded}</div>
-            </div>
-          </div>
-          <div>
-            <div className="mb-2 text-xs font-semibold text-gray-600">ACTIVE INCIDENTS</div>
-            {incidentsForBottleneck.length === 0 ? (
-              <div className="rounded-lg bg-green-50 p-2 text-center text-sm font-medium text-green-700">CLEAR</div>
-            ) : (
-              <div className="space-y-2">
-                {incidentsForBottleneck.map((inc) => (
-                  <div key={inc.id} className={`rounded-lg p-2 text-xs font-medium ${inc.type === "critical" ? "bg-red-100 text-red-700" : inc.type === "major" ? "bg-orange-100 text-orange-700" : "bg-yellow-100 text-yellow-700"}`}>
-                    {inc.type.toUpperCase()} - {inc.text}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          <div className="flex gap-2">
-            <button onClick={() => setIsEditingDetailPanel(true)} className="flex-1 rounded-lg border border-blue-600 px-3 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50">Edit</button>
-            <button onClick={onDelete} className="flex-1 rounded-lg border border-red-600 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50">Delete</button>
-          </div>
-        </div>
-      )}
+        )}
 
-      {isEditingDetailPanel && (
-        <div className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-600">NAME</label>
-            <input type="text" value={detailPanelName} onChange={(e) => setDetailPanelName(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" />
+        {assignedOfficers.length === 0 && (
+          <div className="rounded-lg bg-gray-100 p-3 text-center text-sm text-gray-500">
+            No officers currently deployed to this bottleneck
           </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600">CONGESTION %</label>
-            <input type="number" value={detailPanelCongestion} onChange={(e) => setDetailPanelCongestion(e.target.value)} min="0" max="100" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" />
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-gray-600">WEATHER IMPACT %</label>
-            <input type="number" value={detailPanelWeather} onChange={(e) => setDetailPanelWeather(e.target.value)} className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600">OFFICERS CURRENT</label>
-              <input type="number" value={detailPanelOfficersCurrent} onChange={(e) => setDetailPanelOfficersCurrent(e.target.value)} min="0" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600">OFFICERS NEEDED</label>
-              <input type="number" value={detailPanelOfficersNeeded} onChange={(e) => setDetailPanelOfficersNeeded(e.target.value)} min="0" className="mt-1 w-full rounded-lg border px-3 py-2 text-sm" />
-            </div>
-          </div>
-          <div className="flex gap-2">
-            <button onClick={onSave} disabled={savingBottleneck} className="flex-1 rounded-lg bg-green-500 px-3 py-2 text-sm font-medium text-white hover:bg-green-600 disabled:opacity-50">
-              {savingBottleneck ? "Saving..." : "Save"}
-            </button>
-            <button onClick={() => setIsEditingDetailPanel(false)} className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">
-              Cancel
-            </button>
-          </div>
-          {bottleneckActionError && <div className="rounded-lg bg-red-50 p-2 text-xs text-red-700">{bottleneckActionError}</div>}
-          {bottleneckActionNotice && <div className="rounded-lg bg-green-50 p-2 text-xs text-green-700">{bottleneckActionNotice}</div>}
-        </div>
-      )}
+        )}
 
-      <div className="mt-4 border-t pt-4">
-        <h4 className="mb-3 text-sm font-semibold text-gray-700">Quick Optimize</h4>
-        <div className="mb-3">
-          <label className="mb-2 block text-xs font-medium text-gray-600">SELECT SHIFT</label>
-          <div className="flex gap-2">
-            <button onClick={() => setSelectedShift("Morning")} className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-all ${selectedShift === "Morning" ? "bg-yellow-400 text-white" : "bg-white text-gray-700 border hover:bg-gray-50"}`}>
-              Morning <div className="text-xs opacity-75">6AM-2PM</div>
-            </button>
-            <button onClick={() => setSelectedShift("Afternoon")} className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-all ${selectedShift === "Afternoon" ? "bg-yellow-400 text-white" : "bg-white text-gray-700 border hover:bg-gray-50"}`}>
-              Afternoon <div className="text-xs opacity-75">2PM-10PM</div>
-            </button>
-          </div>
-        </div>
-        <div className="space-y-2 text-xs">
-          <div className="flex items-center justify-between"><span className="text-gray-600">Impact Radius</span><span className="font-bold">{impactRadiusKm} KM</span></div>
-          <div className="flex items-center justify-between"><span className="text-gray-600">Est. Clear Time</span><span className="font-bold">{estimatedClearMinutes} MIN</span></div>
-          <div className="flex items-center justify-between"><span className="text-gray-600">Network Health</span><span className={`font-bold ${networkHealthClass}`}>{networkHealthLabel}</span></div>
-        </div>
-        <Link to="/optimization" className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-yellow-400 px-3 py-2 text-xs font-semibold text-white hover:bg-yellow-500">
-          Run Optimization
-        </Link>
+        {/* Delete */}
+        <button
+          onClick={() => onDelete(bottleneck.id)}
+          disabled={deletingId === bottleneck.id}
+          className="w-full rounded-lg border border-red-600 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+        >
+          {deletingId === bottleneck.id ? "Removing..." : "Remove Bottleneck"}
+        </button>
       </div>
     </div>
   );

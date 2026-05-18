@@ -74,6 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       localStorage.setItem("auth_token", data.token || data.access);
       localStorage.setItem("auth_user", JSON.stringify(data.user));
+      if (data.refresh) {
+        localStorage.setItem("refresh_token", data.refresh);
+      }
 
       // Establish WebSocket connection after login
       // This will be handled by the dashboard components
@@ -89,12 +92,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     try {
       if (token) {
+        const refreshToken = localStorage.getItem("refresh_token");
         await fetch(`${import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"}/api/auth/logout/`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${token}`,
             "Content-Type": "application/json",
           },
+          body: JSON.stringify({ refresh: refreshToken }),
         });
       }
     } catch {
@@ -103,6 +108,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(null);
       setToken(null);
       localStorage.removeItem("auth_token");
+      localStorage.removeItem("refresh_token");
       localStorage.removeItem("auth_user");
     }
   };

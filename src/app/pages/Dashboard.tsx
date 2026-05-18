@@ -1,12 +1,13 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronRight, Cloud, CloudRain, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { getApiBaseUrl } from "../services/backend";
+import { getApiBaseUrl, fetchDeploymentSchedule, type DeploymentScheduleItem } from "../services/backend";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useBottleneckActions } from "../hooks/useBottleneckActions";
 import { useMapIntegration } from "../hooks/useMapIntegration";
 import { useMapClickHandler } from "../hooks/useMapClickHandler";
 import { useMapMarkers } from "../hooks/useMapMarkers";
+import { useMapAssignmentLines } from "../hooks/useMapAssignmentLines";
 import { getCongestionSeverity, congestionTone } from "../types/severity";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
@@ -34,6 +35,14 @@ export function Dashboard() {
   const [filterTerm, setFilterTerm] = useState("");
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
   const [pois, setPois] = useState<Array<{ id: string; name: string; category: string; latitude: number; longitude: number }>>([]);
+  const [deployments, setDeployments] = useState<DeploymentScheduleItem[]>([]);
+
+  // Fetch deployments on mount
+  useEffect(() => {
+    fetchDeploymentSchedule()
+      .then(setDeployments)
+      .catch(() => setDeployments([]));
+  }, []);
 
   // --- Bottleneck actions hook ---
   const ba = useBottleneckActions({
@@ -60,12 +69,6 @@ export function Dashboard() {
     setEditLongitude: ba.setEditLongitude,
     setDashboardSnapshot,
     setSelectedBottleneckId: ba.setSelectedBottleneckId,
-    setIsEditingDetailPanel: ba.setIsEditingDetailPanel,
-    setDetailPanelName: ba.setDetailPanelName,
-    setDetailPanelCongestion: ba.setDetailPanelCongestion,
-    setDetailPanelWeather: ba.setDetailPanelWeather,
-    setDetailPanelOfficersCurrent: ba.setDetailPanelOfficersCurrent,
-    setDetailPanelOfficersNeeded: ba.setDetailPanelOfficersNeeded,
     setPois,
     setBottleneckActionError: data.setBottleneckActionError,
     setBottleneckActionNotice: data.setBottleneckActionNotice,
@@ -143,17 +146,8 @@ export function Dashboard() {
   const incidentLocation = selectedIncident?.text?.split(" - ")[1] ?? "Monitor dashboard telemetry for updates";
 
   // --- Map marker click handler ---
-  const onMarkerClick = (bottleneck: { id: string; name: string; latitude: number; longitude: number; tsi?: number }) => {
-    const tsiPercent = Math.round((Number(bottleneck.tsi) || 0) * 100);
+  const onMarkerClick = (bottleneck: { id: string }) => {
     ba.setSelectedBottleneckId(bottleneck.id);
-    ba.setIsEditingDetailPanel(false);
-    ba.setDetailPanelName(bottleneck.name);
-    ba.setDetailPanelCongestion(tsiPercent.toString());
-    ba.setDetailPanelWeather(Math.round((0.5) * 100 - 50).toString());
-    ba.setDetailPanelOfficersCurrent("8");
-    ba.setDetailPanelOfficersNeeded("10");
-    ba.setDetailPanelLatitude(String(bottleneck.latitude));
-    ba.setDetailPanelLongitude(String(bottleneck.longitude));
   };
 
   // --- Map markers hook ---
@@ -163,6 +157,14 @@ export function Dashboard() {
     hasFittedRef: map.hasFittedRef,
     filteredBottlenecks,
     onMarkerClick,
+  });
+
+  // --- Assignment lines hook (shows officer->bottleneck lines when Assignments view active) ---
+  useMapAssignmentLines({
+    mapRef: map.mapRef,
+    selectedView,
+    bottlenecks: filteredBottlenecks,
+    deployments,
   });
 
   return (
@@ -206,7 +208,7 @@ export function Dashboard() {
               const hasIncident = hasIncidentForBottleneck(item.id, item.name);
               const selected = ba.selectedBottleneckId === item.id;
               return (
-                <div key={item.id} className={`group flex items-center gap-3 border-b border-gray-100 px-3 py-2.5 transition-all cursor-pointer ${selected ? "bg-amber-50 border-l-4 border-l-amber-500" : "hover:bg-gray-50 border-l-4 border-l-transparent"}`} onClick={() => { ba.setSelectedBottleneckId(item.id); ba.setIsEditingDetailPanel(false); ba.setDetailPanelName(item.name); ba.setDetailPanelCongestion(String(tsiPercent)); ba.setDetailPanelLatitude(String(item.latitude)); ba.setDetailPanelLongitude(String(item.longitude)); }}>
+                <div key={item.id} className={`group flex items-center gap-3 border-b border-gray-100 px-3 py-2.5 transition-all cursor-pointer ${selected ? "bg-amber-50 border-l-4 border-l-amber-500" : "hover:bg-gray-50 border-l-4 border-l-transparent"}`} onClick={() => { ba.setSelectedBottleneckId(item.id); }}>
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${congestionTone[severity].dot}`} />
                   <div className="min-w-0 flex-1">
                     <div className="mb-0.5 flex items-center gap-1.5">
@@ -288,18 +290,10 @@ export function Dashboard() {
         <div className="w-full space-y-4 overflow-y-auto bg-white p-4 md:w-96">
           {ba.selectedBottleneckId && ba.getSelectedBottleneck() && (
             <BottleneckDetailPanel
-              detailPanelName={ba.detailPanelName} detailPanelCongestion={ba.detailPanelCongestion} detailPanelWeather={ba.detailPanelWeather}
-              detailPanelOfficersCurrent={ba.detailPanelOfficersCurrent} detailPanelOfficersNeeded={ba.detailPanelOfficersNeeded}
-              isEditingDetailPanel={ba.isEditingDetailPanel} setIsEditingDetailPanel={ba.setIsEditingDetailPanel}
-              setDetailPanelName={ba.setDetailPanelName} setDetailPanelCongestion={ba.setDetailPanelCongestion}
-              setDetailPanelWeather={ba.setDetailPanelWeather} setDetailPanelOfficersCurrent={ba.setDetailPanelOfficersCurrent}
-              setDetailPanelOfficersNeeded={ba.setDetailPanelOfficersNeeded}
-              onClose={() => ba.setSelectedBottleneckId(null)} onSave={ba.onSaveDetailPanel} onDelete={ba.onDeleteDetailBottleneck}
-              savingBottleneck={data.savingBottleneck} bottleneckActionError={data.bottleneckActionError} bottleneckActionNotice={data.bottleneckActionNotice}
-              incidentsForBottleneck={ba.getIncidentsForBottleneck(ba.selectedBottleneckId)}
-              selectedShift={selectedShift} setSelectedShift={setSelectedShift}
-              impactRadiusKm={impactRadiusKm} estimatedClearMinutes={estimatedClearMinutes}
-              networkHealthLabel={networkHealthLabel} networkHealthClass={networkHealthClass}
+              bottleneck={ba.getSelectedBottleneck()!}
+              onClose={() => ba.setSelectedBottleneckId(null)}
+              onDelete={ba.onDeleteBottleneck}
+              deletingId={data.deletingBottleneckId}
             />
           )}
           <IncidentTicker incidents={incidents} />

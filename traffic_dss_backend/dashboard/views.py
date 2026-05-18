@@ -31,18 +31,19 @@ def _generate_next_bottleneck_id() -> str:
 
 class DashboardKPIsView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		active_deployments = Bottleneck.objects.filter(is_deleted=False).count()
-		total_officers = Officer.objects.filter(is_deleted=False).count()
-		active_officers = Officer.objects.filter(is_deleted=False, status="deployed").count()
+		active_officers = Officer.objects.filter(is_deleted=False, status__in=["available", "deployed"]).count()
+		deployed_officers = Officer.objects.filter(is_deleted=False, status="deployed").count()
 		critical_incidents = Incident.objects.filter(is_deleted=False, status="active", severity="critical").count()
 		recent_weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
 		avg_tsi = TrafficData.objects.filter(is_deleted=False).aggregate(value=Avg("traffic_severity_index"))["value"] or 0.0
 
 		coverage_efficiency = max(0, min(100, 90 - (critical_incidents * 5)))
 		avg_response_time = round(8 + (avg_tsi * 10), 1)
-		resource_utilization = 0 if total_officers == 0 else round((active_officers / total_officers) * 100, 1)
+		resource_utilization = 0 if active_officers == 0 else round((deployed_officers / active_officers) * 100, 1)
 		weather_correlation = float(getattr(recent_weather, "weather_impact_factor", 1.0))
 
 		return Response(
@@ -51,23 +52,30 @@ class DashboardKPIsView(APIView):
 				"avg_response_time": avg_response_time,
 				"resource_utilization": resource_utilization,
 				"weather_correlation": weather_correlation,
+				"deployed_officers": deployed_officers,
 				"active_officers": active_officers,
-				"total_officers": total_officers,
 			}
 		)
 
 
 class DashboardBottlenecksView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		bottlenecks = Bottleneck.objects.filter(is_deleted=False).order_by("id")
+		weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
+		wif = float(getattr(weather, "weather_impact_factor", 1.0)) if weather else 1.0
+
 		rows = []
 		for b in bottlenecks:
 			latest_traffic = b.traffic_data.filter(is_deleted=False).order_by("-timestamp").first()
 			active_incident = b.incidents.filter(is_deleted=False, status="active").order_by("-timestamp").first()
 			deployments = b.deployments.filter(is_deleted=False, status="assigned").select_related("officer")
-			assigned = deployments.first().officer.badge_number if deployments.exists() else None
+			assigned_officers = [
+				{"name": d.officer.name, "badge_number": d.officer.badge_number}
+				for d in deployments
+			]
 			# Use bottleneck's tsi field if available, otherwise fall back to traffic data
 			tsi_val = b.tsi if b.tsi and b.tsi > 0 else (latest_traffic.traffic_severity_index if latest_traffic else 0.0)
 			status_value = "normal"
@@ -83,7 +91,11 @@ class DashboardBottlenecksView(APIView):
 					"longitude": b.longitude,
 					"status": status_value,
 					"tsi": round(tsi_val, 2),
-					"assigned_officer": assigned,
+					"weather_impact_factor": round(wif * (1 + tsi_val * 0.3), 2),
+					"assigned_officers": assigned_officers,
+					"deployed_officers": len(assigned_officers),
+					"required_officers": 2,
+					"assigned_officer": assigned_officers[0]["badge_number"] if assigned_officers else None,
 				}
 			)
 		return Response(rows)
@@ -91,6 +103,7 @@ class DashboardBottlenecksView(APIView):
 
 class DashboardOfficersView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		officers = Officer.objects.filter(is_deleted=False).order_by("name")
@@ -215,6 +228,7 @@ class DashboardOfficerManageView(APIView):
 
 class ActiveIncidentsView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		incidents = (
@@ -285,6 +299,7 @@ class IncidentDetailView(APIView):
 
 class POIListView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		pois = POI.objects.filter(is_deleted=False, is_active=True)
@@ -304,6 +319,7 @@ def _haversine_distance(lat1, lon1, lat2, lon2):
 
 class TrafficSampleView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		try:
@@ -343,6 +359,7 @@ class TrafficSampleView(APIView):
 
 class DashboardMapDataView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		counts = TrafficData.objects.filter(is_deleted=False).values("bottleneck_id").annotate(items=Count("id"))

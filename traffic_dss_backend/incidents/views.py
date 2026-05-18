@@ -19,6 +19,7 @@ from core.utils import write_audit_log
 
 class IncidentMetaView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		return Response(
@@ -116,6 +117,7 @@ class IncidentReportView(APIView):
 
 class IncidentListView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		queryset = Incident.objects.filter(is_deleted=False)

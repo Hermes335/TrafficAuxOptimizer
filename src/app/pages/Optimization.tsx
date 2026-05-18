@@ -555,15 +555,25 @@ export function Optimization() {
                     </tr>
                   </thead>
                   <tbody>
-                    {history.slice(0, 10).map((run) => {
+                    {history.slice(0, 10).map((run, runIndex) => {
                       const topSolutions = run.result_data?.top_solutions as Array<{ fitness?: number }> | undefined;
                       const bestFitness = topSolutions?.[0]?.fitness ?? null;
                       const generationCount = Array.isArray(run.fitness_scores) ? run.fitness_scores.length : 0;
+                      const prevFitness = runIndex < history.length - 1
+                        ? ((history[runIndex + 1].result_data as { top_solutions?: Array<{ fitness?: number }> })?.top_solutions?.[0]?.fitness ?? null)
+                        : null;
+                      const trend = bestFitness && prevFitness ? bestFitness - prevFitness : null;
                       return (
-                        <tr key={run.id} className="border-b last:border-b-0">
+                        <tr key={run.id} className="border-b last:border-b-0 cursor-pointer hover:bg-gray-50" onClick={() => { if (run.status === "completed") window.location.href = `/optimization-engine?run_id=${encodeURIComponent(run.run_id)}`; }}>
                           <td className="px-3 py-2 font-medium text-gray-900">{run.run_id}</td>
                           <td className="px-3 py-2">
-                            <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
+                            <span className={`rounded px-2 py-0.5 text-xs font-medium ${
+                              run.status === "completed" ? "bg-green-100 text-green-800" :
+                              run.status === "failed" ? "bg-red-100 text-red-800" :
+                              run.status === "cancelled" ? "bg-gray-100 text-gray-800" :
+                              run.status === "running" ? "bg-blue-100 text-blue-800" :
+                              "bg-yellow-100 text-yellow-800"
+                            }`}>
                               {run.status}
                             </span>
                           </td>
@@ -573,7 +583,16 @@ export function Optimization() {
                               {new Date(run.timestamp).toLocaleString()}
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-gray-700">{bestFitness ?? "-"}</td>
+                          <td className="px-3 py-2 text-gray-700">
+                            <div className="flex items-center gap-1">
+                              {bestFitness ? bestFitness.toFixed(4) : "-"}
+                              {trend !== null && trend !== 0 && (
+                                <span className={`text-xs ${trend > 0 ? "text-green-600" : "text-red-600"}`}>
+                                  {trend > 0 ? "↑" : "↓"}{Math.abs(trend).toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          </td>
                           <td className="px-3 py-2 text-gray-700">{generationCount}</td>
                           <td className="px-3 py-2">
                             {run.status === "completed" ? (

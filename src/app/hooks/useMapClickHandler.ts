@@ -11,12 +11,6 @@ interface UseMapClickHandlerOptions {
   setEditLongitude: (v: string) => void;
   setDashboardSnapshot: React.Dispatch<React.SetStateAction<DashboardSnapshot>>;
   setSelectedBottleneckId: (v: string) => void;
-  setIsEditingDetailPanel: (v: boolean) => void;
-  setDetailPanelName: (v: string) => void;
-  setDetailPanelCongestion: (v: string) => void;
-  setDetailPanelWeather: (v: string) => void;
-  setDetailPanelOfficersCurrent: (v: string) => void;
-  setDetailPanelOfficersNeeded: (v: string) => void;
   setPois: React.Dispatch<React.SetStateAction<Array<{ id: string; name: string; category: string; latitude: number; longitude: number }>>>;
   setBottleneckActionError: (v: string | null) => void;
   setBottleneckActionNotice: (v: string | null) => void;
@@ -31,12 +25,6 @@ export function useMapClickHandler({
   setEditLongitude,
   setDashboardSnapshot,
   setSelectedBottleneckId,
-  setIsEditingDetailPanel,
-  setDetailPanelName,
-  setDetailPanelCongestion,
-  setDetailPanelWeather,
-  setDetailPanelOfficersCurrent,
-  setDetailPanelOfficersNeeded,
   setPois,
   setBottleneckActionError,
   setBottleneckActionNotice,
@@ -61,20 +49,15 @@ export function useMapClickHandler({
             tsi: 0.5,
             road_priority_weight: 1.0,
             weather_impact_factor: 1.0,
-            deployed_officers: 1,
+            deployed_officers: 0,
             required_officers: 2,
+            assigned_officers: [] as Array<{ name: string; badge_number: string }>,
           };
           setDashboardSnapshot((prev) => ({
             ...prev,
             bottlenecks: [...prev.bottlenecks, newBottleneck],
           }));
           setSelectedBottleneckId(id);
-          setIsEditingDetailPanel(true);
-          setDetailPanelName(newBottleneck.name);
-          setDetailPanelCongestion("50");
-          setDetailPanelWeather("30");
-          setDetailPanelOfficersCurrent("1");
-          setDetailPanelOfficersNeeded("2");
           setAddMode(null);
         } else if (addMode === "incident") {
           const id = Math.floor(Math.random() * 10000);
@@ -109,5 +92,5 @@ export function useMapClickHandler({
       map.getCanvas().style.cursor = "";
       map.off("click", onMapClick);
     };
-  }, [addMode, editPickFromMap, mapRef, setAddMode, setDashboardSnapshot, setSelectedBottleneckId, setIsEditingDetailPanel, setDetailPanelName, setDetailPanelCongestion, setDetailPanelWeather, setDetailPanelOfficersCurrent, setDetailPanelOfficersNeeded, setPois, setEditLatitude, setEditLongitude, setBottleneckActionError, setBottleneckActionNotice]);
+  }, [addMode, editPickFromMap, mapRef, setAddMode, setDashboardSnapshot, setSelectedBottleneckId, setPois, setEditLatitude, setEditLongitude, setBottleneckActionError, setBottleneckActionNotice]);
 }

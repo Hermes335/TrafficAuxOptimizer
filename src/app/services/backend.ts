@@ -1,6 +1,11 @@
 export type BottleneckStatus = "normal" | "warning" | "critical";
 export type IncidentType = "critical" | "major" | "minor";
 
+export interface BottleneckOfficer {
+  name: string;
+  badge_number: string;
+}
+
 export interface Bottleneck {
   id: string;
   name: string;
@@ -13,6 +18,7 @@ export interface Bottleneck {
   weather_impact_factor?: number;
   deployed_officers?: number;
   required_officers?: number;
+  assigned_officers?: BottleneckOfficer[];
 }
 
 export interface Incident {
@@ -117,13 +123,37 @@ export function getApiBaseUrl() {
   return "http://127.0.0.1:8000";
 }
 
+async function tryRefreshToken(): Promise<string | null> {
+  const refreshToken = localStorage.getItem("refresh_token");
+  if (!refreshToken) return null;
+
+  try {
+    const response = await fetch(`${getApiBaseUrl()}/api/auth/refresh/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh: refreshToken }),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (data.access) {
+      localStorage.setItem("auth_token", data.access);
+      if (data.refresh) {
+        localStorage.setItem("refresh_token", data.refresh);
+      }
+      return data.access;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 async function fetchWithTimeout(
   url: string,
   options: RequestInit & { timeout?: number } = {}
 ): Promise<Response> {
   const { timeout = DEFAULT_TIMEOUT_MS, ...fetchOptions } = options;
 
-  // Get auth token from localStorage if available
   const token = localStorage.getItem("auth_token");
   const headers: HeadersInit = {
     ...fetchOptions.headers,
@@ -141,6 +171,25 @@ async function fetchWithTimeout(
       headers,
       signal: controller.signal,
     });
+
+    // If 401, try refreshing the token and retry once
+    if (response.status === 401) {
+      const newToken = await tryRefreshToken();
+      if (newToken) {
+        (headers as Record<string, string>)["Authorization"] = `Bearer ${newToken}`;
+        const retryResponse = await fetch(url, {
+          ...fetchOptions,
+          headers,
+          signal: controller.signal,
+        });
+        return retryResponse;
+      }
+      // Refresh failed - clear auth and redirect to login
+      localStorage.removeItem("auth_token");
+      localStorage.removeItem("refresh_token");
+      window.location.href = "/login";
+    }
+
     return response;
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {

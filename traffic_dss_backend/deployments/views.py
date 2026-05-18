@@ -36,21 +36,36 @@ class DeploymentScheduleView(APIView):
 
 	def delete(self, request):
 		shift = request.query_params.get("shift")
-		if not shift:
-			return Response({"detail": "shift query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
-		deleted_count, _ = Deployment.objects.filter(is_deleted=False, shift=shift).update(is_deleted=True, updated_at=timezone.now())
-		write_audit_log(request.user, "delete", "deployment_schedule", {"shift": shift, "cleared": deleted_count})
+		queryset = Deployment.objects.filter(is_deleted=False)
+		if shift:
+			queryset = queryset.filter(shift=shift)
+
+		# Collect affected officer IDs before deleting
+		affected_officer_ids = list(queryset.values_list("officer_id", flat=True))
+
+		deleted_count = queryset.update(is_deleted=True, updated_at=timezone.now())
+
+		# Update affected officers to "available" if they have no remaining active deployments
+		if affected_officer_ids:
+			for officer_id in set(affected_officer_ids):
+				has_active = Deployment.objects.filter(
+					is_deleted=False, officer_id=officer_id
+				).exists()
+				if not has_active:
+					Officer.objects.filter(pk=officer_id).update(status="available", updated_at=timezone.now())
+
+		write_audit_log(request.user, "delete", "deployment_schedule", {"shift": shift or "all", "cleared": deleted_count})
 		broadcast(
 			"dashboard_live",
 			"dashboard_event",
 			{
 				"event": "deployment_schedule_cleared",
-				"shift": shift,
+				"shift": shift or "all",
 				"cleared": deleted_count,
 				"timestamp": timezone.now().isoformat(),
 			},
 		)
-		return Response({"cleared": deleted_count, "shift": shift})
+		return Response({"cleared": deleted_count, "shift": shift or "all"})
 
 
 class DeploymentAssignView(APIView):
@@ -167,15 +182,25 @@ class DeploymentPublishOptimizationView(APIView):
 			start_time, end_time = _default_shift_window(shift)
 
 		if replace_existing:
+			old_officer_ids = list(
+				Deployment.objects.filter(
+					is_deleted=False, shift=shift, start_time=start_time, end_time=end_time,
+				).values_list("officer_id", flat=True)
+			)
 			Deployment.objects.filter(
 				is_deleted=False,
 				shift=shift,
 				start_time=start_time,
 				end_time=end_time,
 			).update(is_deleted=True, updated_at=timezone.now())
+			# Reset old officers to "available" if no remaining active deployments
+			for officer_id in set(old_officer_ids):
+				if not Deployment.objects.filter(is_deleted=False, officer_id=officer_id).exists():
+					Officer.objects.filter(pk=officer_id).update(status="available", updated_at=timezone.now())
 
 		created_count = 0
 		skipped = []
+		deployed_officer_ids = set()
 		for item in assignments:
 			officer_id = item.get("officer_id")
 			bottleneck_id = item.get("bottleneck_id")
@@ -194,7 +219,12 @@ class DeploymentPublishOptimizationView(APIView):
 				assignment_type=assignment_type,
 				status=status_value,
 			)
+			deployed_officer_ids.add(officer.id)
 			created_count += 1
+
+		# Update deployed officers to "deployed" status
+		if deployed_officer_ids:
+			Officer.objects.filter(pk__in=deployed_officer_ids).update(status="deployed", updated_at=timezone.now())
 
 		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
 		if actor is None:

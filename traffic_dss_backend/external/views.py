@@ -13,6 +13,7 @@ from core.serializers import TrafficDataSerializer, WeatherDataSerializer
 
 class WeatherCurrentView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
@@ -37,6 +38,7 @@ class WeatherCurrentView(APIView):
 
 class TrafficRealtimeView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		rows = TrafficData.objects.filter(is_deleted=False).order_by("-timestamp")[:100]
@@ -72,6 +74,7 @@ class TrafficRealtimeView(APIView):
 
 class AnalyticsTrendsView(APIView):
 	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request):
 		series = (
@@ -92,7 +95,8 @@ class AnalyticsTrendsView(APIView):
 
 
 class TomTomTileProxyView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request, z: int, x: int, y: int):
 		api_key = getattr(settings, "TOMTOM_API_KEY", "")
@@ -120,7 +124,8 @@ class TomTomTileProxyView(APIView):
 
 
 class TomTomTrafficTileProxyView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+	permission_classes = [permissions.AllowAny]
+	throttle_classes = []
 
 	def get(self, request, z: int, x: int, y: int):
 		api_key = getattr(settings, "TOMTOM_API_KEY", "")

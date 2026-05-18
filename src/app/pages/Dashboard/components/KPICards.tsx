@@ -113,7 +113,7 @@ export function KPICards({ metrics, weather, deployedOfficersCount, totalOfficer
           </div>
 
           <div className="mt-2 text-xs text-gray-700 font-medium">
-            {deployedOfficersCount}/{totalOfficersCount} officers active
+            {deployedOfficersCount} deployed / {totalOfficersCount} active
           </div>
         </div>
 

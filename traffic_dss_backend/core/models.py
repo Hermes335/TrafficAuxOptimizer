@@ -205,7 +205,7 @@ class Scenario(TimeStampedSoftDeleteModel):
 
 
 class AuditLog(TimeStampedSoftDeleteModel):
-	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="audit_logs")
+	user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="audit_logs")
 	action = models.CharField(max_length=100)
 	resource = models.CharField(max_length=120)
 	changes = models.JSONField(default=dict)

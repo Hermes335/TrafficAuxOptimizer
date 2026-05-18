@@ -140,11 +140,15 @@ class GeneticDeploymentOptimizer:
         """Check hard constraints. Returns (violated, list_of_violation_reasons)."""
         violations = []
 
-        # Constraint 1: Minimum coverage - at least 60% of bottlenecks must be covered
+        # Constraint 1: Minimum coverage
+        # If officers < bottlenecks, can't reach 60% — require at least officers/bottlenecks ratio
+        # If officers >= bottlenecks, require 60% minimum
         covered = set(idx for idx in chromosome if 0 <= idx < len(bottlenecks))
         coverage_ratio = len(covered) / max(1, len(bottlenecks))
-        if coverage_ratio < 0.60:
-            violations.append(f"coverage_below_60pct:{coverage_ratio:.2f}")
+        max_possible_coverage = len(officers) / max(1, len(bottlenecks))
+        min_coverage = min(0.60, max_possible_coverage * 0.9)
+        if coverage_ratio < min_coverage:
+            violations.append(f"coverage_below_{min_coverage:.0%}:{coverage_ratio:.2f}")
 
         # Constraint 2: No severe over-assignment
         # Allow up to 3x the fair share (total_officers / total_bottlenecks)
