@@ -294,6 +294,12 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
     status: BottleneckStatus;
     latitude: number;
     longitude: number;
+    tsi?: number;
+    road_priority_weight?: number;
+    weather_impact_factor?: number;
+    deployed_officers?: number;
+    required_officers?: number;
+    assigned_officers?: Array<{ name: string; badge_number: string }>;
   }>;
   const incidents = (await incidentRes.json()) as Incident[];
 

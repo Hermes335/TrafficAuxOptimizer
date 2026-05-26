@@ -8,7 +8,7 @@ import { useMapIntegration } from "../hooks/useMapIntegration";
 import { useMapClickHandler } from "../hooks/useMapClickHandler";
 import { useMapMarkers } from "../hooks/useMapMarkers";
 import { useMapAssignmentLines } from "../hooks/useMapAssignmentLines";
-import { getCongestionSeverity, congestionTone } from "../types/severity";
+import { getRelativeCongestionSeverity, congestionTone, computeRelativeThresholds } from "../types/severity";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import {
   KPICards,
@@ -86,9 +86,11 @@ export function Dashboard() {
     );
   }, [bottlenecks, filterTerm]);
 
+  const severityThresholds = useMemo(() => computeRelativeThresholds(bottlenecks), [bottlenecks]);
+
   const criticalBottleneckCount = useMemo(
-    () => bottlenecks.filter((item) => item.status === "critical" || Math.round((Number(item.tsi) || 0) * 100) >= 80).length,
-    [bottlenecks],
+    () => bottlenecks.filter((item) => getRelativeCongestionSeverity(item, severityThresholds) === "critical").length,
+    [bottlenecks, severityThresholds],
   );
 
   const hasIncidentForBottleneck = (bottleneckId: string, bottleneckName: string) => {
@@ -207,12 +209,12 @@ export function Dashboard() {
             </div>
             <input type="text" placeholder="Filter by name or ID..." value={filterTerm} onChange={(e) => setFilterTerm(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400" />
             <div className="mt-4 border-t border-gray-100 pt-3">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Congestion Layer Key</div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Congestion Layer Key (Relative)</div>
               <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-600">
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Free</div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500" />Moderate</div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-orange-500" />Heavy</div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Critical</div>
+                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Free (&lt;{Math.round(severityThresholds.p25 * 100)}%)</div>
+                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500" />Moderate ({Math.round(severityThresholds.p25 * 100)}-{Math.round(severityThresholds.p50 * 100)}%)</div>
+                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-orange-500" />Heavy ({Math.round(severityThresholds.p50 * 100)}-{Math.round(severityThresholds.p75 * 100)}%)</div>
+                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-500" />Critical (&ge;{Math.round(severityThresholds.p75 * 100)}%)</div>
               </div>
             </div>
             {data.bottleneckActionError && <p className="mt-2 text-xs text-red-600">{data.bottleneckActionError}</p>}
@@ -221,7 +223,7 @@ export function Dashboard() {
           <div className="flex-1 overflow-y-auto bg-[#f8fafc]">
             {filteredBottlenecks.map((item) => {
               const tsiPercent = Math.round((Number(item.tsi) || 0) * 100);
-              const severity = getCongestionSeverity(item);
+              const severity = getRelativeCongestionSeverity(item, severityThresholds);
               const hasIncident = hasIncidentForBottleneck(item.id, item.name);
               const selected = ba.selectedBottleneckId === item.id;
               return (
@@ -289,12 +291,12 @@ export function Dashboard() {
             )}
             <WeatherOverlay showWeatherOverlay={showWeatherOverlay} weatherStyle={weatherStyle} WeatherIndicatorIcon={WeatherIndicatorIcon} weatherLabel={weatherLabel} weatherStatusTone={weatherStatusTone} weatherImpactFactor={weatherSnapshot.weather_impact_factor} />
             <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 shadow-sm">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Severity</div>
+              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Severity (Relative)</div>
               <div className="flex flex-wrap gap-3 text-xs">
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><span className="text-gray-600">Free (&lt;40%)</span></div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500" /><span className="text-gray-600">Moderate (40-59%)</span></div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-orange-500" /><span className="text-gray-600">Heavy (60-79%)</span></div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /><span className="text-gray-600">Critical (&ge;80%)</span></div>
+                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><span className="text-gray-600">Free (&lt;{Math.round(severityThresholds.p25 * 100)}%)</span></div>
+                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500" /><span className="text-gray-600">Moderate ({Math.round(severityThresholds.p25 * 100)}-{Math.round(severityThresholds.p50 * 100)}%)</span></div>
+                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-orange-500" /><span className="text-gray-600">Heavy ({Math.round(severityThresholds.p50 * 100)}-{Math.round(severityThresholds.p75 * 100)}%)</span></div>
+                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /><span className="text-gray-600">Critical (&ge;{Math.round(severityThresholds.p75 * 100)}%)</span></div>
               </div>
             </div>
           </div>

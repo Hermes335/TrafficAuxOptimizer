@@ -1,4 +1,5 @@
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Filter, Pencil, Trash2, UserPlus, UserRound, XCircle } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Filter, Pencil, Trash2, UserPlus, UserRound, XCircle } from "lucide-react";
+import { GanttTimeline } from "./GanttChart/GanttTimeline";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -39,6 +40,7 @@ export function GanttChart() {
   const [clearingSchedule, setClearingSchedule] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
+  const [ganttViewMode, setGanttViewMode] = useState<"officer" | "bottleneck">("officer");
   const [topCollapsed, setTopCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") {
       return false;
@@ -454,6 +456,31 @@ export function GanttChart() {
           </>
         )}
       </div>
+
+      {/* Gantt Chart */}
+      {filteredSchedule.length > 0 && (
+        <div className="px-4 pt-4">
+          <div className="mb-2 flex items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-yellow-500" />
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Timeline View</span>
+            <div className="ml-auto flex gap-1">
+              <button
+                onClick={() => setGanttViewMode("officer")}
+                className={`rounded px-2 py-1 text-xs font-medium ${ganttViewMode === "officer" ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+              >
+                By Officer
+              </button>
+              <button
+                onClick={() => setGanttViewMode("bottleneck")}
+                className={`rounded px-2 py-1 text-xs font-medium ${ganttViewMode === "bottleneck" ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+              >
+                By Bottleneck
+              </button>
+            </div>
+          </div>
+          <GanttTimeline deployments={filteredSchedule} viewMode={ganttViewMode} />
+        </div>
+      )}
 
       <div className="border-b border-gray-200 bg-white px-6 py-2">
         <div className="flex items-center justify-between">

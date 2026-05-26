@@ -67,6 +67,15 @@ export function useDashboardData() {
           },
         }));
       }
+
+      // Re-fetch bottleneck data when TSI values are updated by Celery
+      if (event.event === "bottlenecks_updated") {
+        fetchDashboardSnapshot()
+          .then((snapshot) => {
+            if (active) setDashboardSnapshot(snapshot);
+          })
+          .catch(() => { /* ignore refresh errors */ });
+      }
     });
 
     fetchDashboardSnapshot()
@@ -101,9 +110,25 @@ export function useDashboardData() {
         }
       });
 
+    // Periodic refresh every 5 minutes to pick up TSI updates from Celery
+    const refreshInterval = window.setInterval(() => {
+      if (!active) return;
+      fetchDashboardSnapshot()
+        .then((snapshot) => {
+          if (active) setDashboardSnapshot(snapshot);
+        })
+        .catch(() => { /* ignore refresh errors */ });
+      fetchCurrentWeather()
+        .then((weather) => {
+          if (active) setWeatherSnapshot(weather);
+        })
+        .catch(() => { /* ignore refresh errors */ });
+    }, 5 * 60 * 1000);
+
     return () => {
       active = false;
       stopStream();
+      window.clearInterval(refreshInterval);
     };
   }, []);
 

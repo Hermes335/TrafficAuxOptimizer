@@ -86,6 +86,7 @@ def fetch_traffic_data():
 
             # Update bottleneck TSI so dashboard map dots reflect real traffic
             bottleneck.tsi = tsi_val
+            bottleneck.updated_at = now  # bulk_update doesn't trigger auto_now
             updated_bottlenecks.append(bottleneck)
             created += 1
 
@@ -104,6 +105,15 @@ def fetch_traffic_data():
     # Bulk update all bottleneck TSI values
     if updated_bottlenecks:
         Bottleneck.objects.bulk_update(updated_bottlenecks, ["tsi", "updated_at"])
+
+        # Notify dashboard to refresh bottleneck data
+        _broadcast_dashboard_alert(
+            {
+                "event": "bottlenecks_updated",
+                "count": len(updated_bottlenecks),
+                "timestamp": now.isoformat(),
+            }
+        )
 
     return {
         "status": "ok",

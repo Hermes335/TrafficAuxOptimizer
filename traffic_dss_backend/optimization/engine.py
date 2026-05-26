@@ -430,10 +430,29 @@ class GeneticDeploymentOptimizer:
     # ─── Population initialization ────────────────────────────────────────
 
     def _init_population(self, population_size: int, officer_count: int, bottleneck_count: int) -> list[list[int]]:
+        """Initialize population with feasibility-checked chromosomes.
+        Ensures minimum coverage (each bottleneck gets at least one officer if possible)
+        before distributing remaining officers randomly."""
         population = []
+        min_coverage_target = min(bottleneck_count, officer_count)
+
         for _ in range(population_size):
-            chromosome = [self.rng.randrange(0, bottleneck_count) for _ in range(officer_count)]
+            chromosome = []
+
+            # Phase 1: Assign one officer to each bottleneck (ensures coverage)
+            bottleneck_order = list(range(bottleneck_count))
+            self.rng.shuffle(bottleneck_order)
+            for i in range(min(min_coverage_target, officer_count)):
+                chromosome.append(bottleneck_order[i % bottleneck_count])
+
+            # Phase 2: Distribute remaining officers randomly
+            for _ in range(officer_count - min_coverage_target):
+                chromosome.append(self.rng.randrange(0, bottleneck_count))
+
+            # Shuffle so the coverage officers aren't always first
+            self.rng.shuffle(chromosome)
             population.append(chromosome)
+
         return population
 
     # ─── Genetic operators ────────────────────────────────────────────────
@@ -454,6 +473,34 @@ class GeneticDeploymentOptimizer:
         chromosome[i], chromosome[j] = chromosome[j], chromosome[i]
         if self.rng.random() < mutation_rate:
             chromosome[self.rng.randrange(0, len(chromosome))] = self.rng.randrange(0, bottleneck_count)
+
+    def _repair_coverage(self, chromosome: list[int], bottleneck_count: int):
+        """Repair operator: ensure minimum coverage after crossover/mutation.
+        If any bottleneck is uncovered, reassign one officer from an over-assigned bottleneck."""
+        covered = set(chromosome)
+        uncovered = [b for b in range(bottleneck_count) if b not in covered]
+
+        if not uncovered:
+            return  # All bottlenecks covered
+
+        # Build bottleneck -> officers mapping
+        bottleneck_officers: dict[int, list[int]] = {}
+        for officer_idx, bn in enumerate(chromosome):
+            bottleneck_officers.setdefault(bn, []).append(officer_idx)
+
+        # Reassign officers from over-assigned bottlenecks to uncovered ones
+        for bottleneck_idx in uncovered:
+            over_assigned = [bn for bn, officers in bottleneck_officers.items() if len(officers) >= 2]
+            if not over_assigned:
+                break  # No spare officers available
+
+            donor_bn = self.rng.choice(over_assigned)
+            donor_officer = self.rng.choice(bottleneck_officers[donor_bn])
+            chromosome[donor_officer] = bottleneck_idx
+
+            # Update tracking
+            bottleneck_officers[donor_bn].remove(donor_officer)
+            bottleneck_officers[bottleneck_idx] = [donor_officer]
 
     # ─── Main run loop ────────────────────────────────────────────────────
 
@@ -561,13 +608,16 @@ class GeneticDeploymentOptimizer:
             elite_count = min(config["elitism_count"], len(scored))
             next_population = [chrom[:] for chrom, _ in scored[:elite_count]]
 
-            # Fill rest with NSGA-II tournament selection + crossover + mutation
+            # Fill rest with NSGA-II tournament selection + crossover + mutation + repair
             while len(next_population) < config["population_size"]:
                 parent1 = self._nsga2_select(scored, config["tournament_size"])
                 parent2 = self._nsga2_select(scored, config["tournament_size"])
                 child1, child2 = self._crossover(parent1, parent2, config["crossover_rate"])
                 self._mutate(child1, len(bottlenecks), config["mutation_rate"])
                 self._mutate(child2, len(bottlenecks), config["mutation_rate"])
+                # Repair operator: ensure minimum coverage after genetic operators
+                self._repair_coverage(child1, len(bottlenecks))
+                self._repair_coverage(child2, len(bottlenecks))
                 next_population.append(child1)
                 if len(next_population) < config["population_size"]:
                     next_population.append(child2)
