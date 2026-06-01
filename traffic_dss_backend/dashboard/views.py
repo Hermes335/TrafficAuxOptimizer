@@ -305,6 +305,39 @@ class POIListView(APIView):
 		pois = POI.objects.filter(is_deleted=False, is_active=True)
 		return Response(POISerializer(pois, many=True).data)
 
+	def post(self, request):
+		data = request.data.copy()
+		if not data.get("poi_id"):
+			import uuid
+			data["poi_id"] = f"POI-{uuid.uuid4().hex[:8]}"
+		serializer = POISerializer(data=data)
+		if serializer.is_valid():
+			poi = serializer.save()
+			return Response(POISerializer(poi).data, status=status.HTTP_201_CREATED)
+		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class POIDetailView(APIView):
+	permission_classes = [permissions.AllowAny]
+
+	def put(self, request, poi_id):
+		poi = POI.objects.filter(poi_id=poi_id, is_deleted=False).first()
+		if not poi:
+			return Response({"detail": "POI not found."}, status=status.HTTP_404_NOT_FOUND)
+		serializer = POISerializer(poi, data=request.data, partial=True)
+		if serializer.is_valid():
+			poi = serializer.save()
+			return Response(POISerializer(poi).data)
+		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+	def delete(self, request, poi_id):
+		poi = POI.objects.filter(poi_id=poi_id, is_deleted=False).first()
+		if not poi:
+			return Response({"detail": "POI not found."}, status=status.HTTP_404_NOT_FOUND)
+		poi.is_deleted = True
+		poi.save(update_fields=["is_deleted", "updated_at"])
+		return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 def _haversine_distance(lat1, lon1, lat2, lon2):
 	"""Calculate the great circle distance in kilometers between two points."""

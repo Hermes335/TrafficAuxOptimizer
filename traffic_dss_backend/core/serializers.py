@@ -104,6 +104,7 @@ class POISerializer(serializers.ModelSerializer):
     class Meta:
         model = POI
         fields = [
+            "id",
             "poi_id",
             "name",
             "category",
@@ -111,9 +112,9 @@ class POISerializer(serializers.ModelSerializer):
             "longitude",
             "icon_url",
             "is_active",
+            "priority_boost",
             "created_at",
             "updated_at",
-            "is_deleted",
         ]
 
 

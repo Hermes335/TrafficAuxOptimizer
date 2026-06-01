@@ -131,6 +131,47 @@ class IncidentListView(APIView):
 		return Response(IncidentSerializer(queryset, many=True).data)
 
 
+class IncidentUpdateView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+
+	def put(self, request, incident_id: int):
+		incident = Incident.objects.filter(pk=incident_id, is_deleted=False).first()
+		if not incident:
+			return Response({"detail": "Incident not found."}, status=status.HTTP_404_NOT_FOUND)
+
+		data = request.data
+		valid_types = {t[0] for t in Incident.TYPES}
+		valid_severities = {s[0] for s in Incident.SEVERITIES}
+
+		if "incident_type" in data:
+			if data["incident_type"] not in valid_types:
+				return Response({"detail": f"Invalid incident_type. Valid: {valid_types}"}, status=status.HTTP_400_BAD_REQUEST)
+			incident.incident_type = data["incident_type"]
+
+		if "severity" in data:
+			if data["severity"] not in valid_severities:
+				return Response({"detail": f"Invalid severity. Valid: {valid_severities}"}, status=status.HTTP_400_BAD_REQUEST)
+			incident.severity = data["severity"]
+
+		if "description" in data:
+			incident.description = data["description"]
+
+		incident.save()
+		write_audit_log(request.user, "update", "incident", {"incident_id": incident.id})
+		broadcast(
+			"dashboard_live",
+			"dashboard_event",
+			{
+				"event": "incident_updated",
+				"id": incident.id,
+				"severity": incident.severity,
+				"incident_type": incident.incident_type,
+				"timestamp": incident.updated_at.isoformat(),
+			},
+		)
+		return Response(IncidentSerializer(incident).data)
+
+
 class IncidentResolveView(APIView):
 	permission_classes = [permissions.IsAuthenticated]
 

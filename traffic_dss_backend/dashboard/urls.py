@@ -11,6 +11,7 @@ from .views import (
     IncidentListCreateView,
     IncidentDetailView,
     POIListView,
+    POIDetailView,
     QuickOptimizeView,
     TrafficSampleView,
 )
@@ -30,6 +31,7 @@ urlpatterns = [
     path("quick-optimize/", QuickOptimizeView.as_view(), name="dashboard-quick-optimize"),
     # POI endpoints
     path("pois/", POIListView.as_view(), name="pois-list"),
+    path("pois/<str:poi_id>/", POIDetailView.as_view(), name="poi-detail"),
     # Traffic sampling endpoint
     path("traffic/sample/", TrafficSampleView.as_view(), name="traffic-sample"),
 ]

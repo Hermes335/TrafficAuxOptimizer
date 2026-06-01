@@ -484,16 +484,6 @@ export function OptimizationRunning() {
           </div>
         </div>
 
-        <div className="rounded-lg bg-gray-50 p-4 text-center">
-          <div className="mb-2 text-sm text-gray-600">OPEN BACKEND RESULT VIEW</div>
-          <Link
-            to={runId ? `/optimization-engine?run_id=${encodeURIComponent(runId)}` : "/optimization-engine"}
-            className="flex items-center justify-center gap-2 rounded-lg bg-yellow-400 py-3 font-medium text-white hover:bg-yellow-500"
-          >
-            <span className="rotate-90">⟳</span>
-            View Optimization Output
-          </Link>
-        </div>
       </div>
 
       {/* Center Panel - Progress */}

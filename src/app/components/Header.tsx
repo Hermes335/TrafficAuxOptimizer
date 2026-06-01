@@ -118,8 +118,8 @@ export function Header() {
           </div>
         </div>
 
-        <button className="relative">
-          <Bell className="h-5 w-5 text-gray-600" />
+        <button className="relative cursor-default opacity-40" title="Notifications (coming soon)" aria-label="Notifications - coming soon">
+          <Bell className="h-5 w-5 text-gray-400" />
         </button>
 
         <div className="relative">

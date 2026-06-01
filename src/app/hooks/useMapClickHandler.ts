@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import maplibregl from "maplibre-gl";
-import type { DashboardSnapshot } from "../services/backend";
+import { createPOI, type DashboardSnapshot, type POI } from "../services/backend";
 
 interface UseMapClickHandlerOptions {
   mapRef: React.RefObject<maplibregl.Map | null>;
@@ -67,8 +67,16 @@ export function useMapClickHandler({
           }));
           setAddMode(null);
         } else if (addMode === "poi") {
-          const id = `P-${Math.floor(Math.random() * 10000)}`;
-          setPois((prev) => [...prev, { id, name: "New POI", category: "hospital", latitude, longitude }]);
+          // Persist POI to backend
+          createPOI({ name: "New POI", category: "other", latitude, longitude, priority_boost: 1.0 })
+            .then((poi) => {
+              setPois((prev) => [...prev, poi]);
+            })
+            .catch(() => {
+              // Fallback: add locally if API fails
+              const id = `P-${Math.floor(Math.random() * 10000)}`;
+              setPois((prev) => [...prev, { id: 0, poi_id: id, name: "New POI", category: "other", latitude, longitude, icon_url: "", is_active: true, priority_boost: 1.0, created_at: "", updated_at: "" }]);
+            });
           setAddMode(null);
         }
       }

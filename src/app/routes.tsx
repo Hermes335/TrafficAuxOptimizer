@@ -71,6 +71,7 @@ export const router = createBrowserRouter([
       { path: "scenarios", Component: () => <PageLoader Component={Scenarios} /> },
       { path: "component-library", Component: () => <PageLoader Component={ComponentLibrary} /> },
       { path: "incident-report", Component: () => <PageLoader Component={IncidentReport} /> },
+      { path: "incident-report/:id", Component: () => <PageLoader Component={IncidentReport} /> },
       { path: "analytics", Component: () => <PageLoader Component={Analytics} /> },
       { path: "audit-logs", Component: () => <PageLoader Component={AuditLogs} /> },
       { path: "settings", Component: () => <PageLoader Component={Settings} /> },

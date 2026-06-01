@@ -25,6 +25,8 @@ export interface Incident {
   id: number;
   text: string;
   type: IncidentType;
+  severity?: string;
+  incident_type?: string;
   latitude?: number;
   longitude?: number;
 }
@@ -773,6 +775,105 @@ export async function resolveIncident(incidentId: number): Promise<void> {
   if (!response.ok) {
     throw new Error(`Failed to resolve incident: ${response.status}`);
   }
+}
+
+export async function fetchIncident(incidentId: number): Promise<{
+  id: number;
+  incident_type: string;
+  severity: string;
+  description: string;
+  bottleneck: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  status: string;
+}> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/incidents/`);
+  if (!response.ok) throw new Error(`Failed to fetch incidents: ${response.status}`);
+  const incidents = (await response.json()) as Array<{
+    id: number;
+    incident_type: string;
+    severity: string;
+    description: string;
+    bottleneck: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    status: string;
+  }>;
+  const incident = incidents.find((i) => i.id === incidentId);
+  if (!incident) throw new Error(`Incident ${incidentId} not found`);
+  return incident;
+}
+
+export async function updateIncident(
+  incidentId: number,
+  data: { incident_type?: string; severity?: string; description?: string },
+): Promise<void> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/incidents/${incidentId}/update/`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to update incident: ${response.status}`);
+  }
+}
+
+// ---- POI ----
+
+export interface POI {
+  id: number;
+  poi_id: string;
+  name: string;
+  category: string;
+  latitude: number;
+  longitude: number;
+  icon_url: string;
+  is_active: boolean;
+  priority_boost: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function fetchPOIs(): Promise<POI[]> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/pois/`);
+  if (!response.ok) throw new Error(`Failed to fetch POIs: ${response.status}`);
+  return response.json() as Promise<POI[]>;
+}
+
+export async function createPOI(data: {
+  name: string;
+  category: string;
+  latitude: number;
+  longitude: number;
+  priority_boost?: number;
+}): Promise<POI> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/pois/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error(`Failed to create POI: ${response.status}`);
+  return response.json() as Promise<POI>;
+}
+
+export async function updatePOI(
+  poiId: string,
+  data: { name?: string; category?: string; priority_boost?: number; is_active?: boolean },
+): Promise<POI> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/pois/${poiId}/`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error(`Failed to update POI: ${response.status}`);
+  return response.json() as Promise<POI>;
+}
+
+export async function deletePOI(poiId: string): Promise<void> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/pois/${poiId}/`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(`Failed to delete POI: ${response.status}`);
 }
 
 export interface ScenarioRecord {

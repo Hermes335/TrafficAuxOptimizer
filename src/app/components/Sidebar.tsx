@@ -11,10 +11,40 @@ import {
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
+import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 
 interface SidebarProps {
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
+}
+
+function SidebarNavLink({ item, collapsed }: { item: { icon: React.ComponentType<{ className?: string }>; label: string; path: string }; collapsed: boolean }) {
+  const link = (
+    <NavLink
+      to={item.path}
+      className={({ isActive }) =>
+        `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+          isActive
+            ? "bg-yellow-50 text-yellow-600"
+            : "text-gray-700 hover:bg-gray-100"
+        }`
+      }
+    >
+      <item.icon className="h-5 w-5 shrink-0" />
+      {!collapsed && <span>{item.label}</span>}
+    </NavLink>
+  );
+
+  if (!collapsed) return link;
+
+  return (
+    <Tooltip delayDuration={0}>
+      <TooltipTrigger asChild>{link}</TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>
+        {item.label}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
@@ -41,20 +71,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
       <div className="flex-1 overflow-y-auto py-4">
         <nav className="space-y-1 px-2">
           {navItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
-                  isActive
-                    ? "bg-yellow-50 text-yellow-600"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`
-              }
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </NavLink>
+            <SidebarNavLink key={item.path} item={item} collapsed={collapsed} />
           ))}
         </nav>
 
@@ -62,20 +79,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
 
         <nav className="space-y-1 px-2">
           {secondaryItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
-                  isActive
-                    ? "bg-yellow-50 text-yellow-600"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`
-              }
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </NavLink>
+            <SidebarNavLink key={item.path} item={item} collapsed={collapsed} />
           ))}
         </nav>
       </div>
@@ -96,7 +100,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
         </button>
         {!collapsed && (
           <div className="mt-4 px-3 text-xs text-gray-500">
-            © 2024 ILOILO CITY TRAFFIC MANAGEMENT OFFICE (ICTMO)
+            © 2024-2026 Iloilo City Traffic Management Office (ICTMO)
           </div>
         )}
       </div>

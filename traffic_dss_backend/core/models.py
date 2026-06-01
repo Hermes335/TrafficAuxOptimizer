@@ -131,6 +131,7 @@ class Deployment(TimeStampedSoftDeleteModel):
 	end_time = models.DateTimeField(db_index=True)
 	assignment_type = models.CharField(max_length=20, choices=ASSIGNMENT_TYPES, default="static")
 	status = models.CharField(max_length=20, default="assigned", db_index=True)
+	source = models.CharField(max_length=20, choices=[("manual", "Manual / ICTTMO"), ("optimized", "GA Optimized")], default="manual", db_index=True)
 
 	class Meta:
 		indexes = [
@@ -234,6 +235,7 @@ class POI(TimeStampedSoftDeleteModel):
 	longitude = models.FloatField()
 	icon_url = models.URLField(blank=True)
 	is_active = models.BooleanField(default=True, db_index=True)
+	priority_boost = models.FloatField(default=1.0, help_text="Multiplier for nearby bottleneck priority (e.g. 1.5 = 50% boost)")
 
 	class Meta:
 		indexes = [

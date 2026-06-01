@@ -5,7 +5,7 @@ from channels.layers import get_channel_layer
 from celery import shared_task
 from django.utils import timezone
 
-from core.models import Bottleneck, Incident, Officer, OptimizationRun, WeatherData
+from core.models import Bottleneck, Incident, Officer, OptimizationRun, POI, WeatherData
 from .engine import GeneticDeploymentOptimizer
 from .progress_store import save_progress
 
@@ -125,6 +125,12 @@ def run_optimization(run_id: str):
         save_progress(run_id, payload)
         _broadcast_progress(run_id, payload)
 
+    # Fetch active POIs for priority boost
+    pois = [
+        {"latitude": p.latitude, "longitude": p.longitude, "priority_boost": p.priority_boost}
+        for p in POI.objects.filter(is_deleted=False, is_active=True)
+    ]
+
     try:
         run_seed = int(run_id.replace('opt-', '').replace('-', '')) % (2**31)
         result = optimizer.run(
@@ -133,6 +139,7 @@ def run_optimization(run_id: str):
             parameters=params,
             weather_impact_factor=wif,
             incidents=active_incidents,
+            pois=pois if pois else None,
             seed=run_seed,
             progress_callback=progress_callback,
             cancel_check=lambda: OptimizationRun.objects.filter(run_id=run_id, is_deleted=False, status="cancelled").exists(),

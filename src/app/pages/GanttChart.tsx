@@ -1,4 +1,4 @@
-import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Filter, Pencil, Trash2, UserPlus, UserRound, XCircle } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronUp, Download, Pencil, Trash2, UserPlus, UserRound, XCircle } from "lucide-react";
 import { GanttTimeline } from "./GanttChart/GanttTimeline";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
@@ -284,10 +284,6 @@ export function GanttChart() {
           <div className="flex items-center gap-3">
             {!topCollapsed && (
               <>
-                <button className="flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-gray-50">
-                  <Filter className="h-4 w-4" />
-                  Filter
-                </button>
                 <button onClick={onExport} className="flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-gray-50">
                   <Download className="h-4 w-4" />
                   Export
@@ -376,17 +372,9 @@ export function GanttChart() {
               </div>
             )}
 
-            <div className="mb-3 flex items-center gap-3">
-              <button className="rounded border p-1.5 text-gray-600 hover:bg-gray-50">
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              <div>
-                <div className="text-3xl font-bold text-gray-900">{formattedToday}</div>
-                <div className="text-sm text-gray-600">{selectedShiftLabel}</div>
-              </div>
-              <button className="rounded border p-1.5 text-gray-600 hover:bg-gray-50">
-                <ChevronRight className="h-4 w-4" />
-              </button>
+            <div className="mb-3">
+              <div className="text-3xl font-bold text-gray-900">{formattedToday}</div>
+              <div className="text-sm text-gray-600">{selectedShiftLabel}</div>
             </div>
 
             <div className="rounded-lg border border-yellow-100 bg-yellow-50 px-4 py-3">

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../contexts/AuthContext";
 import { LoadingState } from "../components/LoadingState";
-import { Eye, EyeOff, Shield, User, Lock, AlertTriangle, LogIn, MapPin, ChevronDown, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, Shield, AlertTriangle, LogIn, MapPin, CheckCircle2 } from "lucide-react";
 
 export function Login() {
   const { login, logout, isAuthenticated, isLoading: authLoading, error, clearError } = useAuth();
@@ -11,8 +11,6 @@ export function Login() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [accessRole, setAccessRole] = useState("Traffic Supervisor");
-  const [rememberDevice, setRememberDevice] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginAttempts, setLoginAttempts] = useState(0);
   const [lockedUntil, setLockedUntil] = useState<Date | null>(null);
@@ -117,11 +115,7 @@ export function Login() {
   };
 
   const handleForgotPassword = () => {
-    alert("Password recovery: Contact your administrator for password reset.");
-  };
-
-  const handleDemoAccess = () => {
-    setLocalError("Demo access is disabled in this environment. Please use assigned credentials.");
+    setLocalError("Password recovery: Contact your administrator for password reset.");
   };
 
   if (authLoading) {
@@ -266,35 +260,6 @@ export function Login() {
                 </div>
               </div>
 
-              <div>
-                <label htmlFor="access-role" className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.13em] text-slate-500">
-                  Access Role
-                </label>
-                <div className="relative">
-                  <select
-                    id="access-role"
-                    value={accessRole}
-                    onChange={(e) => setAccessRole(e.target.value)}
-                    className="w-full appearance-none rounded-xl border border-slate-300 bg-white px-4 py-3 pr-10 text-sm text-slate-700 focus:border-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-500/20"
-                  >
-                    <option>Traffic Supervisor</option>
-                    <option>Dispatcher</option>
-                    <option>Administrator</option>
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                </div>
-              </div>
-
-              <label className="flex items-center gap-3 pt-1 text-sm text-slate-600">
-                <input
-                  type="checkbox"
-                  checked={rememberDevice}
-                  onChange={(e) => setRememberDevice(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-yellow-500 focus:ring-yellow-500"
-                />
-                Remember this device for 30 days
-              </label>
-
               {displayError && (
                 <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                   <AlertTriangle className="mr-2 inline h-4 w-4" />
@@ -327,18 +292,6 @@ export function Login() {
                 )}
               </button>
 
-              <div className="relative py-2 text-center text-xs text-slate-400">
-                <span className="absolute left-0 right-0 top-1/2 h-px bg-slate-300" />
-                <span className="relative bg-[#e9edf2] px-2">or continue as</span>
-              </div>
-
-              <button
-                type="button"
-                onClick={handleDemoAccess}
-                className="w-full rounded-xl border border-slate-300 bg-white py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-              >
-                Demo Access (No credentials required)
-              </button>
             </form>
 
             <p className="mt-8 text-center text-xs leading-6 text-slate-400">

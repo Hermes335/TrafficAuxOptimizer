@@ -61,8 +61,8 @@ export function KPICards({ metrics, weather, deployedOfficersCount, totalOfficer
                 {Math.round(coverageEfficiency)}%
               </div>
             </div>
-            <div className="flex items-center gap-1 text-xs text-green-600">
-              <TrendingUp className="h-3 w-3" aria-hidden="true" />
+            <div className={`flex items-center gap-1 text-xs ${coverageEfficiency >= 80 ? "text-green-600" : "text-yellow-600"}`}>
+              {coverageEfficiency >= 80 ? <TrendingUp className="h-3 w-3" aria-hidden="true" /> : <AlertCircle className="h-3 w-3" aria-hidden="true" />}
               <span>{coverageEfficiency >= 80 ? "Good" : "Watch"}</span>
             </div>
           </div>

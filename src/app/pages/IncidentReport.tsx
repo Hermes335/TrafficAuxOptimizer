@@ -1,10 +1,12 @@
 import { ChevronLeft, MapPin, Camera } from "lucide-react";
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useParams } from "react-router";
 import {
   fetchBottlenecks,
+  fetchIncident,
   fetchIncidentMeta,
   reportIncident,
+  updateIncident,
   type BottleneckOption,
   type IncidentMetaOption,
 } from "../services/backend";
@@ -18,6 +20,9 @@ const incidentTypeIcons: Record<string, string> = {
 };
 
 export function IncidentReport() {
+  const { id: editId } = useParams<{ id?: string }>();
+  const isEditing = !!editId;
+
   const [incidentType, setIncidentType] = useState("collision");
   const [severity, setSeverity] = useState("major");
   const [description, setDescription] = useState("");
@@ -77,24 +82,53 @@ export function IncidentReport() {
     };
   }, []);
 
+  // Fetch incident data when editing
+  useEffect(() => {
+    if (!editId) return;
+    let active = true;
+    fetchIncident(Number(editId))
+      .then((incident) => {
+        if (!active) return;
+        setIncidentType(incident.incident_type || "collision");
+        setSeverity(incident.severity || "major");
+        setDescription(incident.description || "");
+        if (incident.bottleneck) setSelectedBottleneck(incident.bottleneck);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [editId]);
+
   const onSubmit = async () => {
-    if (!selectedBottleneck || !description.trim()) {
-      setError("Please choose a location and enter a description.");
+    if (!description.trim()) {
+      setError("Please enter a description.");
+      return;
+    }
+    if (!isEditing && !selectedBottleneck) {
+      setError("Please choose a location.");
       return;
     }
     setError(null);
     setSaving(true);
     try {
-      await reportIncident({
-        bottleneck: selectedBottleneck,
-        incident_type: incidentType,
-        severity,
-        description: description.trim(),
-      });
-      setStatusMessage("Incident submitted successfully.");
-      setDescription("");
+      if (isEditing) {
+        await updateIncident(Number(editId), {
+          incident_type: incidentType,
+          severity,
+          description: description.trim(),
+        });
+        setStatusMessage("Incident updated successfully.");
+      } else {
+        await reportIncident({
+          bottleneck: selectedBottleneck,
+          incident_type: incidentType,
+          severity,
+          description: description.trim(),
+        });
+        setStatusMessage("Incident submitted successfully.");
+        setDescription("");
+      }
     } catch (submitError: unknown) {
-      const message = submitError instanceof Error ? submitError.message : "Failed to submit incident";
+      const message = submitError instanceof Error ? submitError.message : "Failed to save incident";
       setError(message);
     } finally {
       setSaving(false);
@@ -111,7 +145,7 @@ export function IncidentReport() {
             </Link>
             <div>
               <div className="text-xs text-gray-500">FIELD OPERATIONS</div>
-              <h1 className="text-xl font-bold">Report Incident</h1>
+              <h1 className="text-xl font-bold">{isEditing ? "Edit Incident" : "Report Incident"}</h1>
             </div>
           </div>
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-yellow-400">
@@ -219,7 +253,7 @@ export function IncidentReport() {
             disabled={saving}
             className="w-2/3 rounded-xl bg-yellow-400 py-4 text-lg font-bold text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
           >
-            {saving ? "SUBMITTING..." : "SUBMIT REPORT"}
+            {saving ? "SAVING..." : isEditing ? "UPDATE REPORT" : "SUBMIT REPORT"}
           </button>
         </div>
       </div>

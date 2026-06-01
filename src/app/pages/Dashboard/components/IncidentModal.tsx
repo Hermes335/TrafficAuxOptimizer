@@ -1,4 +1,5 @@
-import { Camera, MapPin, X } from "lucide-react";
+import { Camera, MapPin, X, Pencil } from "lucide-react";
+import { Link } from "react-router";
 import incidentImage from "../../../../assets/57fa97e8c83f22033790625605fab5b96dfc2d8b.png";
 import type { Incident } from "../../../services/backend";
 
@@ -30,20 +31,35 @@ export function IncidentModal({ showIncidentModal, onClose, selectedIncident, in
         <img src={incidentImage} alt="Incident" className="h-48 w-full object-cover" />
         <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-xs text-white">
           <Camera className="h-3 w-3" />
-          Live Feed
+          Incident Photo
         </div>
       </div>
       <div className="mb-4 flex items-center gap-3">
-        <img src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=50&h=50&fit=crop" alt="Officer" className="h-10 w-10 rounded-full" />
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 text-yellow-700">
+          <MapPin className="h-5 w-5" />
+        </div>
         <div className="flex-1">
-          <div className="font-medium">Live dashboard feed</div>
-          <div className="text-xs text-gray-500">{selectedIncident ? `Reported via ${selectedIncident.type} channel` : "Awaiting incident selection"}</div>
+          <div className="font-medium">Incident reported</div>
+          <div className="text-xs text-gray-500">{selectedIncident ? `Type: ${selectedIncident.type}` : "Awaiting incident selection"}</div>
         </div>
         <div className="text-sm text-gray-600">{selectedIncident ? `ID: ${selectedIncident.id}` : "ID: --"}</div>
       </div>
       <div className="flex gap-2">
-        <button className="flex-1 rounded-lg border-2 border-red-500 py-2 text-sm font-medium text-red-500 hover:bg-red-50">Clear Incident</button>
-        <button className="flex-1 rounded-lg bg-yellow-400 py-2 text-sm font-medium text-white hover:bg-yellow-500">Dispatch Support</button>
+        {selectedIncident && (
+          <Link
+            to={`/incident-report/${selectedIncident.id}`}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-yellow-400 py-2 text-sm font-medium text-white hover:bg-yellow-500"
+          >
+            <Pencil className="h-4 w-4" />
+            Edit
+          </Link>
+        )}
+        <button
+          onClick={onClose}
+          className="flex-1 rounded-lg border-2 border-gray-300 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50"
+        >
+          Close
+        </button>
       </div>
     </div>
   );

@@ -218,6 +218,7 @@ class DeploymentPublishOptimizationView(APIView):
 				end_time=end_time,
 				assignment_type=assignment_type,
 				status=status_value,
+				source="optimized",
 			)
 			deployed_officer_ids.add(officer.id)
 			created_count += 1

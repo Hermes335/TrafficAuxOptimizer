@@ -144,13 +144,6 @@ export function OptimizationEngine() {
                 <ChevronLeft className="h-4 w-4" />
                 Back to Optimization
               </Link>
-              <Link
-                to="/optimization"
-                className="inline-flex items-center rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                New Run
-              </Link>
-              <span /> {/* spacer */}
             </div>
             <div className="text-sm text-gray-600">RUN ID</div>
             <div className="text-lg font-semibold">{runId ?? "Pending"}</div>

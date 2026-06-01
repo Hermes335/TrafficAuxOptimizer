@@ -92,6 +92,23 @@ class GeneticDeploymentOptimizer:
         return geodesic((lat, lng), (bottleneck["latitude"], bottleneck["longitude"])).km
 
     @staticmethod
+    def _precompute_distance_matrix(officers: list[dict], bottlenecks: list[dict]) -> list[list[float]]:
+        """Precompute all officer-to-bottleneck distances once.
+        Avoids repeated geodesic calculations inside the fitness loop."""
+        matrix = []
+        for officer in officers:
+            lat = officer.get("current_latitude")
+            lng = officer.get("current_longitude")
+            row = []
+            for bn in bottlenecks:
+                if lat is None or lng is None:
+                    row.append(3.0)
+                else:
+                    row.append(geodesic((lat, lng), (bn["latitude"], bn["longitude"])).km)
+            matrix.append(row)
+        return matrix
+
+    @staticmethod
     def _compute_incident_boosts(
         bottlenecks: list[dict],
         incidents: list[dict],
@@ -128,6 +145,78 @@ class GeneticDeploymentOptimizer:
 
         return boosts
 
+    @staticmethod
+    def _cluster_pois(pois: list[dict], cluster_radius_km: float = 0.2) -> list[dict]:
+        """Merge POIs that are close together into clusters.
+        Each cluster keeps only the highest priority_boost, so nearby POIs
+        (e.g. a hospital next to a fire station) don't stack boosts."""
+        if not pois:
+            return []
+
+        # Sort by priority_boost descending so highest-boost POIs are processed first
+        sorted_pois = sorted(pois, key=lambda p: p.get("priority_boost", 1.0), reverse=True)
+        clusters: list[dict] = []
+        used: set[int] = set()
+
+        for i, poi in enumerate(sorted_pois):
+            if i in used:
+                continue
+            lat = poi.get("latitude")
+            lng = poi.get("longitude")
+            if lat is None or lng is None:
+                continue
+
+            # This POI becomes the cluster representative (highest boost in its area)
+            cluster = {**poi, "_cluster_members": 1}
+            clusters.append(cluster)
+
+            # Find nearby POIs and mark them as used (they're absorbed into this cluster)
+            for j, other in enumerate(sorted_pois):
+                if j <= i or j in used:
+                    continue
+                o_lat = other.get("latitude")
+                o_lng = other.get("longitude")
+                if o_lat is None or o_lng is None:
+                    continue
+                dist = geodesic((lat, lng), (o_lat, o_lng)).km
+                if dist <= cluster_radius_km:
+                    used.add(j)
+                    cluster["_cluster_members"] += 1
+
+        return clusters
+
+    def _apply_poi_boosts(self, bottlenecks: list[dict], pois: list[dict], radius_km: float = 0.5) -> list[int]:
+        """Boost bottleneck road_priority_weight based on nearby POI clusters.
+        Nearby POIs are merged so only the highest boost applies per cluster.
+        Returns list of bottleneck indices that are near POIs (for minimum coverage)."""
+        clustered = self._cluster_pois(pois)
+        poi_nearby_indices: list[int] = []
+
+        for b_idx, bn in enumerate(bottlenecks):
+            bn_lat = bn.get("latitude")
+            bn_lng = bn.get("longitude")
+            if bn_lat is None or bn_lng is None:
+                continue
+            max_boost = 1.0
+            is_near_poi = False
+            for poi in clustered:
+                poi_lat = poi.get("latitude")
+                poi_lng = poi.get("longitude")
+                if poi_lat is None or poi_lng is None:
+                    continue
+                dist = geodesic((bn_lat, bn_lng), (poi_lat, poi_lng)).km
+                if dist <= radius_km:
+                    is_near_poi = True
+                    poi_boost = poi.get("priority_boost", 1.0)
+                    proximity_factor = 1.0 - (dist / radius_km)
+                    effective_boost = 1.0 + (poi_boost - 1.0) * proximity_factor
+                    max_boost = max(max_boost, effective_boost)
+            bn["road_priority_weight"] = bn.get("road_priority_weight", 1.0) * max_boost
+            if is_near_poi:
+                poi_nearby_indices.append(b_idx)
+
+        return poi_nearby_indices
+
     def _evaluate_objectives(
         self,
         chromosome: list[int],
@@ -135,6 +224,7 @@ class GeneticDeploymentOptimizer:
         bottlenecks: list[dict],
         weather_impact_factor: float,
         incident_boosts: dict[int, dict] | None = None,
+        distance_matrix: list[list[float]] | None = None,
     ) -> dict:
         """Evaluate 4 independent objectives (no weighting). Returns raw scores."""
         assigned_indices = [idx for idx in chromosome if 0 <= idx < len(bottlenecks)]
@@ -160,7 +250,11 @@ class GeneticDeploymentOptimizer:
 
             assigned_priority_weight += effective_priority
             speed_kmh = max(8.0, 28.0 * (1.0 - effective_tsi))
-            travel_minutes = (self._distance_km(officer, bottleneck) / speed_kmh) * 60.0
+            if distance_matrix:
+                dist = distance_matrix[officer_idx][bottleneck_idx]
+            else:
+                dist = self._distance_km(officer, bottleneck)
+            travel_minutes = (dist / speed_kmh) * 60.0
             response_minutes.append(travel_minutes * weather_impact_factor)
 
         priority_denominator = sum(max(0.0, float(item.get("road_priority_weight", 1.0))) for item in bottlenecks)
@@ -232,9 +326,10 @@ class GeneticDeploymentOptimizer:
         weather_impact_factor: float,
         weights: dict,
         incident_boosts: dict[int, dict] | None = None,
+        distance_matrix: list[list[float]] | None = None,
     ) -> dict:
         """Full evaluation: 4 objectives + weighted fitness + constraint penalty."""
-        objectives = self._evaluate_objectives(chromosome, officers, bottlenecks, weather_impact_factor, incident_boosts)
+        objectives = self._evaluate_objectives(chromosome, officers, bottlenecks, weather_impact_factor, incident_boosts, distance_matrix)
         constraints_violated, violations = self._check_constraints(chromosome, officers, bottlenecks)
 
         fitness = (
@@ -429,24 +524,36 @@ class GeneticDeploymentOptimizer:
 
     # ─── Population initialization ────────────────────────────────────────
 
-    def _init_population(self, population_size: int, officer_count: int, bottleneck_count: int) -> list[list[int]]:
+    def _init_population(self, population_size: int, officer_count: int, bottleneck_count: int, poi_nearby: list[int] | None = None) -> list[list[int]]:
         """Initialize population with feasibility-checked chromosomes.
         Ensures minimum coverage (each bottleneck gets at least one officer if possible)
-        before distributing remaining officers randomly."""
+        before distributing remaining officers randomly. POI-nearby bottlenecks are
+        prioritized and guaranteed coverage first."""
         population = []
+        poi_set = set(poi_nearby or [])
+        poi_bottlenecks = [b for b in range(bottleneck_count) if b in poi_set]
+        other_bottlenecks = [b for b in range(bottleneck_count) if b not in poi_set]
         min_coverage_target = min(bottleneck_count, officer_count)
 
         for _ in range(population_size):
             chromosome = []
 
-            # Phase 1: Assign one officer to each bottleneck (ensures coverage)
-            bottleneck_order = list(range(bottleneck_count))
-            self.rng.shuffle(bottleneck_order)
-            for i in range(min(min_coverage_target, officer_count)):
-                chromosome.append(bottleneck_order[i % bottleneck_count])
+            # Phase 1: Assign officers to POI-nearby bottlenecks first (guaranteed coverage)
+            poi_order = poi_bottlenecks[:]
+            self.rng.shuffle(poi_order)
+            for bn in poi_order:
+                chromosome.append(bn)
 
-            # Phase 2: Distribute remaining officers randomly
-            for _ in range(officer_count - min_coverage_target):
+            # Phase 2: Fill remaining coverage with other bottlenecks
+            remaining_slots = min_coverage_target - len(poi_bottlenecks)
+            if remaining_slots > 0:
+                other_order = other_bottlenecks[:]
+                self.rng.shuffle(other_order)
+                for i in range(min(remaining_slots, officer_count - len(chromosome))):
+                    chromosome.append(other_order[i % max(1, len(other_order))])
+
+            # Phase 3: Distribute remaining officers randomly
+            while len(chromosome) < officer_count:
                 chromosome.append(self.rng.randrange(0, bottleneck_count))
 
             # Shuffle so the coverage officers aren't always first
@@ -474,14 +581,19 @@ class GeneticDeploymentOptimizer:
         if self.rng.random() < mutation_rate:
             chromosome[self.rng.randrange(0, len(chromosome))] = self.rng.randrange(0, bottleneck_count)
 
-    def _repair_coverage(self, chromosome: list[int], bottleneck_count: int):
+    def _repair_coverage(self, chromosome: list[int], bottleneck_count: int, poi_nearby: list[int] | None = None):
         """Repair operator: ensure minimum coverage after crossover/mutation.
-        If any bottleneck is uncovered, reassign one officer from an over-assigned bottleneck."""
+        If any bottleneck is uncovered, reassign one officer from an over-assigned bottleneck.
+        POI-nearby bottlenecks are repaired first to guarantee their coverage."""
         covered = set(chromosome)
         uncovered = [b for b in range(bottleneck_count) if b not in covered]
 
         if not uncovered:
             return  # All bottlenecks covered
+
+        # Prioritize POI-nearby bottlenecks in repair order
+        poi_set = set(poi_nearby or [])
+        uncovered.sort(key=lambda b: (0 if b in poi_set else 1))
 
         # Build bottleneck -> officers mapping
         bottleneck_officers: dict[int, list[int]] = {}
@@ -511,6 +623,7 @@ class GeneticDeploymentOptimizer:
         parameters: dict,
         weather_impact_factor: float = 1.0,
         incidents: list[dict] | None = None,
+        pois: list[dict] | None = None,
         seed: int | None = None,
         cancel_check: Callable[[], bool] | None = None,
         progress_callback: Callable[[int, int, float], None] | None = None,
@@ -524,7 +637,16 @@ class GeneticDeploymentOptimizer:
 
         # Pre-compute incident boosts for each bottleneck
         incident_boosts = self._compute_incident_boosts(bottlenecks, incidents or []) if incidents else {}
-        pop = self._init_population(config["population_size"], len(officers), len(bottlenecks))
+
+        # Apply POI priority boosts to bottlenecks (if POIs provided)
+        poi_nearby: list[int] = []
+        if pois:
+            poi_nearby = self._apply_poi_boosts(bottlenecks, pois)
+
+        # Pre-compute distance matrix (avoids repeated geodesic calls in fitness loop)
+        distance_matrix = self._precompute_distance_matrix(officers, bottlenecks)
+
+        pop = self._init_population(config["population_size"], len(officers), len(bottlenecks), poi_nearby)
         generation_fitness: list[float] = []
         hypervolume_history: list[float] = []
         no_improvement_count = 0
@@ -540,7 +662,7 @@ class GeneticDeploymentOptimizer:
 
             # Evaluate all individuals
             scored = [
-                (chromosome, self._evaluate(chromosome, officers, bottlenecks, weather_impact_factor, config, incident_boosts))
+                (chromosome, self._evaluate(chromosome, officers, bottlenecks, weather_impact_factor, config, incident_boosts, distance_matrix))
                 for chromosome in pop
             ]
 
@@ -616,8 +738,8 @@ class GeneticDeploymentOptimizer:
                 self._mutate(child1, len(bottlenecks), config["mutation_rate"])
                 self._mutate(child2, len(bottlenecks), config["mutation_rate"])
                 # Repair operator: ensure minimum coverage after genetic operators
-                self._repair_coverage(child1, len(bottlenecks))
-                self._repair_coverage(child2, len(bottlenecks))
+                self._repair_coverage(child1, len(bottlenecks), poi_nearby)
+                self._repair_coverage(child2, len(bottlenecks), poi_nearby)
                 next_population.append(child1)
                 if len(next_population) < config["population_size"]:
                     next_population.append(child2)

@@ -15,6 +15,8 @@ CATEGORY_MAP = {
     "school": "school",
     "university": "school",
     "college": "school",
+    "marketplace": "market",
+    "townhall": "other",
 }
 
 
@@ -52,8 +54,8 @@ class Command(BaseCommand):
         query = f"""
 [out:json][timeout:60];
 (
-  node["amenity"~"hospital|clinic|doctors|pharmacy|fire_station|police|school|university|college"]({minLat},{minLon},{maxLat},{maxLon});
-  way["amenity"~"hospital|clinic|doctors|pharmacy|fire_station|police|school|university|college"]({minLat},{minLon},{maxLat},{maxLon});
+  node["amenity"~"hospital|clinic|doctors|pharmacy|fire_station|police|school|university|college|marketplace"]({minLat},{minLon},{maxLat},{maxLon});
+  way["amenity"~"hospital|clinic|doctors|pharmacy|fire_station|police|school|university|college|marketplace"]({minLat},{minLon},{maxLat},{maxLon});
 );
 out center;
 """
@@ -110,6 +112,15 @@ out center;
             elif category == "school":
                 icon_url = "https://icons.example.com/school.png"
 
+            # Priority boost: hospitals and fire stations get higher boost
+            priority_boost = {
+                "hospital": 2.0,
+                "fire_station": 1.8,
+                "police_station": 1.5,
+                "school": 1.3,
+                "market": 1.2,
+            }.get(category, 1.0)
+
             defaults = {
                 "name": name[:255],
                 "category": category,
@@ -118,6 +129,7 @@ out center;
                 "icon_url": icon_url,
                 "is_active": True,
                 "is_deleted": False,
+                "priority_boost": priority_boost,
             }
 
             poi, created_flag = POI.objects.update_or_create(

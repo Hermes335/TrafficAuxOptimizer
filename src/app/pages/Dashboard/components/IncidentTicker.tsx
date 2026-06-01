@@ -1,4 +1,5 @@
-import { AlertCircle, X, TriangleAlert, CircleAlert, Droplets, Construction, ShieldAlert } from "lucide-react";
+import { AlertCircle, X, TriangleAlert, CircleAlert, Droplets, Construction, ShieldAlert, Pencil } from "lucide-react";
+import { Link } from "react-router";
 import type { Incident } from "../../../services/backend";
 
 interface IncidentTickerProps {
@@ -38,7 +39,8 @@ export function IncidentTicker({ incidents, onRemoveIncident }: IncidentTickerPr
         )}
         {incidents.map((incident) => {
           const severity = severityConfig[incident.type] || severityConfig.minor;
-          const Icon = typeIcons[incident.type] || typeIcons.other;
+          const Icon = typeIcons[incident.incident_type || ""] || typeIcons.other;
+          const typeLabel = (incident.incident_type || incident.type).replace(/_/g, " ");
           return (
             <div
               key={incident.id}
@@ -49,21 +51,32 @@ export function IncidentTicker({ incidents, onRemoveIncident }: IncidentTickerPr
               </div>
               <div className="min-w-0 flex-1">
                 <div className={`text-xs font-semibold uppercase ${severity.text}`}>
-                  {incident.type === "critical" ? "Critical" : incident.type === "major" ? "Major" : "Minor"}
+                  {incident.type === "critical" ? "Critical" : incident.type === "major" ? "Major" : "Minor"} {typeLabel}
                 </div>
                 <div className="mt-0.5 truncate text-sm font-medium text-gray-900">
                   {incident.text}
                 </div>
               </div>
-              {onRemoveIncident && (
-                <button
-                  onClick={() => onRemoveIncident(incident.id)}
-                  className="flex-shrink-0 rounded p-1 opacity-0 transition-opacity hover:bg-red-100 group-hover:opacity-100"
-                  title="Remove incident"
+              <div className="flex flex-shrink-0 items-center gap-1 opacity-40 transition-opacity group-hover:opacity-100">
+                <Link
+                  to={`/incident-report/${incident.id}`}
+                  className="rounded p-1 hover:bg-blue-100"
+                  title="Edit incident"
+                  aria-label="Edit incident"
                 >
-                  <X className="h-3.5 w-3.5 text-red-500" />
-                </button>
-              )}
+                  <Pencil className="h-3.5 w-3.5 text-blue-500" />
+                </Link>
+                {onRemoveIncident && (
+                  <button
+                    onClick={() => onRemoveIncident(incident.id)}
+                    className="rounded p-1 hover:bg-red-100"
+                    title="Remove incident"
+                    aria-label="Remove incident"
+                  >
+                    <X className="h-3.5 w-3.5 text-red-500" />
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}

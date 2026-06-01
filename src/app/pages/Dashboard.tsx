@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronRight, Cloud, CloudRain, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { getApiBaseUrl, fetchDeploymentSchedule, resolveIncident, type DeploymentScheduleItem } from "../services/backend";
+import { getApiBaseUrl, fetchDeploymentSchedule, fetchPOIs, resolveIncident, type DeploymentScheduleItem, type POI } from "../services/backend";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useBottleneckActions } from "../hooks/useBottleneckActions";
 import { useMapIntegration } from "../hooks/useMapIntegration";
@@ -29,19 +29,22 @@ export function Dashboard() {
 
   // --- UI state ---
   const [selectedView, setSelectedView] = useState("Congestion");
-  const [showIncidentModal, setShowIncidentModal] = useState(true);
+  const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(false);
   const [selectedShift, setSelectedShift] = useState("Afternoon");
   const [filterTerm, setFilterTerm] = useState("");
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
-  const [pois, setPois] = useState<Array<{ id: string; name: string; category: string; latitude: number; longitude: number }>>([]);
+  const [pois, setPois] = useState<POI[]>([]);
   const [deployments, setDeployments] = useState<DeploymentScheduleItem[]>([]);
 
-  // Fetch deployments on mount
+  // Fetch deployments and POIs on mount
   useEffect(() => {
     fetchDeploymentSchedule()
       .then(setDeployments)
       .catch(() => setDeployments([]));
+    fetchPOIs()
+      .then(setPois)
+      .catch(() => setPois([]));
   }, []);
 
   // --- Bottleneck actions hook ---
@@ -108,7 +111,7 @@ export function Dashboard() {
   }, [incidents, selectedIncidentId]);
 
   // Auto-select first incident
-  useMemo(() => {
+  useEffect(() => {
     if (selectedIncidentId === null && incidents.length > 0) {
       setSelectedIncidentId(incidents[0].id);
     }
@@ -168,14 +171,24 @@ export function Dashboard() {
   };
 
   // --- Map markers hook ---
+  const handlePoiUpdated = (updatedPoi: import("../services/backend").POI) => {
+    if (!updatedPoi.is_active) {
+      setPois((prev) => prev.filter((p) => p.poi_id !== updatedPoi.poi_id));
+    } else {
+      setPois((prev) => prev.map((p) => (p.poi_id === updatedPoi.poi_id ? updatedPoi : p)));
+    }
+  };
+
   useMapMarkers({
     mapRef: map.mapRef,
     markersRef: map.markersRef,
     hasFittedRef: map.hasFittedRef,
     filteredBottlenecks,
     incidents,
+    pois,
     onMarkerClick,
     onIncidentRemove: onRemoveIncident,
+    onPoiUpdated: handlePoiUpdated,
   });
 
   // --- Assignment lines hook (shows officer->bottleneck lines when Assignments view active) ---
@@ -258,7 +271,6 @@ export function Dashboard() {
               <button onClick={() => { setSelectedView("Assignments"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Assignments" ? "bg-yellow-400 text-white" : "text-gray-600 hover:bg-gray-100"}`}>Assignments</button>
             </div>
             <div className="flex items-center rounded-full bg-white px-4 py-1.5 text-sm font-medium shadow-md"><MapPin className="mr-1 h-4 w-4 text-pink-500" />{dashboardSnapshot.cityLabel}</div>
-            <button className="flex items-center gap-1 rounded-full bg-white px-4 py-1.5 text-sm font-medium text-gray-700 shadow-md hover:bg-gray-50"><AlertCircle className="h-4 w-4 text-orange-400" />Guide</button>
             <div className="relative">
               <button onClick={() => ba.setShowAddMenu(!ba.showAddMenu)} className="flex items-center gap-1 rounded-full bg-orange-500 px-4 py-1.5 text-sm font-medium text-white shadow-md hover:bg-orange-600"><Plus className="h-4 w-4" />Add Marker<ChevronRight className="h-4 w-4 rotate-90" /></button>
               {ba.showAddMenu && (
@@ -290,15 +302,6 @@ export function Dashboard() {
               />
             )}
             <WeatherOverlay showWeatherOverlay={showWeatherOverlay} weatherStyle={weatherStyle} WeatherIndicatorIcon={WeatherIndicatorIcon} weatherLabel={weatherLabel} weatherStatusTone={weatherStatusTone} weatherImpactFactor={weatherSnapshot.weather_impact_factor} />
-            <div className="pointer-events-none absolute bottom-4 left-4 z-20 rounded-lg border border-gray-200 bg-white/95 px-3 py-2 shadow-sm">
-              <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-500">Severity (Relative)</div>
-              <div className="flex flex-wrap gap-3 text-xs">
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" /><span className="text-gray-600">Free (&lt;{Math.round(severityThresholds.p25 * 100)}%)</span></div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500" /><span className="text-gray-600">Moderate ({Math.round(severityThresholds.p25 * 100)}-{Math.round(severityThresholds.p50 * 100)}%)</span></div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-orange-500" /><span className="text-gray-600">Heavy ({Math.round(severityThresholds.p50 * 100)}-{Math.round(severityThresholds.p75 * 100)}%)</span></div>
-                <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-red-500" /><span className="text-gray-600">Critical (&ge;{Math.round(severityThresholds.p75 * 100)}%)</span></div>
-              </div>
-            </div>
           </div>
 
           <IncidentModal showIncidentModal={showIncidentModal} onClose={() => setShowIncidentModal(false)} selectedIncident={selectedIncident} incidentHeadline={incidentHeadline} incidentLocation={incidentLocation} />

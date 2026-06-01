@@ -1,13 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { Clock, Target, Zap, TrendingUp, Users, AlertTriangle, ChevronLeft } from "lucide-react";
-import { Link } from "react-router";
+import { Clock, Target, Zap, TrendingUp, Users, AlertTriangle, ChevronLeft, RefreshCw } from "lucide-react";
+import { Link, useNavigate } from "react-router";
 import {
   fetchOptimizationConfig,
   fetchOptimizationHistory,
+  fetchDashboardSnapshot,
+  fetchCurrentWeather,
+  fetchPOIs,
   publishDeploymentsFromOptimization,
   type OptimizationHistoryItem,
   type OptimizationConfigResponse,
+  type POI,
 } from "../services/backend";
+import { computeAutoWeights, type AutoWeightSuggestion } from "../hooks/useOptimizationConfig";
 import { ErrorFeedback } from "../components/ErrorFeedback";
 
 const DEFAULT_PARAMS = {
@@ -23,6 +28,7 @@ const DEFAULT_PARAMS = {
 };
 
 export function Optimization() {
+  const navigate = useNavigate();
   const [selectedShift, setSelectedShift] = useState<"morning" | "afternoon">("afternoon");
   const [populationSize, setPopulationSize] = useState(DEFAULT_PARAMS.populationSize);
   const [generationLimit, setGenerationLimit] = useState(DEFAULT_PARAMS.generationLimit);
@@ -42,6 +48,45 @@ export function Optimization() {
   const [publishingRunId, setPublishingRunId] = useState<string | null>(null);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
+  const [autoSuggestion, setAutoSuggestion] = useState<AutoWeightSuggestion | null>(null);
+  const [loadingAutoSuggestion, setLoadingAutoSuggestion] = useState(false);
+  const [activePois, setActivePois] = useState<POI[]>([]);
+  const [activeIncidents, setActiveIncidents] = useState<Array<{ type: string }>>([]);
+
+  // Fetch dashboard data, POIs, and compute auto-weight suggestion
+  useEffect(() => {
+    let active = true;
+    setLoadingAutoSuggestion(true);
+    Promise.all([fetchDashboardSnapshot(), fetchCurrentWeather(), fetchPOIs()])
+      .then(([snapshot, weather, pois]) => {
+        if (!active) return;
+        setActivePois(pois);
+        setActiveIncidents(snapshot.incidents);
+        const suggestion = computeAutoWeights(
+          snapshot.bottlenecks,
+          weather.weather_impact_factor,
+          snapshot.incidents,
+          snapshot.metrics.resourceUtilization,
+        );
+        setAutoSuggestion(suggestion);
+      })
+      .catch(() => {
+        // Silently fail — auto-suggest is optional
+      })
+      .finally(() => {
+        if (active) setLoadingAutoSuggestion(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  const applyAutoSuggestion = () => {
+    if (!autoSuggestion) return;
+    setTsiWeight(autoSuggestion.tsiWeight);
+    setWifWeight(autoSuggestion.wifWeight);
+    setRpwWeight(autoSuggestion.rpwWeight);
+    setResourceUtilizationWeight(autoSuggestion.resourceUtilizationWeight);
+    setSelectedPreset("custom");
+  };
 
   const params = useMemo(
     () => ({
@@ -99,29 +144,25 @@ export function Optimization() {
 
   useEffect(() => {
     let active = true;
-    setValidationLoading(true);
-
-    fetchOptimizationConfig(params)
-      .then((result) => {
-        if (!active) {
-          return;
-        }
-        setValidation(result);
-      })
-      .catch(() => {
-        if (!active) {
-          return;
-        }
-        setValidation(null);
-      })
-      .finally(() => {
-        if (active) {
-          setValidationLoading(false);
-        }
-      });
+    const timer = setTimeout(() => {
+      setValidationLoading(true);
+      fetchOptimizationConfig(params)
+        .then((result) => {
+          if (!active) return;
+          setValidation(result);
+        })
+        .catch(() => {
+          if (!active) return;
+          setValidation(null);
+        })
+        .finally(() => {
+          if (active) setValidationLoading(false);
+        });
+    }, 300);
 
     return () => {
       active = false;
+      clearTimeout(timer);
     };
   }, [params]);
 
@@ -316,6 +357,54 @@ export function Optimization() {
             <Target className="h-5 w-5 text-yellow-500" />
             <h2 className="font-semibold">FITNESS WEIGHTS</h2>
           </div>
+
+          {/* Auto-Suggest Weights */}
+          {autoSuggestion && (
+            <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
+                  <RefreshCw className="h-4 w-4" />
+                  Auto-Suggested Weights
+                </div>
+                {loadingAutoSuggestion && <span className="text-xs text-blue-500">Refreshing...</span>}
+              </div>
+
+              {/* Active data summary */}
+              <div className="mb-2 flex flex-wrap gap-3 text-xs">
+                {activePois.length > 0 && (
+                  <span className="flex items-center gap-1 rounded bg-green-100 px-2 py-0.5 text-green-800">
+                    📍 {activePois.length} POIs (hospitals, fire stations, schools)
+                  </span>
+                )}
+                {activeIncidents.length > 0 && (
+                  <span className="flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-red-800">
+                    ⚠ {activeIncidents.length} active incident(s)
+                  </span>
+                )}
+                {activePois.length === 0 && activeIncidents.length === 0 && (
+                  <span className="text-gray-500">No active POIs or incidents affecting optimization</span>
+                )}
+              </div>
+
+              <div className="mb-2 space-y-1 text-xs text-blue-700">
+                {autoSuggestion.reasons.map((reason, i) => (
+                  <div key={i}>• {reason}</div>
+                ))}
+              </div>
+              <div className="mb-2 flex flex-wrap gap-2 text-xs">
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">TSI {autoSuggestion.tsiWeight}%</span>
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">WIF {autoSuggestion.wifWeight}%</span>
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">RPW {autoSuggestion.rpwWeight}%</span>
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">RU {autoSuggestion.resourceUtilizationWeight}%</span>
+              </div>
+              <button
+                onClick={applyAutoSuggestion}
+                className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+              >
+                Apply Suggestion
+              </button>
+            </div>
+          )}
 
           <div className="space-y-4">
             <div>
@@ -564,7 +653,7 @@ export function Optimization() {
                         : null;
                       const trend = bestFitness && prevFitness ? bestFitness - prevFitness : null;
                       return (
-                        <tr key={run.id} className="border-b last:border-b-0 cursor-pointer hover:bg-gray-50" onClick={() => { if (run.status === "completed") window.location.href = `/optimization-engine?run_id=${encodeURIComponent(run.run_id)}`; }}>
+                        <tr key={run.id} className="border-b last:border-b-0 cursor-pointer hover:bg-gray-50" onClick={() => { if (run.status === "completed") navigate(`/optimization-engine?run_id=${encodeURIComponent(run.run_id)}`); }}>
                           <td className="px-3 py-2 font-medium text-gray-900">{run.run_id}</td>
                           <td className="px-3 py-2">
                             <span className={`rounded px-2 py-0.5 text-xs font-medium ${
@@ -617,13 +706,24 @@ export function Optimization() {
           </div>
 
           <div className="rounded-lg border bg-white p-4">
-            <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
               <Users className="h-4 w-4 text-yellow-500" />
-              Live Configuration Payload
+              Configuration Summary
             </div>
-            <pre className="overflow-auto rounded bg-gray-50 p-3 text-xs text-gray-700">
-              {JSON.stringify(params, null, 2)}
-            </pre>
+            <div className="space-y-2 text-xs">
+              <div className="flex justify-between"><span className="text-gray-500">Population Size</span><span className="font-medium">{params.population_size}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Generations</span><span className="font-medium">{params.generations}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Crossover Rate</span><span className="font-medium">{params.crossover_rate}%</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Mutation Rate</span><span className="font-medium">{params.mutation_rate}%</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Elitism</span><span className="font-medium">{params.elitism_rate}%</span></div>
+              <div className="border-t pt-2 mt-2">
+                <div className="mb-1 text-gray-500 font-semibold">Objective Weights</div>
+                <div className="flex justify-between"><span className="text-gray-500">TSI Weight</span><span className="font-medium">{params.tsi_weight}%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">WIF Weight</span><span className="font-medium">{params.wif_weight}%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">RPW Weight</span><span className="font-medium">{params.rpw_weight}%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Utilization Weight</span><span className="font-medium">{params.resource_utilization_weight}%</span></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

@@ -1,3 +1,5 @@
+import { X } from "lucide-react";
+
 interface EditBottleneckOverlayProps {
   editBottleneckName: string; setEditBottleneckName: (v: string) => void;
   editBottleneckDistrict: string; setEditBottleneckDistrict: (v: string) => void;
@@ -25,7 +27,7 @@ export function EditBottleneckOverlay({
     <div className="absolute left-4 top-20 z-30 w-80 rounded-lg border bg-white p-4 shadow-xl">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold">Edit Bottleneck</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-sm">X</button>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close"><X className="h-4 w-4" /></button>
       </div>
       <div className="space-y-3">
         <div>
