@@ -11,6 +11,7 @@ interface UseMapMarkersOptions {
   filteredBottlenecks: Bottleneck[];
   incidents: Incident[];
   pois?: POI[];
+  selectedBottleneckId?: string | null;
   onMarkerClick: (bottleneck: Bottleneck) => void;
   onIncidentRemove?: (id: number) => void;
   onPoiUpdated?: (poi: POI) => void;
@@ -24,6 +25,7 @@ export function useMapMarkers({
   filteredBottlenecks,
   incidents,
   pois = [],
+  selectedBottleneckId = null,
   onMarkerClick,
   onIncidentRemove,
   onPoiUpdated,
@@ -52,8 +54,8 @@ export function useMapMarkers({
       const isCritical = severity === "critical";
 
       markerEl.className = "flex items-center justify-center";
-      markerEl.style.width = "24px";
-      markerEl.style.height = "24px";
+      markerEl.style.width = "28px";
+      markerEl.style.height = "28px";
 
       const innerCircle = document.createElement("div");
       innerCircle.style.width = "16px";
@@ -63,6 +65,7 @@ export function useMapMarkers({
       innerCircle.style.border = "2px solid white";
       innerCircle.style.boxShadow = "0 2px 6px rgba(0,0,0,0.25)";
       innerCircle.style.position = "relative";
+      innerCircle.style.transition = "border 0.15s ease, box-shadow 0.15s ease";
 
       if (isCritical) {
         innerCircle.className = "map-marker-pulse";
@@ -71,6 +74,7 @@ export function useMapMarkers({
 
       markerEl.appendChild(innerCircle);
       markerEl.style.cursor = "pointer";
+      markerEl.setAttribute("data-bottleneck-id", bottleneck.id);
       markerEl.addEventListener("click", () => onMarkerClick(bottleneck));
 
       const tsiPercent = Math.round((Number(bottleneck.tsi) || 0) * 100);
@@ -217,14 +221,13 @@ export function useMapMarkers({
       markersRef.current.push(marker);
     }
 
-    // ─── POI Markers ────────────────────────────────────────────────────
+    // ─── POI Markers (subtle, secondary to bottleneck markers) ──────────
     const poiCategoryConfig: Record<string, { color: string; icon: string; label: string }> = {
-      hospital:       { color: "#dc2626", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round"><line x1="12" y1="4" x2="12" y2="20"/><line x1="4" y1="12" x2="20" y2="12"/></svg>`, label: "Hospital" },
-      fire_station:   { color: "#ea580c", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><path d="M12 2c-3 3-5 7-5 11a5 5 0 0 0 10 0c0-4-2-8-5-11z"/></svg>`, label: "Fire Station" },
-      police_station: { color: "#2563eb", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L3 7v3h18V7L12 2z"/><path d="M5 10v8h14v-8"/><path d="M9 18v3h6v-3"/></svg>`, label: "Police Station" },
-      school:         { color: "#16a34a", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 10l10-5 10 5-10 5-10-5z"/><path d="M6 12v5c0 1 2.5 3 6 3s6-2 6-3v-5"/></svg>`, label: "School" },
-      market:         { color: "#8b5cf6", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a9 9 0 0 1-18 0V9z"/><path d="M6 13v4m4-4v4m4-4v4m4-4v4"/></svg>`, label: "Market" },
-      other:          { color: "#6366f1", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`, label: "POI" },
+      hospital:       { color: "#fca5a5", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#991b1b" stroke-width="3" stroke-linecap="round"><line x1="12" y1="4" x2="12" y2="20"/><line x1="4" y1="12" x2="20" y2="12"/></svg>`, label: "Hospital" },
+      fire_station:   { color: "#fed7aa", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#9a3412" stroke-width="2.5" stroke-linecap="round"><path d="M12 2c-3 3-5 7-5 11a5 5 0 0 0 10 0c0-4-2-8-5-11z"/></svg>`, label: "Fire Station" },
+      police_station: { color: "#bfdbfe", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#1e3a5f" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L3 7v3h18V7L12 2z"/><path d="M5 10v8h14v-8"/><path d="M9 18v3h6v-3"/></svg>`, label: "Police Station" },
+      market:         { color: "#e9d5ff", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#581c87" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a9 9 0 0 1-18 0V9z"/><path d="M6 13v4m4-4v4m4-4v4m4-4v4"/></svg>`, label: "Market" },
+      other:          { color: "#e0e7ff", icon: `<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#3730a3" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>`, label: "POI" },
     };
 
     for (const poi of pois) {
@@ -234,12 +237,13 @@ export function useMapMarkers({
       markerEl.style.display = "flex";
       markerEl.style.alignItems = "center";
       markerEl.style.justifyContent = "center";
-      markerEl.style.width = "22px";
-      markerEl.style.height = "22px";
+      markerEl.style.width = "16px";
+      markerEl.style.height = "16px";
       markerEl.style.borderRadius = "50%";
       markerEl.style.backgroundColor = config.color;
-      markerEl.style.border = "2px solid white";
-      markerEl.style.boxShadow = `0 1px 4px ${config.color}60`;
+      markerEl.style.border = "1.5px solid white";
+      markerEl.style.boxShadow = "0 1px 2px rgba(0,0,0,0.15)";
+      markerEl.style.opacity = "0.85";
       markerEl.innerHTML = config.icon;
 
       const editFormId = `poi-edit-${poi.poi_id}`;
@@ -341,4 +345,24 @@ export function useMapMarkers({
       return () => { map.off("load", renderMarkers); };
     }
   }, [filteredBottlenecks, incidents, pois, mapRef, markersRef, hasFittedRef, onMarkerClick, onIncidentRemove, onPoiUpdated, onIncidentUpdated, mapReady]);
+
+  // Update selected marker styling without full re-render
+  useEffect(() => {
+    const markers = markersRef.current;
+    if (!markers) return;
+    for (const marker of markers) {
+      const el = marker.getElement();
+      const id = el.getAttribute("data-bottleneck-id");
+      if (!id) continue;
+      const inner = el.firstChild as HTMLElement;
+      if (!inner) continue;
+      if (id === selectedBottleneckId) {
+        inner.style.border = "3px solid #3b82f6";
+        inner.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.4), 0 0 12px rgba(59,130,246,0.3)";
+      } else {
+        inner.style.border = "2px solid white";
+        inner.style.boxShadow = "0 2px 6px rgba(0,0,0,0.25)";
+      }
+    }
+  }, [selectedBottleneckId, markersRef]);
 }

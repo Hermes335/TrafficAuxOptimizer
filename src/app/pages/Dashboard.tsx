@@ -117,6 +117,13 @@ export function Dashboard() {
     }
   }, [incidents, selectedIncidentId]);
 
+  // Scroll selected bottleneck into view in the sidebar list
+  useEffect(() => {
+    if (!ba.selectedBottleneckId) return;
+    const el = document.querySelector(`[data-selected="true"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [ba.selectedBottleneckId]);
+
   // --- Weather derived ---
   const weatherLabel = weatherSnapshot.condition.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
   const weatherStatusTone = weatherSnapshot.weather_impact_factor >= 1.7 ? "Severe" : weatherSnapshot.weather_impact_factor >= 1.3 ? "Moderate" : "Clear";
@@ -186,6 +193,7 @@ export function Dashboard() {
     filteredBottlenecks,
     incidents,
     pois,
+    selectedBottleneckId: ba.selectedBottleneckId,
     onMarkerClick,
     onIncidentRemove: onRemoveIncident,
     onPoiUpdated: handlePoiUpdated,
@@ -240,7 +248,7 @@ export function Dashboard() {
               const hasIncident = hasIncidentForBottleneck(item.id, item.name);
               const selected = ba.selectedBottleneckId === item.id;
               return (
-                <div key={item.id} className={`group flex items-center gap-3 border-b border-gray-100 px-3 py-2.5 transition-all cursor-pointer ${selected ? "bg-amber-50 border-l-4 border-l-amber-500" : "hover:bg-gray-50 border-l-4 border-l-transparent"}`} onClick={() => { ba.setSelectedBottleneckId(item.id); }}>
+                <div key={item.id} data-selected={selected ? "true" : undefined} className={`group flex items-center gap-3 border-b border-gray-100 px-3 py-2.5 transition-all cursor-pointer ${selected ? "bg-amber-50 border-l-4 border-l-amber-500" : "hover:bg-gray-50 border-l-4 border-l-transparent"}`} onClick={() => { ba.setSelectedBottleneckId(item.id); map.mapRef.current?.flyTo({ center: [item.longitude, item.latitude], zoom: 15, duration: 800 }); }}>
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${congestionTone[severity].dot}`} />
                   <div className="min-w-0 flex-1">
                     <div className="mb-0.5 flex items-center gap-1.5">
