@@ -2,7 +2,7 @@ const { execSync } = require("node:child_process");
 const path = require("node:path");
 
 const projectRoot = path.resolve(__dirname, "..").toLowerCase();
-const ports = [5173, 8000];
+const ports = [8080, 8000];
 
 function run(command) {
   return execSync(command, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });

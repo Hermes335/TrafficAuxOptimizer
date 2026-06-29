@@ -594,7 +594,7 @@ npm run dev:local
 
 | Service | Command | Port |
 |---------|---------|------|
-| Frontend | `npm run dev:renderer` | 5173 |
+| Frontend | `npm run dev:renderer` | 8080 |
 | Backend | `npm run dev:backend` | 8000 |
 | Desktop | `npm run dev:desktop` | 3001 |
 | Celery Worker | `npm run dev:worker` | - |

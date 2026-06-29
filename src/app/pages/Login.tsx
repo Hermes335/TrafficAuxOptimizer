@@ -3,6 +3,19 @@ import { useNavigate } from "react-router";
 import { useAuth } from "../contexts/AuthContext";
 import { LoadingState } from "../components/LoadingState";
 import { Eye, EyeOff, Shield, AlertTriangle, LogIn, MapPin, CheckCircle2 } from "lucide-react";
+import { fetchDashboardKpis, fetchDashboardSnapshot, type DashboardKpis } from "../services/backend";
+
+type LoginStats = {
+  deployedOfficers: number;
+  monitoredIntersections: number;
+  avgResponseMinutes: number;
+};
+
+const fallbackStats: LoginStats = {
+  deployedOfficers: 124,
+  monitoredIntersections: 38,
+  avgResponseMinutes: 4.2,
+};
 
 export function Login() {
   const { login, logout, isAuthenticated, isLoading: authLoading, error, clearError } = useAuth();
@@ -16,8 +29,33 @@ export function Login() {
   const [lockedUntil, setLockedUntil] = useState<Date | null>(null);
   const [sessionWarning, setSessionWarning] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [stats, setStats] = useState<LoginStats>(fallbackStats);
 
   const displayError = localError || error;
+
+  useEffect(() => {
+    let active = true;
+
+    Promise.all([fetchDashboardKpis(), fetchDashboardSnapshot()])
+      .then(([kpis, snapshot]) => {
+        if (!active) return;
+
+        setStats({
+          deployedOfficers: kpis.deployed_officers,
+          monitoredIntersections: snapshot.bottlenecks.length,
+          avgResponseMinutes: kpis.avg_response_time,
+        });
+      })
+      .catch(() => {
+        if (active) {
+          setStats(fallbackStats);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -178,17 +216,17 @@ export function Login() {
 
               <div className="mt-9 grid grid-cols-3 gap-3">
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">124</div>
+                  <div className="text-4xl font-black text-yellow-400">{stats.deployedOfficers}</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Deployed</div>
                   <div className="text-sm text-slate-300">Active Officers</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">38</div>
+                  <div className="text-4xl font-black text-yellow-400">{stats.monitoredIntersections}</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Monitored</div>
                   <div className="text-sm text-slate-300">Intersections</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">4.2</div>
+                  <div className="text-4xl font-black text-yellow-400">{stats.avgResponseMinutes.toFixed(1)}</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Minutes</div>
                   <div className="text-sm text-slate-300">Avg Response</div>
                 </div>

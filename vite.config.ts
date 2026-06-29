@@ -8,6 +8,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url))
 
 export default defineConfig({
   base: './',
+  server: {
+    host: '127.0.0.1',
+    port: 8080,
+    strictPort: true,
+  },
   plugins: [
     // The React and Tailwind plugins are both required for Make, even if
     // Tailwind is not being actively used – do not remove them

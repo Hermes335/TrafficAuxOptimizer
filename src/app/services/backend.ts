@@ -43,6 +43,15 @@ export interface DashboardSnapshot {
   };
 }
 
+export interface DashboardKpis {
+  coverage_efficiency: number;
+  avg_response_time: number;
+  resource_utilization: number;
+  weather_correlation: number;
+  deployed_officers: number;
+  active_officers: number;
+}
+
 export interface WeatherCurrentSnapshot {
   timestamp: string;
   condition: string;
@@ -312,6 +321,10 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
     latitude: item.latitude,
     longitude: item.longitude,
     tsi: item.tsi,
+    weather_impact_factor: item.weather_impact_factor,
+    deployed_officers: item.deployed_officers,
+    required_officers: item.required_officers,
+    assigned_officers: item.assigned_officers,
   }));
 
   return {
@@ -325,6 +338,14 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
       weatherCorrelation: kpis.weather_correlation,
     },
   };
+}
+
+export async function fetchDashboardKpis(): Promise<DashboardKpis> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/kpis/`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch dashboard KPIs: ${response.status}`);
+  }
+  return response.json() as Promise<DashboardKpis>;
 }
 
 export async function fetchCurrentWeather(): Promise<WeatherCurrentSnapshot> {

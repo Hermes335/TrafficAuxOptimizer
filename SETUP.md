@@ -162,7 +162,7 @@ This starts all services concurrently:
 | Django Backend | `dev:backend` | http://127.0.0.1:8000 |
 | Celery Worker | `dev:worker` | Executes background tasks |
 | Celery Beat | `dev:beat` | Triggers periodic tasks (traffic/weather fetch) |
-| Vite Frontend | `dev:renderer` | http://127.0.0.1:5173 |
+| Vite Frontend | `dev:renderer` | http://127.0.0.1:8080 |
 | Electron Desktop | `dev:desktop:local` | http://127.0.0.1:3001 |
 
 ### Individual Services
@@ -279,12 +279,12 @@ Celery beat schedules periodic tasks. Celery worker executes them.
 
 | Service | URL |
 |---------|-----|
-| Login | http://127.0.0.1:5173/login |
-| Dashboard | http://127.0.0.1:5173/ |
-| Optimization | http://127.0.0.1:5173/optimization |
-| Optimization Running | http://127.0.0.1:5173/optimization-running |
-| Optimization Results | http://127.0.0.1:5173/optimization-engine |
-| Gantt Chart | http://127.0.0.1:5173/gantt-chart |
+| Login | http://127.0.0.1:8080/login |
+| Dashboard | http://127.0.0.1:8080/ |
+| Optimization | http://127.0.0.1:8080/optimization |
+| Optimization Running | http://127.0.0.1:8080/optimization-running |
+| Optimization Results | http://127.0.0.1:8080/optimization-engine |
+| Gantt Chart | http://127.0.0.1:8080/gantt-chart |
 | API Docs (Swagger) | http://127.0.0.1:8000/api/docs/ |
 | Django Admin | http://127.0.0.1:8000/admin |
 

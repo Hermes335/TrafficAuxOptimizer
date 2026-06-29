@@ -9,7 +9,7 @@ npm install
 npm run dev:local
 ```
 
-Open http://127.0.0.1:5173/login and use one of the test accounts:
+Open http://127.0.0.1:8080/login and use one of the test accounts:
 
 | Role | Username | Password |
 |------|----------|----------|
@@ -72,7 +72,7 @@ Backend (Django 4.2 + Celery + Channels + Redis)
 | Django Backend | `npm run dev:backend` | 8000 | REST API server |
 | Celery Worker | `npm run dev:worker` | -- | Executes background tasks |
 | Celery Beat | `npm run dev:beat` | -- | Triggers periodic tasks (traffic/weather fetch) |
-| Vite Frontend | `npm run dev:renderer` | 5173 | React development server |
+| Vite Frontend | `npm run dev:renderer` | 8080 | React development server |
 | Electron Desktop | `npm run dev:desktop` | 3001 | Desktop application wrapper |
 
 Start all: `npm run dev:local` | Stop all: `npm run stop:local`

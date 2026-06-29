@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 import {
   fetchDashboardSnapshot,
   fetchDashboardOfficers,
+  fetchDeploymentSchedule,
   fetchCurrentWeather,
   getFallbackDashboardSnapshot,
   subscribeToDashboardStream,
   type DashboardOfficerRecord,
   type DashboardSnapshot,
+  type DeploymentScheduleItem,
   type WeatherCurrentSnapshot,
 } from "../services/backend";
 
@@ -24,6 +26,7 @@ export function useDashboardData() {
   );
   const [weatherSnapshot, setWeatherSnapshot] = useState<WeatherCurrentSnapshot>(fallbackWeather);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
+  const [deployments, setDeployments] = useState<DeploymentScheduleItem[]>([]);
   const [deployedOfficersCount, setDeployedOfficersCount] = useState(0);
   const [totalOfficersCount, setTotalOfficersCount] = useState(0);
   const [bottleneckActionError, setBottleneckActionError] = useState<string | null>(null);
@@ -33,6 +36,20 @@ export function useDashboardData() {
 
   useEffect(() => {
     let active = true;
+
+    const refreshDeployments = () => {
+      fetchDeploymentSchedule()
+        .then((rows) => {
+          if (active) {
+            setDeployments(rows);
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setDeployments([]);
+          }
+        });
+    };
 
     const stopStream = subscribeToDashboardStream((event) => {
       if (!active) return;
@@ -68,6 +85,24 @@ export function useDashboardData() {
         }));
       }
 
+      if (event.event === "deployment_changed" || event.event === "deployment_schedule_cleared") {
+        refreshDeployments();
+        fetchDashboardSnapshot()
+          .then((snapshot) => {
+            if (active) setDashboardSnapshot(snapshot);
+          })
+          .catch(() => { /* ignore refresh errors */ });
+        fetchDashboardOfficers()
+          .then((rows) => {
+            if (active) {
+              setOfficers(rows);
+              setTotalOfficersCount(rows.filter((o) => o.status === "available" || o.status === "deployed").length);
+              setDeployedOfficersCount(rows.filter((o) => o.status === "deployed").length);
+            }
+          })
+          .catch(() => { /* ignore refresh errors */ });
+      }
+
       // Re-fetch bottleneck data when TSI values are updated by Celery
       if (event.event === "bottlenecks_updated") {
         fetchDashboardSnapshot()
@@ -93,6 +128,8 @@ export function useDashboardData() {
       .catch(() => {
         if (active) setWeatherSnapshot(fallbackWeather);
       });
+
+    refreshDeployments();
 
     fetchDashboardOfficers()
       .then((rows) => {
@@ -149,6 +186,7 @@ export function useDashboardData() {
     setDashboardSnapshot,
     weatherSnapshot,
     officers,
+    deployments,
     deployedOfficersCount,
     totalOfficersCount,
     bottleneckActionError,

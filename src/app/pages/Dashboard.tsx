@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronRight, Cloud, CloudRain, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { getApiBaseUrl, fetchDeploymentSchedule, fetchPOIs, resolveIncident, type DeploymentScheduleItem, type POI } from "../services/backend";
+import { getApiBaseUrl, fetchPOIs, resolveIncident, type POI } from "../services/backend";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useBottleneckActions } from "../hooks/useBottleneckActions";
 import { useMapIntegration } from "../hooks/useMapIntegration";
@@ -25,7 +25,7 @@ import {
 export function Dashboard() {
   // --- Data hook ---
   const data = useDashboardData();
-  const { dashboardSnapshot, setDashboardSnapshot, weatherSnapshot, deployedOfficersCount, totalOfficersCount, reloadDashboard } = data;
+  const { dashboardSnapshot, setDashboardSnapshot, weatherSnapshot, deployedOfficersCount, totalOfficersCount, deployments, reloadDashboard } = data;
 
   // --- UI state ---
   const [selectedView, setSelectedView] = useState("Congestion");
@@ -35,13 +35,9 @@ export function Dashboard() {
   const [filterTerm, setFilterTerm] = useState("");
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
   const [pois, setPois] = useState<POI[]>([]);
-  const [deployments, setDeployments] = useState<DeploymentScheduleItem[]>([]);
 
-  // Fetch deployments and POIs on mount
+  // Fetch POIs on mount
   useEffect(() => {
-    fetchDeploymentSchedule()
-      .then(setDeployments)
-      .catch(() => setDeployments([]));
     fetchPOIs()
       .then(setPois)
       .catch(() => setPois([]));
@@ -317,7 +313,7 @@ export function Dashboard() {
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-full space-y-4 overflow-y-auto bg-white p-4 md:w-96">
+        <div className="w-full space-y-4 overflow-y-auto bg-white p-4 md:sticky md:top-0 md:h-[calc(100vh-4rem)] md:w-96 md:self-start">
           {ba.selectedBottleneckId && ba.getSelectedBottleneck() && (
             <BottleneckDetailPanel
               bottleneck={ba.getSelectedBottleneck()!}

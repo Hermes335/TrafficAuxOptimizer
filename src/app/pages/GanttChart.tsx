@@ -445,12 +445,12 @@ export function GanttChart() {
         )}
       </div>
 
-      {/* Gantt Chart */}
+      {/* Deployment Board */}
       {filteredSchedule.length > 0 && (
         <div className="px-4 pt-4">
           <div className="mb-2 flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-yellow-500" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Timeline View</span>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Deployment Board</span>
             <div className="ml-auto flex gap-1">
               <button
                 onClick={() => setGanttViewMode("officer")}
@@ -533,7 +533,7 @@ export function GanttChart() {
             </table>
           </div>
 
-          <aside className="w-80 space-y-4 overflow-y-auto">
+          <aside className="w-full space-y-4 overflow-y-auto lg:sticky lg:top-4 lg:h-[calc(100vh-10rem)] lg:w-80 lg:self-start">
             <div className="rounded-xl border bg-white p-4">
               <div className="mb-3 flex items-center gap-2">
                 <UserRound className="h-5 w-5 text-yellow-500" />

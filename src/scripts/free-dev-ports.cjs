@@ -1,6 +1,6 @@
 const { execSync } = require("node:child_process");
 
-const ports = [5173, 8000];
+const ports = [8080, 8000];
 
 function killWindowsPort(port) {
   try {

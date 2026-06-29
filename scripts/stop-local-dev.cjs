@@ -3,7 +3,7 @@
  * Stops all processes started by `npm run dev:local`:
  *   - Django backend (port 8000)
  *   - Celery worker / beat
- *   - Vite dev server (port 5173)
+ *   - Vite dev server (port 8080)
  *   - Electron
  */
 
@@ -45,8 +45,8 @@ console.log("Stopping local dev processes...\n");
 killByPort(8000);
 console.log("  Django backend (port 8000) — done");
 
-killByPort(5173);
-console.log("  Vite dev server (port 5173) — done");
+killByPort(8080);
+console.log("  Vite dev server (port 8080) — done");
 
 killByImage("celery.exe", "Celery worker/beat");
 killByImage("electron.exe", "Electron");

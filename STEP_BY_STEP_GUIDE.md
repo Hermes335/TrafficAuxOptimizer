@@ -161,7 +161,7 @@ From repo root:
 - `npm run dev`
 
 Expected:
-- Vite on `http://localhost:5173`
+- Vite on `http://localhost:8080`
 - Electron launches automatically
 
 ## 10) Validate core API endpoints

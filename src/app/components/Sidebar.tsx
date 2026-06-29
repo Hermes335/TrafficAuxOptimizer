@@ -23,7 +23,11 @@ function SidebarNavLink({ item, collapsed }: { item: { icon: React.ComponentType
     <NavLink
       to={item.path}
       className={({ isActive }) =>
-        `flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors ${
+        `transition-colors ${
+          collapsed
+            ? "mx-auto grid h-10 w-10 place-items-center rounded-lg"
+            : "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm"
+        } ${
           isActive
             ? "bg-yellow-50 text-yellow-600"
             : "text-gray-700 hover:bg-gray-100"
@@ -69,7 +73,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
       }`}
     >
       <div className="flex-1 overflow-y-auto py-4">
-        <nav className="space-y-1 px-2">
+        <nav className={`space-y-1 ${collapsed ? "px-1" : "px-2"}`}>
           {navItems.map((item) => (
             <SidebarNavLink key={item.path} item={item} collapsed={collapsed} />
           ))}
@@ -77,7 +81,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
 
         <div className="my-4 border-t"></div>
 
-        <nav className="space-y-1 px-2">
+        <nav className={`space-y-1 ${collapsed ? "px-1" : "px-2"}`}>
           {secondaryItems.map((item) => (
             <SidebarNavLink key={item.path} item={item} collapsed={collapsed} />
           ))}
@@ -87,7 +91,11 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
       <div className="border-t p-2">
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-100"
+          className={`transition-colors ${
+            collapsed
+              ? "mx-auto grid h-10 w-10 place-items-center rounded-lg text-gray-700 hover:bg-gray-100"
+              : "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-gray-700 hover:bg-gray-100"
+          }`}
         >
           {collapsed ? (
             <ChevronRight className="h-5 w-5" />

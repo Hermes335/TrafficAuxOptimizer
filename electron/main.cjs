@@ -2,7 +2,7 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { app, BrowserWindow } = require("electron");
 
-const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || "http://localhost:5173";
+const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:8080";
 const BACKEND_PORT = Number(process.env.BACKEND_PORT || 8000);
 const BACKEND_BASE_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 

@@ -148,7 +148,7 @@ Should show manual assignments for each bottleneck.
 
 ### Step 1: Open the Dashboard
 
-Navigate to `http://localhost:5173` and log in.
+Navigate to `http://localhost:8080` and log in.
 
 ### Step 2: Check Current Conditions
 
