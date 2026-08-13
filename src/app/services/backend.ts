@@ -87,6 +87,7 @@ export interface OptimizationStatus {
   total_generations: number;
   current_fitness: number;
   estimated_completion?: string;
+  error?: string;
 }
 
 type OptimizationCallback = (event: OptimizationStatus) => void;

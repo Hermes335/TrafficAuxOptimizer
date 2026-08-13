@@ -11,7 +11,7 @@ interface UseMapClickHandlerOptions {
   setEditLongitude: (v: string) => void;
   setDashboardSnapshot: React.Dispatch<React.SetStateAction<DashboardSnapshot>>;
   setSelectedBottleneckId: (v: string) => void;
-  setPois: React.Dispatch<React.SetStateAction<Array<{ id: string; name: string; category: string; latitude: number; longitude: number }>>>;
+  setPois: React.Dispatch<React.SetStateAction<POI[]>>;
   setBottleneckActionError: (v: string | null) => void;
   setBottleneckActionNotice: (v: string | null) => void;
 }

@@ -1,5 +1,5 @@
 import { Bell, Home, User } from "lucide-react";
-import { BarChart, Bar } from "recharts";
+import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import PrettyCurve from "../components/PrettyCurve";
 
 export function ComponentLibrary() {
