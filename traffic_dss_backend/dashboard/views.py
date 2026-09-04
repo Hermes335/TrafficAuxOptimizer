@@ -1,4 +1,4 @@
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, OuterRef, Prefetch, Subquery
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -6,7 +6,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from math import radians, sin, cos, sqrt, atan2
 
-from core.models import Bottleneck, Incident, Officer, OptimizationRun, POI, TrafficData, WeatherData
+from core.assignment_scoring import rank_candidates_for_bottleneck
+from core.data_quality_checks import get_data_quality_issues
+from core.models import Bottleneck, Deployment, Incident, Officer, OptimizationRun, POI, TrafficData, WeatherData
 from core.serializers import BottleneckSerializer, OfficerSerializer, IncidentCreateSerializer, IncidentResponseSerializer, POISerializer
 from core.utils import write_audit_log
 
@@ -63,26 +65,97 @@ class DashboardBottlenecksView(APIView):
 	throttle_classes = []
 
 	def get(self, request):
-		bottlenecks = Bottleneck.objects.filter(is_deleted=False).order_by("id")
+		latest_traffic_tsi = TrafficData.objects.filter(
+			is_deleted=False,
+			bottleneck_id=OuterRef("pk"),
+		).order_by("-timestamp").values("traffic_severity_index")[:1]
+
+		bottlenecks = (
+			Bottleneck.objects.filter(is_deleted=False)
+			.annotate(latest_tsi=Subquery(latest_traffic_tsi))
+			.prefetch_related(
+				Prefetch(
+					"incidents",
+					queryset=Incident.objects.filter(is_deleted=False, status="active").order_by("-timestamp"),
+					to_attr="active_incidents",
+				),
+				Prefetch(
+					"deployments",
+					queryset=Deployment.objects.filter(is_deleted=False, status="assigned").select_related("officer"),
+					to_attr="active_deployments",
+				),
+			)
+			.order_by("id")
+		)
+		candidate_pool = list(
+			Officer.objects.filter(is_deleted=False)
+			.order_by("name")
+			.prefetch_related(
+				Prefetch(
+					"deployments",
+					queryset=Deployment.objects.filter(is_deleted=False, status="assigned"),
+				)
+			)
+		)
 		weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
 		wif = float(getattr(weather, "weather_impact_factor", 1.0)) if weather else 1.0
 
 		rows = []
 		for b in bottlenecks:
-			latest_traffic = b.traffic_data.filter(is_deleted=False).order_by("-timestamp").first()
-			active_incident = b.incidents.filter(is_deleted=False, status="active").order_by("-timestamp").first()
-			deployments = b.deployments.filter(is_deleted=False, status="assigned").select_related("officer")
+			active_incident = b.active_incidents[0] if getattr(b, "active_incidents", None) else None
+			deployments = getattr(b, "active_deployments", [])
 			assigned_officers = [
 				{"name": d.officer.name, "badge_number": d.officer.badge_number}
 				for d in deployments
 			]
 			# Use bottleneck's tsi field if available, otherwise fall back to traffic data
-			tsi_val = b.tsi if b.tsi and b.tsi > 0 else (latest_traffic.traffic_severity_index if latest_traffic else 0.0)
+			tsi_val = b.tsi if b.tsi and b.tsi > 0 else (float(b.latest_tsi) if b.latest_tsi is not None else 0.0)
 			status_value = "normal"
 			if active_incident or tsi_val >= 0.8:
 				status_value = "critical"
 			elif tsi_val >= 0.4:
 				status_value = "warning"
+			
+			# Compute required officers dynamically based on TSI and incidents.
+			# Use the actual live values for the bottleneck, not a hardcoded fallback.
+			required_officers = max(1, b.min_officers_required)
+			if tsi_val >= 0.8:
+				required_officers = b.max_officers_allowed
+			elif tsi_val >= 0.5:
+				required_officers = min(b.max_officers_allowed, max(1, required_officers + 1))
+			if active_incident and active_incident.severity == "critical":
+				required_officers = min(b.max_officers_allowed, required_officers + 1)
+			if required_officers < 1:
+				required_officers = 1
+
+			assigned_count = len(assigned_officers)
+			staffing_gap = max(required_officers - assigned_count, 0)
+			if assigned_count < required_officers:
+				coverage_status = "critical" if active_incident and active_incident.severity == "critical" else "warning"
+			elif assigned_count > required_officers:
+				coverage_status = "warning"
+			elif tsi_val >= 0.8:
+				coverage_status = "warning"
+			else:
+				coverage_status = "healthy"
+
+			operational_alerts = []
+			if active_incident:
+				operational_alerts.append(f"{active_incident.severity} incident active")
+			if assigned_count < required_officers:
+				operational_alerts.append(f"Coverage below requirement: {assigned_count}/{required_officers}")
+			if tsi_val >= 0.8:
+				operational_alerts.append("High TSI pressure detected")
+			if assigned_count > required_officers:
+				operational_alerts.append("Possible over-assignment across active posts")
+			if not operational_alerts:
+				operational_alerts.append("Coverage stable")
+
+			candidate_rankings = rank_candidates_for_bottleneck(b, candidate_pool, active_incident=active_incident)
+			best_candidate = candidate_rankings[0] if candidate_rankings else None
+			if best_candidate is not None and best_candidate["score"] < 50:
+				operational_alerts.append("Preferred officer quality below threshold")
+			
 			rows.append(
 				{
 					"id": b.id,
@@ -93,8 +166,14 @@ class DashboardBottlenecksView(APIView):
 					"tsi": round(tsi_val, 2),
 					"weather_impact_factor": round(wif * (1 + tsi_val * 0.3), 2),
 					"assigned_officers": assigned_officers,
-					"deployed_officers": len(assigned_officers),
-					"required_officers": 2,
+					"deployed_officers": assigned_count,
+					"assigned_officer_count": assigned_count,
+					"required_officer_count": required_officers,
+					"required_officers": required_officers,
+					"staffing_gap": staffing_gap,
+					"coverage_status": coverage_status,
+					"operational_alerts": operational_alerts,
+					"best_candidate_score": best_candidate["score"] if best_candidate else None,
 					"assigned_officer": assigned_officers[0]["badge_number"] if assigned_officers else None,
 				}
 			)
@@ -108,6 +187,22 @@ class DashboardOfficersView(APIView):
 	def get(self, request):
 		officers = Officer.objects.filter(is_deleted=False).order_by("name")
 		return Response(OfficerSerializer(officers, many=True).data)
+
+
+class DashboardDataQualityView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+	throttle_classes = []
+
+	def get(self, request):
+		quality = get_data_quality_issues()
+		return Response(
+			{
+				"total_issues": quality["total_issues"],
+				"issue_counts": quality["issue_counts"],
+				"issues": quality["issues"],
+				"quality_status": "warning" if quality["total_issues"] else "healthy",
+			}
+		)
 
 
 class DashboardBottleneckManageView(APIView):
@@ -129,6 +224,7 @@ class DashboardBottleneckManageView(APIView):
 				"district": str(payload.get("district", "Unassigned")).strip() or "Unassigned",
 				"bottleneck_type": str(payload.get("bottleneck_type", "other")).strip() or "other",
 				"road_priority_weight": payload.get("road_priority_weight", 1.0),
+				"tsi": payload.get("tsi", 0.0),
 			}
 		)
 		serializer.is_valid(raise_exception=True)

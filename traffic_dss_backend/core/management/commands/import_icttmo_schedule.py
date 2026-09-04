@@ -1,11 +1,20 @@
 """
 Import ICTTMO officer deployment schedule from CSV.
 
-CSV format:
-  Name,Area of Assignment,Badge Number,Relief,District,Coordinates
+Supports two CSV schemas:
+
+  field_test (default) - the Week 1 baseline template:
+    Date,Shift,Officer_Name,Officer_Badge,Bottleneck_Name,Bottleneck_ID,Start_Time,End_Time,Notes
+    Bottlenecks are matched by their Bottleneck_ID. Officer columns may be empty
+    (the template is filled in by hand during the field test).
+
+  legacy - the older ICTTMO roster export:
+    Name,Area of Assignment,Badge Number,Relief,District,Coordinates
+    Bottlenecks are matched by district keyword.
 
 Usage:
   python manage.py import_icttmo_schedule path/to/schedule.csv
+  python manage.py import_icttmo_schedule path/to/schedule.csv --schema legacy
 """
 
 import csv
@@ -31,6 +40,12 @@ class Command(BaseCommand):
             choices=["morning", "afternoon", "auto"],
             default="auto",
             help="Override shift (default: auto-detect from Relief column)",
+        )
+        parser.add_argument(
+            "--schema",
+            choices=["field_test", "legacy"],
+            default="field_test",
+            help="CSV schema to expect (default: field_test)",
         )
         parser.add_argument(
             "--clear-existing",
@@ -76,21 +91,51 @@ class Command(BaseCommand):
 
         with open(csv_path, encoding="utf-8-sig") as f:
             reader = csv.DictReader(f)
-            for row_num, row in enumerate(reader, start=2):
-                name = row.get("Name", "").strip().strip('"')
-                area = row.get("Area of Assignment", "").strip()
-                badge = row.get("Badge Number", "").strip()
-                relief = row.get("Relief", "").strip()
-                district_raw = row.get("District", "").strip()
+            headers = set(reader.fieldnames or [])
+            schema = options["schema"]
+            if schema == "auto":
+                schema = "field_test" if "Bottleneck_ID" in headers else "legacy"
+            self.stdout.write(f"Detected schema: {schema}")
 
-                if not name or not badge:
-                    errors.append(f"Row {row_num}: Missing name or badge number")
+            for row_num, row in enumerate(reader, start=2):
+                if schema == "field_test":
+                    name = row.get("Officer_Name", "").strip().strip('"')
+                    badge = row.get("Officer_Badge", "").strip().strip('"')
+                    bottleneck_id = row.get("Bottleneck_ID", "").strip().strip('"')
+                    area = row.get("Bottleneck_Name", "").strip()
+                    district_raw = ""
+                    relief = ""
+                    date_raw = row.get("Date", "").strip()
+                else:
+                    name = row.get("Name", "").strip().strip('"')
+                    badge = row.get("Badge Number", "").strip().strip('"')
+                    bottleneck_id = ""
+                    area = row.get("Area of Assignment", "").strip()
+                    district_raw = row.get("District", "").strip()
+                    relief = row.get("Relief", "").strip()
+                    date_raw = ""
+
+                # Skip rows that have no officer AND no bottleneck - these are the
+                # unfilled Week 1 template placeholders and must not become deployments.
+                if not badge and not bottleneck_id:
                     skipped += 1
                     continue
 
-                # Parse shift from Relief column
+                if not badge:
+                    errors.append(f"Row {row_num}: Missing officer badge number")
+                    skipped += 1
+                    continue
+
+                if not bottleneck_id:
+                    errors.append(f"Row {row_num}: Missing bottleneck ID")
+                    skipped += 1
+                    continue
+
+                # Resolve shift: explicit column > --shift override > Relief column
                 if shift_override != "auto":
                     shift = shift_override
+                elif schema == "field_test":
+                    shift = row.get("Shift", "").strip().lower() or "afternoon"
                 elif "1st" in relief:
                     shift = "morning"
                 elif "2nd" in relief:
@@ -98,13 +143,28 @@ class Command(BaseCommand):
                 else:
                     shift = "morning"  # default
 
-                # Set times based on shift
+                if shift not in ("morning", "afternoon"):
+                    errors.append(f"Row {row_num}: Invalid shift '{shift}'")
+                    skipped += 1
+                    continue
+
+                # Set times based on shift (use the CSV date when present, else today)
+                base_date = now
+                if date_raw:
+                    try:
+                        parsed_date = datetime.strptime(date_raw, "%Y-%m-%d").date()
+                        base_date = timezone.make_aware(
+                            datetime.combine(parsed_date, datetime.min.time()),
+                            timezone.get_default_timezone(),
+                        )
+                    except ValueError:
+                        pass
                 if shift == "morning":
-                    start_time = morning_start
-                    end_time = morning_end
+                    start_time = base_date.replace(hour=6, minute=0, second=0, microsecond=0)
+                    end_time = base_date.replace(hour=14, minute=0, second=0, microsecond=0)
                 else:
-                    start_time = afternoon_start
-                    end_time = afternoon_end
+                    start_time = base_date.replace(hour=14, minute=0, second=0, microsecond=0)
+                    end_time = base_date.replace(hour=22, minute=0, second=0, microsecond=0)
 
                 # Find officer by badge number
                 officer = Officer.objects.filter(badge_number=badge, is_deleted=False).first()
@@ -127,11 +187,18 @@ class Command(BaseCommand):
                     skipped += 1
                     continue
 
-                # Find matching bottleneck by district
-                # NOTE: Coordinates in the CSV are randomized and NOT used
-                bottleneck = self._find_bottleneck_by_district(
-                    district_raw, area, district_map
-                )
+                # Find matching bottleneck
+                if bottleneck_id:
+                    bottleneck = Bottleneck.objects.filter(id=bottleneck_id, is_deleted=False).first()
+                    if not bottleneck:
+                        errors.append(f"Row {row_num}: Bottleneck '{bottleneck_id}' not found")
+                        skipped += 1
+                        continue
+                else:
+                    # NOTE: Coordinates in the CSV are randomized and NOT used
+                    bottleneck = self._find_bottleneck_by_district(
+                        district_raw, area, district_map
+                    )
 
                 # Create deployment
                 Deployment.objects.create(

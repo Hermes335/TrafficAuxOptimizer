@@ -1,10 +1,35 @@
 {
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
+    "ANTHROPIC_AUTH_TOKEN": "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",
+    "ANTHROPIC_API_KEY": "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",
+    "ANTHROPIC_MODEL": "dots-studio/dots-3-note-preview:free",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "dots-studio/dots-3-note-preview:free",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "dots-studio/dots-3-note-preview:free",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "dots-studio/dots-3-note-preview:free",
+    "ANTHROPIC_SMALL_FAST_MODEL": "dots-studio/dots-3-note-preview:free",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "dots-studio/dots-3-note-preview:free"
+  },
   "permissions": {
     "allow": [
       "Bash(findstr tsconfig *)",
       "Bash(python manage.py migrate)",
       "Skill(keybindings-help)",
-      "Skill(keybindings-help:*)"
+      "Skill(keybindings-help:*)",
+      "Bash(../.venv/Scripts/python.exe -c ' *)",
+      "PowerShell(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8000 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }; Start-Sleep -Seconds 2; \\(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort 8000 -ErrorAction SilentlyContinue\\).Count)",
+      "Bash(\"../.venv/Scripts/python.exe\" manage.py import_icttmo_schedule C:/tmp/test_assignments.csv --shift afternoon --clear-existing)",
+      "Bash(\"../.venv/Scripts/python.exe\" manage.py import_icttmo_schedule ../field_test/icttmo_manual_assignments.csv --shift afternoon)",
+      "Read(//c/Users/heral/AppData/Local/Programs/**)",
+      "Read(//c/Program Files/**)",
+      "Bash(npm config *)"
     ]
+  },
+  "model": "sonnet",
+  "modelSettings": {
+    "dots-studio/dots-3-note-preview:free": {
+      "effortLevel": "xhigh"
+    }
   }
 }

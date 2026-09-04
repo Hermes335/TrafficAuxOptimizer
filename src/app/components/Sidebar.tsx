@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   BarChart3,
   Clock,
+  Users,
   Settings as SettingsIcon,
   ChevronLeft,
   ChevronRight,
@@ -61,6 +62,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   ];
 
   const secondaryItems = [
+    { icon: Users, label: "Officer Management", path: "/officer-management" },
     { icon: BarChart3, label: "Analytics", path: "/analytics" },
     { icon: Clock, label: "Audit Logs", path: "/audit-logs" },
     { icon: SettingsIcon, label: "System", path: "/settings" },

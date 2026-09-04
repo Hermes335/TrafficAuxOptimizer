@@ -1,10 +1,9 @@
-import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronUp, Download, Pencil, Trash2, UserPlus, UserRound, XCircle } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronUp, Download, XCircle } from "lucide-react";
 import { GanttTimeline } from "./GanttChart/GanttTimeline";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorFeedback } from "../components/ErrorFeedback";
-import { useOfficerManagement } from "../hooks/useOfficerManagement";
 import {
   clearDeploymentSchedule,
   fetchBottlenecks,
@@ -29,11 +28,6 @@ export function GanttChart() {
   const [query, setQuery] = useState("");
   const [shiftFilter, setShiftFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
-  const reloadOfficers = async () => {
-    const rows = await fetchDashboardOfficers();
-    setOfficers(rows);
-  };
-  const officerMgmt = useOfficerManagement({ reloadOfficers });
   const [completedRuns, setCompletedRuns] = useState<OptimizationHistoryItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
   const [publishingSchedule, setPublishingSchedule] = useState(false);
@@ -534,133 +528,6 @@ export function GanttChart() {
           </div>
 
           <aside className="w-full space-y-4 overflow-y-auto lg:sticky lg:top-4 lg:h-[calc(100vh-10rem)] lg:w-80 lg:self-start">
-            <div className="rounded-xl border bg-white p-4">
-              <div className="mb-3 flex items-center gap-2">
-                <UserRound className="h-5 w-5 text-yellow-500" />
-                <h3 className="font-semibold">Officer Management</h3>
-                <span className="ml-auto rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">{officers.length}</span>
-              </div>
-
-              <div className="mb-3 flex gap-2">
-                <button
-                  onClick={() => {
-                    officerMgmt.setAddingOfficer((current: boolean) => !current);
-                    officerMgmt.setEditingOfficerId(null);
-                    officerMgmt.resetOfficerForm();
-                    officerMgmt.setOfficerError(null);
-                    officerMgmt.setOfficerNotice(null);
-                  }}
-                  className={`flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium ${
-                    officerMgmt.addingOfficer ? "bg-yellow-400 text-white" : "border text-gray-700 hover:bg-gray-50"
-                  }`}
-                >
-                  <UserPlus className="h-3.5 w-3.5" />
-                  {officerMgmt.addingOfficer ? "Cancel" : "Add Officer"}
-                </button>
-              </div>
-
-              {officerMgmt.officerError && <p className="mb-2 text-xs text-red-600">{officerMgmt.officerError}</p>}
-              {officerMgmt.officerNotice && <p className="mb-2 text-xs text-green-700">{officerMgmt.officerNotice}</p>}
-
-              {(officerMgmt.addingOfficer || officerMgmt.editingOfficerId !== null) && (
-                <div className="mb-3 space-y-2 rounded-lg border bg-gray-50 p-3">
-                  <input
-                    value={officerMgmt.officerName}
-                    onChange={(event) => officerMgmt.setOfficerName(event.target.value)}
-                    placeholder="Officer name"
-                    className="w-full rounded border px-2 py-1.5 text-sm"
-                  />
-                  <input
-                    value={officerMgmt.officerBadge}
-                    onChange={(event) => officerMgmt.setOfficerBadge(event.target.value)}
-                    placeholder="Badge number"
-                    className="w-full rounded border px-2 py-1.5 text-sm"
-                  />
-                  <div className="grid grid-cols-2 gap-2">
-                    <select
-                      value={officerMgmt.officerShift}
-                      onChange={(event) => officerMgmt.setOfficerShift(event.target.value as "morning" | "afternoon")}
-                      className="rounded border px-2 py-1.5 text-sm"
-                    >
-                      <option value="morning">Morning (6AM-2PM)</option>
-                      <option value="afternoon">Afternoon (2PM-10PM)</option>
-                    </select>
-                    <select
-                      value={officerMgmt.officerStatus}
-                      onChange={(event) => officerMgmt.setOfficerStatus(event.target.value as "available" | "deployed" | "off_duty" | "unavailable")}
-                      className="rounded border px-2 py-1.5 text-sm"
-                    >
-                      <option value="available">Available</option>
-                      <option value="deployed">Deployed</option>
-                      <option value="off_duty">Off Duty</option>
-                      <option value="unavailable">Unavailable</option>
-                    </select>
-                  </div>
-                  <input
-                    value={officerMgmt.officerSkillsInput}
-                    onChange={(event) => officerMgmt.setOfficerSkillsInput(event.target.value)}
-                    placeholder="Skills (comma-separated)"
-                    className="w-full rounded border px-2 py-1.5 text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        officerMgmt.setAddingOfficer(false);
-                        officerMgmt.setEditingOfficerId(null);
-                        officerMgmt.resetOfficerForm();
-                      }}
-                      className="flex-1 rounded border px-2 py-1.5 text-sm font-medium text-gray-700 hover:bg-white"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={officerMgmt.editingOfficerId !== null ? officerMgmt.onUpdateOfficer : officerMgmt.onAddOfficer}
-                      disabled={officerMgmt.savingOfficer}
-                      className="flex-1 rounded bg-yellow-400 px-2 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
-                    >
-                      {officerMgmt.savingOfficer ? "Saving..." : officerMgmt.editingOfficerId !== null ? "Update" : "Create"}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="max-h-48 space-y-2 overflow-y-auto">
-                {officers.length === 0 && <p className="text-xs text-gray-500">No officers available.</p>}
-                {officers.map((officer) => (
-                  <div key={officer.id} className="rounded border p-2 text-xs">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="font-semibold text-gray-900">{officer.name}</div>
-                        <div className="text-gray-600">{officer.badge_number}</div>
-                      </div>
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => officerMgmt.startEditingOfficer(officer)}
-                          className="rounded p-1 text-gray-500 hover:bg-blue-50 hover:text-blue-600"
-                          title="Edit officer"
-                        >
-                          <Pencil className="h-3.5 w-3.5" />
-                        </button>
-                        <button
-                          onClick={() => officerMgmt.onDeleteOfficer(officer.id, officer.badge_number)}
-                          disabled={officerMgmt.deletingOfficerId === officer.id}
-                          className="rounded p-1 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Remove officer"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                    <div className="mt-1 flex items-center gap-2 text-gray-600">
-                      <span className="capitalize">{officer.shift}</span>
-                      <span>|</span>
-                      <span className="capitalize">{officer.status.replace("_", " ")}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
             <div className="rounded-xl border bg-white p-4">
               <h3 className="mb-3 font-semibold">Coverage Matrix</h3>
               <div className="space-y-1">

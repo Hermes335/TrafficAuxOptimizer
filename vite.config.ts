@@ -12,6 +12,9 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 8080,
     strictPort: true,
+    watch: {
+      ignored: ['**/.venv/**'],
+    },
   },
   plugins: [
     // The React and Tailwind plugins are both required for Make, even if

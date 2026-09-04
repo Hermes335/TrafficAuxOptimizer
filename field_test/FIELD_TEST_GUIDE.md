@@ -56,9 +56,12 @@ Date,Shift,Officer_Name,Officer_Badge,Bottleneck_Name,Bottleneck_ID,Start_Time,E
 
 ## How to Compare Results
 
-After both weeks are complete, run:
+The comparison reads the database (manual deployments imported from the CSV,
+optimized deployments published from the optimization run). After both weeks
+are complete, run:
+
 ```bash
-python manage.py field_test_compare --csv field_test/icttmo_manual_assignments.csv --shift afternoon
+python manage.py field_test_compare --shift afternoon
 ```
 
 This outputs:

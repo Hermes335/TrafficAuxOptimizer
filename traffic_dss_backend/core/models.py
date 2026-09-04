@@ -31,6 +31,8 @@ class Bottleneck(TimeStampedSoftDeleteModel):
 	is_archived = models.BooleanField(default=False, db_index=True)
 	district = models.CharField(max_length=120)
 	bottleneck_type = models.CharField(max_length=40, choices=BOTTLENECK_TYPES, default="other")
+	min_officers_required = models.IntegerField(default=2)
+	max_officers_allowed = models.IntegerField(default=5)
 
 	class Meta:
 		indexes = [
@@ -138,6 +140,13 @@ class Deployment(TimeStampedSoftDeleteModel):
 			models.Index(fields=["officer", "start_time"]),
 			models.Index(fields=["bottleneck", "start_time"]),
 			models.Index(fields=["shift", "status"]),
+		]
+		constraints = [
+			models.UniqueConstraint(
+				fields=["officer", "shift"],
+				condition=models.Q(is_deleted=False, status="assigned"),
+				name="unique_officer_shift_assignment"
+			),
 		]
 
 

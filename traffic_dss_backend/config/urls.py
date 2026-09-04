@@ -85,10 +85,15 @@ class LoginView(APIView):
             models.Q(user=user) | models.Q(badge_number__icontains=username)
         ).first()
 
-        # Determine role from user permissions
+        # Determine role from user identity.
+        # Supervisor role is keyed off the username so it survives officer-profile
+        # changes (e.g. soft-deleted placeholder officers) rather than depending
+        # on an Officer record still existing.
         role = "dispatcher"
         if user.is_superuser or user.is_staff:
             role = "administrator"
+        elif user.username == "supervisor":
+            role = "supervisor"
 
         # Generate tokens
         from rest_framework_simplejwt.tokens import RefreshToken

@@ -17,6 +17,7 @@ const ComponentLibrary = lazy(() => import("./pages/ComponentLibrary").then(m =>
 const IncidentReport = lazy(() => import("./pages/IncidentReport").then(m => ({ default: m.IncidentReport })));
 const Analytics = lazy(() => import("./pages/Analytics").then(m => ({ default: m.Analytics })));
 const AuditLogs = lazy(() => import("./pages/AuditLogs").then(m => ({ default: m.AuditLogs })));
+const OfficerManagement = lazy(() => import("./pages/OfficerManagement").then(m => ({ default: m.OfficerManagement })));
 const Settings = lazy(() => import("./pages/Settings").then(m => ({ default: m.Settings })));
 const Login = lazy(() => import("./pages/Login").then(m => ({ default: m.Login })));
 
@@ -73,6 +74,7 @@ export const router = createBrowserRouter([
       { path: "incident-report", Component: () => <PageLoader Component={IncidentReport} /> },
       { path: "incident-report/:id", Component: () => <PageLoader Component={IncidentReport} /> },
       { path: "analytics", Component: () => <PageLoader Component={Analytics} /> },
+      { path: "officer-management", Component: () => <PageLoader Component={OfficerManagement} /> },
       { path: "audit-logs", Component: () => <PageLoader Component={AuditLogs} /> },
       { path: "settings", Component: () => <PageLoader Component={Settings} /> },
     ],

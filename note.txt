@@ -1,0 +1,2 @@
+add a officer deployment limiter and to improve it add an option to allow it 
+to lift restriction

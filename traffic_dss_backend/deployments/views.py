@@ -72,12 +72,59 @@ class DeploymentAssignView(APIView):
 	permission_classes = [permissions.IsAuthenticated]
 
 	def post(self, request):
-		officer = Officer.objects.filter(pk=request.data.get("officer"), is_deleted=False).first()
-		bottleneck = Bottleneck.objects.filter(pk=request.data.get("bottleneck"), is_deleted=False).first()
+		officer_id = request.data.get("officer")
+		bottleneck_id = request.data.get("bottleneck")
+		shift = request.data.get("shift")
+		
+		officer = Officer.objects.filter(pk=officer_id, is_deleted=False).first()
+		bottleneck = Bottleneck.objects.filter(pk=bottleneck_id, is_deleted=False).first()
+		
 		if not officer or not bottleneck:
 			return Response({"detail": "Invalid officer or bottleneck."}, status=status.HTTP_400_BAD_REQUEST)
+		
+		# Validation Rule 1: Officer must be available or deployed
+		if officer.status not in ["available", "deployed"]:
+			return Response(
+				{"detail": f"Officer {officer.badge_number} is {officer.status}, cannot assign."}, 
+				status=status.HTTP_400_BAD_REQUEST
+			)
+		
+		# Validation Rule 2: Officer shift must match the assignment shift
+		if officer.shift != shift:
+			return Response(
+				{"detail": f"Officer {officer.badge_number} works {officer.shift} shift, not {shift}."}, 
+				status=status.HTTP_400_BAD_REQUEST
+			)
+		
+		# Validation Rule 3: Officer must not already be assigned elsewhere in this shift
+		existing = Deployment.objects.filter(
+			is_deleted=False,
+			officer=officer,
+			shift=shift,
+			status="assigned"
+		).first()
+		if existing:
+			return Response(
+				{"detail": f"Officer {officer.badge_number} is already assigned to {existing.bottleneck.name} in {shift} shift."}, 
+				status=status.HTTP_409_CONFLICT
+			)
 
-		serializer = DeploymentSerializer(data=request.data)
+		# Validation Rule 4: Respect the active roster cap. Only 60 officers may remain active.
+		active_roster_cap = 60
+		active_officer_count = Officer.objects.filter(is_deleted=False, status="available").count()
+		if officer.status == "available" and active_officer_count >= active_roster_cap and not Deployment.objects.filter(is_deleted=False, officer=officer, status="assigned").exists():
+			return Response(
+				{"detail": f"Active officer cap reached: only {active_roster_cap} officers may remain available for deployment."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
+		payload = dict(request.data)
+		if not payload.get("start_time"):
+			payload["start_time"] = _default_shift_window(shift)[0].isoformat()
+		if not payload.get("end_time"):
+			payload["end_time"] = _default_shift_window(shift)[1].isoformat()
+
+		serializer = DeploymentSerializer(data=payload)
 		serializer.is_valid(raise_exception=True)
 		deployment = serializer.save(officer=officer, bottleneck=bottleneck)
 		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()

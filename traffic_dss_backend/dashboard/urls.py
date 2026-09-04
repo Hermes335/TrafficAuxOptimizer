@@ -4,6 +4,7 @@ from .views import (
     ActiveIncidentsView,
     DashboardBottleneckManageView,
     DashboardBottlenecksView,
+    DashboardDataQualityView,
     DashboardKPIsView,
     DashboardMapDataView,
     DashboardOfficerManageView,
@@ -18,6 +19,7 @@ from .views import (
 
 urlpatterns = [
     path("kpis/", DashboardKPIsView.as_view(), name="dashboard-kpis"),
+    path("data-quality/", DashboardDataQualityView.as_view(), name="dashboard-data-quality"),
     path("bottlenecks/", DashboardBottlenecksView.as_view(), name="dashboard-bottlenecks"),
     path("bottlenecks/manage/", DashboardBottleneckManageView.as_view(), name="dashboard-bottleneck-create"),
     path("bottlenecks/manage/<str:bottleneck_id>/", DashboardBottleneckManageView.as_view(), name="dashboard-bottleneck-delete"),

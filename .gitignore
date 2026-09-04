@@ -46,3 +46,10 @@ release/
 .DS_Store
 Thumbs.db
 .vscode/settings.json
+
+.claude/
+.claude
+
+.openclaude/
+.openclaude
+

@@ -129,7 +129,7 @@ After collecting the CSV, import it:
 
 ```bash
 cd traffic_dss_backend
-python manage.py import_icttmo_schedule --csv ../field_test/icttmo_manual_assignments.csv
+python manage.py import_icttmo_schedule ../field_test/icttmo_manual_assignments.csv --shift afternoon
 ```
 
 This creates Deployment records with `source=manual` for comparison.
