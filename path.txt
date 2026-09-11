@@ -1,0 +1,4 @@
+Microsoft Windows [Version 10.0.26200.9278]
+(c) Microsoft Corporation. All rights reserved.
+
+D:\CodingRelated\Codes.Ams\TrafficAuxOptimizer Design Help and Demo>

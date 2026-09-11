@@ -15,6 +15,36 @@ The comparison measures:
 - **Response time** — estimated travel time from officer location to bottleneck
 - **Traffic severity** — TSI readings at covered vs uncovered bottlenecks
 
+## 1A. Controlled Shadow Pilot
+
+The first field activity uses **Atrium Rotonda** as a data-collection pilot. Manual ICTTMO deployment remains the operational decision. The application runs in shadow mode: its recommendation is recorded for comparison but is not published or used to redirect officers.
+
+### Pilot files
+
+- `field_test/shadow_pilot_observations.csv` — actual field conditions and manual deployment observations
+- `field_test/shadow_pilot_recommendations.csv` — application recommendations and supervisor decision
+- `field_test/icttmo_manual_assignments.csv` — reserved for importing approved manual deployments; do not use it for app recommendations
+
+### Pilot procedure
+
+1. Before the shift, confirm the location, date, shift, available roster, and manual assignment with the ICTTMO supervisor.
+2. Verify that Atrium Rotonda is registered as a bottleneck and that its traffic data is current.
+3. Record the manual assignment and starting conditions in `shadow_pilot_observations.csv`.
+4. Run the application using the same shift and available officer roster. Record its recommendation in `shadow_pilot_recommendations.csv`.
+5. Do not click **Publish Schedule** and do not change field assignments based only on the app recommendation.
+6. At a fixed interval, preferably every 15 or 30 minutes, record actual officers present, TSI, weather, incidents, queue condition, and any deviation from the manual plan.
+7. At the end of the shift, record the supervisor's decision and any data-quality problems in the recommendation file.
+
+### Data separation rules
+
+- Keep `manual` and `app-shadow` records separate.
+- Do not import shadow recommendations as `source="optimized"` deployments.
+- Do not create synthetic incidents to fill missing observations.
+- Record real incidents separately from ordinary traffic observations.
+- The ICTTMO supervisor retains final authority over live deployment decisions.
+
+The existing automated comparison command is configured for the original Diversion Road + Jaro district. For the Atrium Rotonda pilot, compare the two shadow-pilot CSV files manually until the selected locations and comparison workflow are configured.
+
 ---
 
 ## 2. Test District
