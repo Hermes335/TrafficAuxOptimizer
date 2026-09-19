@@ -1,64 +1,43 @@
-# Code Review - 2026-05-16
+# TrafficAuxOptimizer
 
-## Summary
-Workspace contains 756 lines added across 16 files, primarily adding **POI (Point of Interest) management** and related API endpoints.
+## Project
+Iloilo traffic-officer deployment decision-support application using NSGA-II optimization.
+React/TypeScript + Vite renderer, Electron desktop shell, Django/DRF API, Celery jobs,
+and Redis-backed Channels realtime updates.
 
----
+## Repository layout
+- [src/app](src/app/) — frontend pages, hooks, components, authentication and API services.
+- [electron](electron/) — desktop lifecycle and preload bridge.
+- [traffic_dss_backend](traffic_dss_backend/) — active Django backend.
+  - `core` — models, serializers, assignment scoring, validation and management commands.
+  - `optimization` — optimizer engine, tasks and progress reporting.
+  - `dashboard`, `deployments`, `incidents`, `external` — domain APIs and integrations.
+- [field_test](field_test/) — protocols and pilot observation/recommendation CSVs.
+- [MDFILES](MDFILES/) — technical documentation and dated improvement studies.
+- [backend](backend/) — legacy prototype, not the backend used by current launchers.
 
-## Backend (Django)
+## Local development
+- Run `npm run dev:local` from the repository root for Django, Celery, renderer and Electron.
+- Renderer uses port 8080; Django uses port 8000.
+- Redis is needed for background jobs and Redis-backed realtime broadcasts.
+- npm/Electron launchers reference the root `.venv/Scripts/python.exe`.
+- A separate backend-local interpreter exists at `traffic_dss_backend/.venv/Scripts/python.exe`.
+  Keep interpreter/dependency differences in mind when diagnosing startup versus test behavior.
 
-### Good
-- New `POI` model is well-designed with proper indexes for `category` and `is_active`
-- `POISerializer` includes all relevant fields
-- `TrafficSampleView` includes haversine distance calculation
-- `POIListView` uses `permissions.AllowAny` (appropriate for public data)
+## Backend verification
+From `traffic_dss_backend` in PowerShell, using a disposable SQLite test database:
+```powershell
+$env:DATABASE_URL = "sqlite:///:memory:"
+& ".\.venv\Scripts\python.exe" -m pytest --collect-only -q
+& ".\.venv\Scripts\python.exe" -m pytest -q
+```
+Some existing integration tests use Redis-backed broadcasts. Do not run tests against operational data.
+The frontend currently has no configured test script or project TypeScript checking configuration.
 
-### Issues
-
-1. **No pagination** in `POIListView` ([views.py:270](traffic_dss_backend/dashboard/views.py#L270))
-   - Could cause performance issues with large datasets
-
-2. **N+1 query pattern** in `TrafficSampleView` ([views.py:300-308](traffic_dss_backend/dashboard/views.py#L300-L308))
-   - Loads all bottlenecks then iterates in Python; consider using database-level distance with `.annotate()`
-
-3. **Missing POI CRUD endpoints**
-   - Only GET list implemented (may be intentional if populated externally)
-
-4. **Permission inconsistency**
-   - `POIListView` allows any access while other dashboard endpoints likely require auth
-
----
-
-## Frontend (React/TypeScript)
-
-### Good
-- State refactoring from `isAddMode: boolean` to `addMode: "bottleneck" | "incident" | "poi" | null` is cleaner
-- New `pois` state properly typed
-
-### Concerns
-
-1. **Large component** - [Dashboard.tsx](src/app/pages/Dashboard.tsx) is now 600+ lines
-   - Recommend extracting sub-components: `<AddMenu>`, `<POIList>`, `<BottleneckDetailPanel>`
-
-2. **Missing API integration**
-   - `pois` state defined but backend.ts lacks POI fetch functions
-   - Need to add `fetchPOIs()` to [backend.ts](src/app/services/backend.ts)
-
-3. **Duplicate state patterns**
-   - New detail panel states suggest extracting detail panel as separate component
-
----
-
-## Minor
-- URL trailing slash inconsistency in [urls.py:34](traffic_dss_backend/dashboard/urls.py#L34)
-- Run `python manage.py makemigrations` for new POI model if not done
-
----
-
-## Key Files
-- `traffic_dss_backend/core/models.py` - POI model definition
-- `traffic_dss_backend/core/serializers.py` - POI serializer
-- `traffic_dss_backend/dashboard/views.py` - POIListView, TrafficSampleView
-- `traffic_dss_backend/dashboard/urls.py` - Route definitions
-- `src/app/pages/Dashboard.tsx` - Main dashboard component
-- `src/app/services/backend.ts` - API client functions
+## Current review and field work
+- [Review dated 2026-09-19](MDFILES/CODE_REVIEW_2026-09-19.md) records verified findings,
+  the three approved quick fixes, verification results and the deferred improvement backlog.
+- Older P1/P2/readiness documents are historical plans: verify their claims against current source.
+- [Field-test protocol](field_test/FIELD_TEST.md) defines the controlled shadow pilot:
+  manual deployments remain authoritative and app recommendations must not be published.
+- Source inspection and passing automated tests alone do not establish operational readiness.

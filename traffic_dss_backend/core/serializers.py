@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
@@ -137,6 +138,7 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
         user = self.context.get("request").user if self.context.get("request") else None
         if user and user.is_authenticated:
             validated_data["reported_by"] = user
+        validated_data.setdefault("timestamp", timezone.now())
         return super().create(validated_data)
 
 

@@ -396,7 +396,7 @@ class IncidentDetailView(APIView):
 
 
 class POIListView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 	throttle_classes = []
 
 	def get(self, request):
@@ -416,7 +416,7 @@ class POIListView(APIView):
 
 
 class POIDetailView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
 	def put(self, request, poi_id):
 		poi = POI.objects.filter(poi_id=poi_id, is_deleted=False).first()
