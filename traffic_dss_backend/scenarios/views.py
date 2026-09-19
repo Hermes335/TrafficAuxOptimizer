@@ -2,6 +2,7 @@ from rest_framework import permissions, status
 from django.contrib.auth import get_user_model
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 
 from core.models import Scenario
 from core.serializers import ScenarioSerializer
@@ -13,7 +14,9 @@ class ScenarioListCreateView(APIView):
 
 	def get(self, request):
 		queryset = Scenario.objects.filter(is_deleted=False).order_by("-is_default", "name")
-		return Response(ScenarioSerializer(queryset, many=True).data)
+		paginator = PageNumberPagination()
+		page = paginator.paginate_queryset(queryset, request, view=self)
+		return paginator.get_paginated_response(ScenarioSerializer(page, many=True).data)
 
 	def post(self, request):
 		serializer = ScenarioSerializer(data=request.data)

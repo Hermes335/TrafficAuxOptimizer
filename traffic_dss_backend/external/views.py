@@ -11,6 +11,30 @@ from core.models import TrafficData, WeatherData
 from core.serializers import TrafficDataSerializer, WeatherDataSerializer
 
 
+def _provenance(record):
+	return {
+		"source": record.source,
+		"data_status": record.data_status,
+		"available": True,
+		"is_synthetic": record.is_synthetic,
+		"is_stale": record.is_stale,
+		"observed_at": record.observed_at.isoformat() if record.observed_at else None,
+		"fetched_at": record.fetched_at.isoformat() if record.fetched_at else None,
+	}
+
+
+def _unavailable(source="none"):
+	return {
+		"source": source,
+		"data_status": "unavailable",
+		"available": False,
+		"is_synthetic": False,
+		"is_stale": False,
+		"observed_at": None,
+		"fetched_at": None,
+	}
+
+
 class WeatherCurrentView(APIView):
 	permission_classes = [permissions.AllowAny]
 	throttle_classes = []
@@ -21,19 +45,11 @@ class WeatherCurrentView(APIView):
 			try:
 				cached = cache.get("external:weather:last")
 				if cached:
-					return Response(cached)
+					return Response({**cached, "data_status": "cached", "available": True, "is_synthetic": False, "is_stale": True, "source": "cache"})
 			except Exception:
 				pass
-			return Response(
-				{
-					"timestamp": timezone.now().isoformat(),
-					"condition": "clear",
-					"temperature": 30.0,
-					"precipitation": 0.0,
-					"weather_impact_factor": 1.0,
-				}
-			)
-		return Response(WeatherDataSerializer(weather).data)
+			return Response({**_unavailable(), "timestamp": None, "condition": None, "temperature": None, "precipitation": None, "weather_impact_factor": None})
+		return Response({**WeatherDataSerializer(weather).data, **_provenance(weather)})
 
 
 class TrafficRealtimeView(APIView):
@@ -48,27 +64,19 @@ class TrafficRealtimeView(APIView):
 				for key in cache.iter_keys("external:traffic:last:*") if hasattr(cache, "iter_keys") else []:
 					value = cache.get(key)
 					if value:
-						cached_rows.append(value)
+						cached_rows.append({
+							**value,
+							"source": "cache",
+							"data_status": "cached",
+							"available": True,
+							"is_synthetic": False,
+							"is_stale": True,
+						})
 				if cached_rows:
 					return Response(cached_rows)
 			except Exception:
 				pass
-			return Response(
-				[
-					{
-						"timestamp": timezone.now().isoformat(),
-						"traffic_severity_index": 0.28,
-						"vehicle_count": 34,
-						"avg_speed": 31.0,
-					},
-					{
-						"timestamp": timezone.now().isoformat(),
-						"traffic_severity_index": 0.41,
-						"vehicle_count": 48,
-						"avg_speed": 27.5,
-					},
-				]
-			)
+			return Response({"data": [], "metadata": _unavailable()})
 		return Response(TrafficDataSerializer(rows, many=True).data)
 
 
@@ -83,15 +91,9 @@ class AnalyticsTrendsView(APIView):
 			.values("timestamp", "traffic_severity_index", "avg_speed")[:30]
 		)
 		if not series:
-			return Response(
-				{
-					"trends": [
-						{"timestamp": timezone.now().isoformat(), "traffic_severity_index": 0.25, "avg_speed": 32.0},
-						{"timestamp": timezone.now().isoformat(), "traffic_severity_index": 0.33, "avg_speed": 29.0},
-					],
-				}
-			)
-		return Response({"trends": list(series)})
+			return Response({"trends": [], "metadata": _unavailable()})
+		latest = TrafficData.objects.filter(is_deleted=False).order_by("-timestamp").first()
+		return Response({"trends": list(series), "metadata": _provenance(latest)})
 
 
 class TomTomTileProxyView(APIView):

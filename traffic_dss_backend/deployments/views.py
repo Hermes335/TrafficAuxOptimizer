@@ -6,6 +6,7 @@ from django.utils.dateparse import parse_datetime
 from django.contrib.auth import get_user_model
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 
 from core.models import Bottleneck, Deployment, Officer, OptimizationRun
 from core.realtime import broadcast
@@ -18,6 +19,8 @@ class DeploymentScheduleView(APIView):
 
 	def get(self, request):
 		queryset = Deployment.objects.filter(is_deleted=False).select_related("officer", "bottleneck").order_by("start_time")
+		paginator = PageNumberPagination()
+		page = paginator.paginate_queryset(queryset, request, view=self)
 		data = [
 			{
 				"id": d.id,
@@ -30,9 +33,9 @@ class DeploymentScheduleView(APIView):
 				"assignment_type": d.assignment_type,
 				"status": d.status,
 			}
-			for d in queryset
+			for d in page
 		]
-		return Response(data)
+		return paginator.get_paginated_response(data)
 
 	def delete(self, request):
 		shift = request.query_params.get("shift")

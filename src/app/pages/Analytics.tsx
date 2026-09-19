@@ -13,16 +13,18 @@ export function Analytics() {
   const [trends, setTrends] = useState<AnalyticsTrendPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [provenance, setProvenance] = useState<{ data_status: string; available: boolean; is_stale: boolean; is_synthetic: boolean } | null>(null);
 
   useEffect(() => {
     let active = true;
 
     fetchAnalyticsTrends()
-      .then((rows) => {
+      .then((payload) => {
         if (!active) {
           return;
         }
-        setTrends(rows);
+        setTrends(payload.trends);
+        setProvenance(payload.metadata);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -74,6 +76,11 @@ export function Analytics() {
         <h1 className="text-2xl font-bold">Analytics</h1>
         <p className="text-sm text-gray-600">Live traffic trends from backend telemetry</p>
       </div>
+      {provenance && (!provenance.available || provenance.is_stale || provenance.is_synthetic || provenance.data_status === "fallback" || provenance.data_status === "cached") ? (
+        <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Traffic trends are {provenance.available ? provenance.data_status : "unavailable"}; recommendations may use incomplete or fallback data.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <div className="rounded-xl border bg-white p-4">

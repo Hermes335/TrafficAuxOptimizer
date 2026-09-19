@@ -174,6 +174,12 @@ class OptimizationRun(TimeStampedSoftDeleteModel):
 class TrafficData(TimeStampedSoftDeleteModel):
 	bottleneck = models.ForeignKey(Bottleneck, on_delete=models.CASCADE, related_name="traffic_data")
 	timestamp = models.DateTimeField(db_index=True)
+	source = models.CharField(max_length=40, default="unknown")
+	data_status = models.CharField(max_length=20, default="unknown")
+	is_synthetic = models.BooleanField(default=False)
+	is_stale = models.BooleanField(default=False)
+	fetched_at = models.DateTimeField(null=True, blank=True)
+	observed_at = models.DateTimeField(null=True, blank=True)
 	traffic_severity_index = models.FloatField(default=0.0)
 	vehicle_count = models.IntegerField(default=0)
 	avg_speed = models.FloatField(default=0.0)
@@ -195,6 +201,12 @@ class WeatherData(TimeStampedSoftDeleteModel):
 	]
 
 	timestamp = models.DateTimeField(db_index=True)
+	source = models.CharField(max_length=40, default="unknown")
+	data_status = models.CharField(max_length=20, default="unknown")
+	is_synthetic = models.BooleanField(default=False)
+	is_stale = models.BooleanField(default=False)
+	fetched_at = models.DateTimeField(null=True, blank=True)
+	observed_at = models.DateTimeField(null=True, blank=True)
 	condition = models.CharField(max_length=30, choices=CONDITIONS, default="clear")
 	temperature = models.FloatField(default=0.0)
 	precipitation = models.FloatField(default=0.0)

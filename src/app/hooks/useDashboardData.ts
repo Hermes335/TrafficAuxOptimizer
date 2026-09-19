@@ -18,6 +18,13 @@ const fallbackWeather: WeatherCurrentSnapshot = {
   temperature: 30,
   precipitation: 0,
   weather_impact_factor: 1,
+  source: "unknown",
+  data_status: "unknown",
+  available: false,
+  is_synthetic: false,
+  is_stale: false,
+  observed_at: null,
+  fetched_at: null,
 };
 
 export function useDashboardData() {

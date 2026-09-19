@@ -64,13 +64,13 @@ export function Header() {
     if (!weather) {
       return "--°C - Weather unavailable";
     }
-    const condition = weather.condition
+    const condition = (weather.condition ?? "weather unavailable")
       .replace(/_/g, " ")
       .replace(/\b\w/g, (char) => char.toUpperCase());
-    return `${Math.round(weather.temperature)}°C - ${condition}`;
+    return weather.available && weather.temperature != null ? `${Math.round(weather.temperature)}°C - ${condition}` : `Weather unavailable - ${condition}`;
   }, [weather]);
 
-  const precipitationLabel = weather ? `${weather.precipitation.toFixed(1)}mm/hr precipitation` : "No live weather feed";
+  const precipitationLabel = weather?.available && weather.precipitation != null ? `${weather.precipitation.toFixed(1)}mm/hr precipitation` : "No live weather feed";
 
   const handleLogout = async () => {
     setShowUserMenu(false);

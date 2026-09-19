@@ -53,11 +53,28 @@ export interface DashboardKpis {
 }
 
 export interface WeatherCurrentSnapshot {
-  timestamp: string;
-  condition: string;
-  temperature: number;
-  precipitation: number;
-  weather_impact_factor: number;
+  timestamp: string | null;
+  condition: string | null;
+  temperature: number | null;
+  precipitation: number | null;
+  weather_impact_factor: number | null;
+  source: string;
+  data_status: "live" | "fallback" | "cached" | "unavailable" | "unknown";
+  available: boolean;
+  is_synthetic: boolean;
+  is_stale: boolean;
+  observed_at: string | null;
+  fetched_at: string | null;
+}
+
+export interface ExternalDataProvenance {
+  source: string;
+  data_status: "live" | "fallback" | "cached" | "unavailable" | "unknown";
+  available: boolean;
+  is_synthetic: boolean;
+  is_stale: boolean;
+  observed_at: string | null;
+  fetched_at: string | null;
 }
 
 export interface LiveDashboardEvent {
@@ -127,11 +144,10 @@ const fallbackDashboardSnapshot: DashboardSnapshot = {
 const DEFAULT_TIMEOUT_MS = 15000;
 
 export function getApiBaseUrl() {
-  if (typeof window !== "undefined") {
-    const config = (window as Window & { desktopConfig?: { backendUrl: string } }).desktopConfig;
-    if (config?.backendUrl) {
-      return config.backendUrl;
-    }
+  const desktopUrl = typeof window !== "undefined" ? window.desktopConfig?.backendUrl : undefined;
+  const configuredUrl = desktopUrl || import.meta.env.VITE_API_BASE_URL;
+  if (configuredUrl) {
+    return configuredUrl.replace(/\/+$/, "");
   }
 
   return "http://127.0.0.1:8000";
@@ -213,6 +229,10 @@ async function fetchWithTimeout(
   } finally {
     window.clearTimeout(timeoutId);
   }
+}
+
+function extractListResults<T>(payload: T[] | { results?: T[] }): T[] {
+  return Array.isArray(payload) ? payload : payload.results ?? [];
 }
 
 export function getFallbackDashboardSnapshot() {
@@ -300,7 +320,7 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
     resource_utilization: number;
     weather_correlation: number;
   };
-  const bottlenecks = (await bottleneckRes.json()) as Array<{
+  const bottleneckPayload = (await bottleneckRes.json()) as Array<{
     id: string;
     name: string;
     status: BottleneckStatus;
@@ -312,7 +332,20 @@ export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
     deployed_officers?: number;
     required_officers?: number;
     assigned_officers?: Array<{ name: string; badge_number: string }>;
-  }>;
+  }> | { results?: Array<{
+    id: string;
+    name: string;
+    status: BottleneckStatus;
+    latitude: number;
+    longitude: number;
+    tsi?: number;
+    road_priority_weight?: number;
+    weather_impact_factor?: number;
+    deployed_officers?: number;
+    required_officers?: number;
+    assigned_officers?: Array<{ name: string; badge_number: string }>;
+  }> };
+  const bottlenecks = extractListResults(bottleneckPayload);
   const incidents = (await incidentRes.json()) as Incident[];
 
   const projected = bottlenecks.map((item, index) => ({
@@ -543,7 +576,7 @@ export async function fetchDeploymentSchedule(): Promise<DeploymentScheduleItem[
   if (!response.ok) {
     throw new Error(`Failed to fetch deployment schedule: ${response.status}`);
   }
-  return response.json() as Promise<DeploymentScheduleItem[]>;
+  return extractListResults(await response.json() as DeploymentScheduleItem[] | { results?: DeploymentScheduleItem[] });
 }
 
 export async function clearDeploymentSchedule(shift?: string): Promise<{ cleared: number }> {
@@ -651,11 +684,11 @@ export async function fetchBottlenecks(): Promise<BottleneckOption[]> {
   if (!response.ok) {
     throw new Error(`Failed to fetch bottlenecks: ${response.status}`);
   }
-  const rows = (await response.json()) as Array<{ id: string; name: string }>;
+  const rows = extractListResults(await response.json() as Array<{ id: string; name: string }> | { results?: Array<{ id: string; name: string }> });
   return rows.map((row) => ({ id: row.id, name: row.name }));
 }
 
-export async function createDashboardBottleneck(payload: DashboardBottleneckPayload): Promise<void> {
+export async function createDashboardBottleneck(payload: DashboardBottleneckPayload): Promise<Bottleneck> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/`, {
     method: "POST",
     headers: {
@@ -668,6 +701,7 @@ export async function createDashboardBottleneck(payload: DashboardBottleneckPayl
     const detail = await extractApiError(response, `Failed to create bottleneck: ${response.status}`);
     throw new Error(detail);
   }
+  return response.json() as Promise<Bottleneck>;
 }
 
 export async function deleteDashboardBottleneck(bottleneckId: string): Promise<void> {
@@ -684,7 +718,7 @@ export async function deleteDashboardBottleneck(bottleneckId: string): Promise<v
 export async function updateDashboardBottleneck(
   bottleneckId: string,
   payload: Omit<DashboardBottleneckPayload, "id">
-): Promise<void> {
+): Promise<Bottleneck> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/${encodeURIComponent(bottleneckId)}/`, {
     method: "PUT",
     headers: {
@@ -697,6 +731,7 @@ export async function updateDashboardBottleneck(
     const detail = await extractApiError(response, `Failed to update bottleneck: ${response.status}`);
     throw new Error(detail);
   }
+  return response.json() as Promise<Bottleneck>;
 }
 
 export async function fetchDashboardOfficers(): Promise<DashboardOfficerRecord[]> {
@@ -704,7 +739,7 @@ export async function fetchDashboardOfficers(): Promise<DashboardOfficerRecord[]
   if (!response.ok) {
     throw new Error(`Failed to fetch officers: ${response.status}`);
   }
-  return response.json() as Promise<DashboardOfficerRecord[]>;
+  return extractListResults(await response.json() as DashboardOfficerRecord[] | { results?: DashboardOfficerRecord[] });
 }
 
 export async function createDashboardOfficer(payload: DashboardOfficerPayload): Promise<void> {
@@ -811,7 +846,7 @@ export async function fetchIncident(incidentId: number): Promise<{
 }> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/incidents/`);
   if (!response.ok) throw new Error(`Failed to fetch incidents: ${response.status}`);
-  const incidents = (await response.json()) as Array<{
+  const incidents = extractListResults(await response.json() as Array<{
     id: number;
     incident_type: string;
     severity: string;
@@ -820,7 +855,16 @@ export async function fetchIncident(incidentId: number): Promise<{
     latitude: number | null;
     longitude: number | null;
     status: string;
-  }>;
+  }> | { results?: Array<{
+    id: number;
+    incident_type: string;
+    severity: string;
+    description: string;
+    bottleneck: string | null;
+    latitude: number | null;
+    longitude: number | null;
+    status: string;
+  }> });
   const incident = incidents.find((i) => i.id === incidentId);
   if (!incident) throw new Error(`Incident ${incidentId} not found`);
   return incident;
@@ -859,7 +903,7 @@ export interface POI {
 export async function fetchPOIs(): Promise<POI[]> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/pois/`);
   if (!response.ok) throw new Error(`Failed to fetch POIs: ${response.status}`);
-  return response.json() as Promise<POI[]>;
+  return extractListResults(await response.json() as POI[] | { results?: POI[] });
 }
 
 export async function createPOI(data: {
@@ -911,7 +955,7 @@ export async function fetchScenarios(): Promise<ScenarioRecord[]> {
   if (!response.ok) {
     throw new Error(`Failed to fetch scenarios: ${response.status}`);
   }
-  return response.json() as Promise<ScenarioRecord[]>;
+  return extractListResults(await response.json() as ScenarioRecord[] | { results?: ScenarioRecord[] });
 }
 
 export async function createScenario(payload: {
@@ -939,14 +983,17 @@ export interface AnalyticsTrendPoint {
   avg_speed: number;
 }
 
-export async function fetchAnalyticsTrends(): Promise<AnalyticsTrendPoint[]> {
+export async function fetchAnalyticsTrends(): Promise<{ trends: AnalyticsTrendPoint[]; metadata: ExternalDataProvenance }> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/analytics/trends/`);
   if (!response.ok) {
     throw new Error(`Failed to fetch analytics trends: ${response.status}`);
   }
 
-  const payload = (await response.json()) as { trends?: AnalyticsTrendPoint[] };
-  return Array.isArray(payload.trends) ? payload.trends : [];
+  const payload = (await response.json()) as { trends?: AnalyticsTrendPoint[]; metadata?: ExternalDataProvenance };
+  return {
+    trends: Array.isArray(payload.trends) ? payload.trends : [],
+    metadata: payload.metadata ?? { source: "unknown", data_status: "unknown", available: false, is_synthetic: false, is_stale: false, observed_at: null, fetched_at: null },
+  };
 }
 
 export interface AuditLogRecord {

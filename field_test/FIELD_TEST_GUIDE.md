@@ -61,7 +61,7 @@ optimized deployments published from the optimization run). After both weeks
 are complete, run:
 
 ```bash
-python manage.py field_test_compare --shift afternoon
+python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon
 ```
 
 This outputs:

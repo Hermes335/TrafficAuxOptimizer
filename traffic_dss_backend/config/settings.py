@@ -3,17 +3,32 @@ from datetime import timedelta
 from pathlib import Path
 
 import environ
+from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env = environ.Env(
-    DEBUG=(bool, True),
+    DEBUG=(bool, False),
     ALLOWED_HOSTS=(list, ["localhost", "127.0.0.1"]),
 )
 environ.Env.read_env(BASE_DIR / ".env")
 
+DEPLOYMENT_ENV = env("DJANGO_ENV", default="development").strip().lower()
+IS_PRODUCTION = DEPLOYMENT_ENV in {"production", "prod"}
 
-SECRET_KEY = env("SECRET_KEY", default="change-this-development-secret-key-at-least-32-chars-long")
-DEBUG = env("DEBUG")
+
+def _load_signing_secret(name: str, development_default: str) -> str:
+    value = env(name, default=None if IS_PRODUCTION else development_default)
+    if IS_PRODUCTION:
+        if not value or len(value) < 32 or value.startswith("change-"):
+            raise ImproperlyConfigured(
+                f"{name} must be set to a non-placeholder secret of at least 32 characters in production."
+            )
+    return value or development_default
+
+SECRET_KEY = _load_signing_secret("SECRET_KEY", "change-this-development-secret-key-at-least-32-chars-long")
+DEBUG = env.bool("DEBUG", default=not IS_PRODUCTION)
+if IS_PRODUCTION and DEBUG:
+    raise ImproperlyConfigured("DEBUG must be False in production.")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 
 
@@ -151,10 +166,12 @@ REST_FRAMEWORK = {
     "PAGE_SIZE": 100,
     "DEFAULT_THROTTLE_CLASSES": [
         "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": "100/hour",
         "login": "10/min",
+        "refresh": "30/min",
     },
 }
 
@@ -164,7 +181,7 @@ SIMPLE_JWT = {
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "ALGORITHM": env("JWT_ALGORITHM", default="HS256"),
-    "SIGNING_KEY": env("JWT_SECRET_KEY", default="change-this-jwt-signing-key-at-least-32-chars-long"),
+    "SIGNING_KEY": _load_signing_secret("JWT_SECRET_KEY", "change-this-jwt-signing-key-at-least-32-chars-long"),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -173,7 +190,19 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
 }
 
-CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=True)
+if IS_PRODUCTION:
+    if env.bool("CORS_ALLOW_ALL_ORIGINS", default=False):
+        raise ImproperlyConfigured("CORS_ALLOW_ALL_ORIGINS must be False in production.")
+    CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+    if not CORS_ALLOWED_ORIGINS:
+        raise ImproperlyConfigured("CORS_ALLOWED_ORIGINS must list approved origins in production.")
+    CORS_ALLOW_ALL_ORIGINS = False
+else:
+    CORS_ALLOW_ALL_ORIGINS = env.bool("CORS_ALLOW_ALL_ORIGINS", default=True)
+    CORS_ALLOWED_ORIGINS = env.list(
+        "CORS_ALLOWED_ORIGINS",
+        default=["http://localhost:8080", "http://127.0.0.1:8080"],
+    )
 
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 TOMTOM_API_KEY = env("TOMTOM_API_KEY", default="")

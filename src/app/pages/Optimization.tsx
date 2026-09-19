@@ -64,7 +64,7 @@ export function Optimization() {
         setActiveIncidents(snapshot.incidents);
         const suggestion = computeAutoWeights(
           snapshot.bottlenecks,
-          weather.weather_impact_factor,
+          weather.weather_impact_factor ?? 1,
           snapshot.incidents,
           snapshot.metrics.resourceUtilization,
         );
@@ -715,7 +715,7 @@ export function Optimization() {
               <div className="flex justify-between"><span className="text-gray-500">Generations</span><span className="font-medium">{params.generations}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Crossover Rate</span><span className="font-medium">{params.crossover_rate}%</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Mutation Rate</span><span className="font-medium">{params.mutation_rate}%</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Elitism</span><span className="font-medium">{params.elitism_rate}%</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Elitism</span><span className="font-medium">{elitismRate}%</span></div>
               <div className="border-t pt-2 mt-2">
                 <div className="mb-1 text-gray-500 font-semibold">Objective Weights</div>
                 <div className="flex justify-between"><span className="text-gray-500">TSI Weight</span><span className="font-medium">{params.tsi_weight}%</span></div>

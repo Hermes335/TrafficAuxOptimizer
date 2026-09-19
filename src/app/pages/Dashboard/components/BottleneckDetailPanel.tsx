@@ -123,9 +123,9 @@ export function BottleneckDetailPanel({
           }
           title="Remove Bottleneck"
           description={`Are you sure you want to remove "${bottleneck.name}"? This action cannot be undone.`}
-          confirmLabel="Remove"
+          confirmText="Remove"
           onConfirm={() => onDelete(bottleneck.id)}
-          danger
+          isDangerous
         />
       </div>
     </div>

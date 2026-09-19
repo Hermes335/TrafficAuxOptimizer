@@ -1,4 +1,6 @@
 from django.utils import timezone
+from django.db import DatabaseError, IntegrityError, OperationalError, DataError
+import logging
 
 from .models import AuditLog
 
@@ -15,5 +17,6 @@ def write_audit_log(user, action: str, resource: str, changes: dict):
             changes=changes,
             timestamp=timezone.now(),
         )
-    except Exception:
-        pass
+    except (DatabaseError, IntegrityError, OperationalError, DataError):
+        logger = logging.getLogger(__name__)
+        logger.warning("Failed to write audit log", exc_info=True)

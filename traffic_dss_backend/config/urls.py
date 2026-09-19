@@ -24,9 +24,13 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
+import logging
+from rest_framework_simplejwt.exceptions import TokenError
+from django.db import DatabaseError
 
 User = get_user_model()
 
@@ -49,13 +53,19 @@ class LogoutView(APIView):
             if refresh_token:
                 token = RefreshToken(refresh_token)
                 token.blacklist()
-        except Exception:
+        except TokenError:
+            # Token is invalid/expired - already effectively logged out
             pass
+        except DatabaseError:
+            # Log the failure but don't break logout UX
+            logger = logging.getLogger(__name__)
+            logger.warning("Failed to blacklist refresh token during logout", exc_info=True)
         return Response(status=204)
 
 
 class LoginView(APIView):
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
     throttle_scope = "login"
 
     def post(self, request):
@@ -126,7 +136,8 @@ class LoginView(APIView):
 
 
 class RefreshView(TokenRefreshView):
-    pass
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "refresh"
 
 urlpatterns = [
     path('admin/', admin.site.urls),

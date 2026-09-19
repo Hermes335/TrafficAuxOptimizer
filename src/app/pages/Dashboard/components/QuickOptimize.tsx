@@ -39,7 +39,7 @@ export function QuickOptimize({
         : "text-red-600";
 
   const weatherCorrelation = metrics.weatherCorrelation;
-  const weatherLabel = weather.condition.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  const weatherLabel = (weather.condition ?? "weather unavailable").replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 
   const weatherStatusTone = weatherCorrelation >= 1.7 ? "Severe" : weatherCorrelation >= 1.3 ? "Moderate" : "Clear";
   const weatherStyle = weatherStatusTone === "Severe"
@@ -168,6 +168,11 @@ export function QuickOptimize({
           )}
         </p>
       </div>
+      {!weather.available || weather.is_stale || weather.is_synthetic || weather.data_status === "fallback" ? (
+        <div className="mb-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          Recommendations may use {weather.data_status === "unavailable" ? "unavailable" : weather.is_stale || weather.data_status === "cached" ? "cached" : "fallback"} weather data.
+        </div>
+      ) : null}
 
       {/* System Stats */}
       <div className="space-y-3">

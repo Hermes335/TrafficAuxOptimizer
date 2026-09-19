@@ -1,9 +1,12 @@
+import logging
+
 from django.db.models import Avg, Count, OuterRef, Prefetch, Subquery
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.pagination import PageNumberPagination
 from math import radians, sin, cos, sqrt, atan2
 
 from core.assignment_scoring import rank_candidates_for_bottleneck
@@ -11,6 +14,9 @@ from core.data_quality_checks import get_data_quality_issues
 from core.models import Bottleneck, Deployment, Incident, Officer, OptimizationRun, POI, TrafficData, WeatherData
 from core.serializers import BottleneckSerializer, OfficerSerializer, IncidentCreateSerializer, IncidentResponseSerializer, POISerializer
 from core.utils import write_audit_log
+
+
+logger = logging.getLogger(__name__)
 
 
 def _generate_next_bottleneck_id() -> str:
@@ -100,8 +106,10 @@ class DashboardBottlenecksView(APIView):
 		weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
 		wif = float(getattr(weather, "weather_impact_factor", 1.0)) if weather else 1.0
 
+		paginator = PageNumberPagination()
+		page = paginator.paginate_queryset(bottlenecks, request, view=self)
 		rows = []
-		for b in bottlenecks:
+		for b in page:
 			active_incident = b.active_incidents[0] if getattr(b, "active_incidents", None) else None
 			deployments = getattr(b, "active_deployments", [])
 			assigned_officers = [
@@ -179,7 +187,7 @@ class DashboardBottlenecksView(APIView):
 					"assigned_officer": assigned_officers[0]["badge_number"] if assigned_officers else None,
 				}
 			)
-		return Response(rows)
+		return paginator.get_paginated_response(rows)
 
 
 class DashboardOfficersView(APIView):
@@ -188,7 +196,9 @@ class DashboardOfficersView(APIView):
 
 	def get(self, request):
 		officers = Officer.objects.filter(is_deleted=False).order_by("name")
-		return Response(OfficerSerializer(officers, many=True).data)
+		paginator = PageNumberPagination()
+		page = paginator.paginate_queryset(officers, request, view=self)
+		return paginator.get_paginated_response(OfficerSerializer(page, many=True).data)
 
 
 class DashboardDataQualityView(APIView):
@@ -363,9 +373,11 @@ class IncidentListCreateView(APIView):
 		incidents = (
 			Incident.objects.filter(is_deleted=False, status=status_filter)
 			.select_related("bottleneck", "reported_by")
-			.order_by("-timestamp")[:100]
+			.order_by("-timestamp")
 		)
-		return Response(IncidentResponseSerializer(incidents, many=True).data)
+		paginator = PageNumberPagination()
+		page = paginator.paginate_queryset(incidents, request, view=self)
+		return paginator.get_paginated_response(IncidentResponseSerializer(page, many=True).data)
 
 	def post(self, request):
 		serializer = IncidentCreateSerializer(data=request.data, context={"request": request})
@@ -400,8 +412,10 @@ class POIListView(APIView):
 	throttle_classes = []
 
 	def get(self, request):
-		pois = POI.objects.filter(is_deleted=False, is_active=True)
-		return Response(POISerializer(pois, many=True).data)
+		pois = POI.objects.filter(is_deleted=False, is_active=True).order_by("id")
+		paginator = PageNumberPagination()
+		page = paginator.paginate_queryset(pois, request, view=self)
+		return paginator.get_paginated_response(POISerializer(page, many=True).data)
 
 	def post(self, request):
 		data = request.data.copy()
@@ -521,6 +535,20 @@ class QuickOptimizeView(APIView):
 		try:
 			from optimization.tasks import run_optimization
 			run_optimization.delay(run.run_id)
-		except Exception:
-			pass
+		except Exception as exc:
+			logger.exception("Failed to enqueue Quick Optimize run %s", run.run_id)
+			run.status = "failed"
+			run.result_data = {
+				"error": "Failed to enqueue Quick Optimize job.",
+				"enqueue_error": str(exc),
+			}
+			run.save(update_fields=["status", "result_data", "updated_at"])
+			return Response(
+				{
+					"run_id": run.run_id,
+					"status": run.status,
+					"detail": "Quick Optimize could not be started because the background queue is unavailable.",
+				},
+				status=status.HTTP_503_SERVICE_UNAVAILABLE,
+			)
 		return Response({"run_id": run.run_id, "status": run.status}, status=status.HTTP_202_ACCEPTED)

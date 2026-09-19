@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { getApiBaseUrl } from "../services/backend";
 
 export type UserRole = "dispatcher" | "supervisor" | "administrator";
 
@@ -53,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoading(true);
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"}/api/auth/login/`, {
+      const response = await fetch(`${getApiBaseUrl()}/api/auth/login/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -93,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       if (token) {
         const refreshToken = localStorage.getItem("refresh_token");
-        await fetch(`${import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000"}/api/auth/logout/`, {
+        await fetch(`${getApiBaseUrl()}/api/auth/logout/`, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${token}`,

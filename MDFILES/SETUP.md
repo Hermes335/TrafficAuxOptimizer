@@ -57,9 +57,11 @@ Create `traffic_dss_backend/.env`:
 
 ```env
 DEBUG=True
+DJANGO_ENV=development
 SECRET_KEY=your-secret-key-at-least-32-chars
 JWT_SECRET_KEY=your-jwt-secret-at-least-32-chars
 ALLOWED_HOSTS=localhost,127.0.0.1
+CORS_ALLOW_ALL_ORIGINS=True
 
 # Database
 DATABASE_URL=postgis://postgres:yourpassword@localhost:5432/traffic_dss
@@ -73,6 +75,8 @@ PAGASA_API_ENDPOINT=https://api.pagasa.dost.gov.ph/api/v1/
 ```
 
 **Important:** Never commit `.env` to git. The `.gitignore` already excludes it.
+
+For production, set `DJANGO_ENV=production`, `DEBUG=False`, non-placeholder 32+ character values for `SECRET_KEY` and `JWT_SECRET_KEY`, and an explicit comma-separated `CORS_ALLOWED_ORIGINS` list. Production startup fails if these requirements are missing or unsafe.
 
 ---
 

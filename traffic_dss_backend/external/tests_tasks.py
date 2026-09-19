@@ -22,8 +22,13 @@ def test_fetch_weather_data_uses_fallback_and_persists():
         result = fetch_weather_data()
 
     assert result["status"] == "ok"
+    assert result["source"] == "openmeteo"
+    assert result["data_status"] == "fallback"
+    assert result["available"] is True
+    assert result["is_stale"] is False
     assert WeatherData.objects.count() == 1
     assert WeatherData.objects.first().weather_impact_factor == 1.35
+    assert WeatherData.objects.first().data_status == "fallback"
 
 
 @pytest.mark.django_db
@@ -51,6 +56,63 @@ def test_fetch_traffic_data_fallback_to_osm_and_persist():
         result = fetch_traffic_data()
 
     assert result["status"] == "ok"
+    assert result["sources"]["osm_overpass"] == 1
     assert TrafficData.objects.count() == 1
     row = TrafficData.objects.first()
     assert row.traffic_severity_index == pytest.approx(0.52)
+    assert row.source == "osm_overpass"
+    assert row.data_status == "fallback"
+
+
+@pytest.mark.django_db
+def test_weather_provider_success_is_live():
+    with patch("external.tasks.fetch_pagasa_weather", return_value={
+        "source": "pagasa",
+        "condition": "clear",
+        "temperature": 30.0,
+        "precipitation": 0.0,
+        "weather_impact_factor": 1.0,
+    }):
+        result = fetch_weather_data()
+
+    assert result["source"] == "pagasa"
+    assert result["data_status"] == "live"
+    assert result["available"] is True
+    assert result["is_stale"] is False
+
+
+@pytest.mark.django_db
+def test_cached_weather_is_marked_stale():
+    from django.core.cache import cache
+
+    cache.set("external:weather:last", {
+        "source": "pagasa",
+        "condition": "clear",
+        "temperature": 28.0,
+        "precipitation": 0.0,
+        "weather_impact_factor": 1.0,
+        "fetched_at": "2026-09-19T00:00:00+00:00",
+    })
+    with patch("external.tasks.fetch_pagasa_weather", side_effect=ProviderError("down")), patch(
+        "external.tasks.fetch_openmeteo_weather", side_effect=ProviderError("down")
+    ):
+        result = fetch_weather_data()
+
+    assert result["source"] == "cache"
+    assert result["data_status"] == "cached"
+    assert result["is_stale"] is True
+    assert WeatherData.objects.first().fetched_at.year == 2026
+
+
+@pytest.mark.django_db
+def test_no_weather_data_is_unavailable():
+    from django.core.cache import cache
+
+    cache.delete("external:weather:last")
+    with patch("external.tasks.fetch_pagasa_weather", side_effect=ProviderError("down")), patch(
+        "external.tasks.fetch_openmeteo_weather", side_effect=ProviderError("down")
+    ):
+        result = fetch_weather_data()
+
+    assert result["data_status"] == "unavailable"
+    assert result["available"] is False

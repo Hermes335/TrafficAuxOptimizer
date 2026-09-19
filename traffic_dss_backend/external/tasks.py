@@ -39,19 +39,23 @@ def _fetch_single_traffic(bottleneck):
     """Fetch traffic data for a single bottleneck. Called in parallel."""
     snapshot = None
     source = None
+    data_status = "unavailable"
     try:
         snapshot = fetch_tomtom_traffic(bottleneck.latitude, bottleneck.longitude)
         source = "tomtom"
+        data_status = "live"
     except ProviderError:
         try:
             snapshot = fetch_osm_overpass_traffic(bottleneck.latitude, bottleneck.longitude)
             source = "osm_overpass"
+            data_status = "fallback"
         except ProviderError:
             cached = cache.get(f"{TRAFFIC_CACHE_KEY}:{bottleneck.id}")
             if cached:
                 snapshot = cached
                 source = "cache"
-    return bottleneck, snapshot, source
+                data_status = "cached"
+    return bottleneck, snapshot, source, data_status
 
 
 @shared_task
@@ -67,7 +71,7 @@ def fetch_traffic_data():
     with ThreadPoolExecutor(max_workers=8) as executor:
         futures = {executor.submit(_fetch_single_traffic, b): b for b in bottlenecks}
         for future in as_completed(futures):
-            bottleneck, snapshot, source = future.result()
+            bottleneck, snapshot, source, data_status = future.result()
             if not snapshot:
                 continue
 
@@ -75,13 +79,33 @@ def fetch_traffic_data():
                 source_counts[source] += 1
 
             tsi_val = float(snapshot.get("tsi", 0.0))
+            if source != "cache":
+                snapshot = {**snapshot, "fetched_at": now.isoformat()}
+            else:
+                snapshot = {**snapshot, "data_status": "cached", "is_stale": True}
             cache.set(f"{TRAFFIC_CACHE_KEY}:{bottleneck.id}", snapshot, timeout=60 * 30)
+            fetched_at = snapshot.get("fetched_at", now)
+            if isinstance(fetched_at, str):
+                fetched_at = timezone.datetime.fromisoformat(fetched_at)
+            if timezone.is_naive(fetched_at):
+                fetched_at = timezone.make_aware(fetched_at)
+            observed_at = snapshot.get("observed_at")
+            if isinstance(observed_at, str):
+                observed_at = timezone.datetime.fromisoformat(observed_at)
+            if observed_at and timezone.is_naive(observed_at):
+                observed_at = timezone.make_aware(observed_at)
             TrafficData.objects.create(
                 bottleneck=bottleneck,
                 timestamp=now,
                 traffic_severity_index=tsi_val,
                 vehicle_count=int(snapshot.get("vehicle_count", 0)),
                 avg_speed=float(snapshot.get("current_speed", 0.0)),
+                source=source or "unknown",
+                data_status=data_status,
+                is_synthetic=False,
+                is_stale=data_status == "cached",
+                fetched_at=fetched_at,
+                observed_at=observed_at,
             )
 
             # Update bottleneck TSI so dashboard map dots reflect real traffic
@@ -120,7 +144,7 @@ def fetch_traffic_data():
         "timestamp": now.isoformat(),
         "created": created,
         "critical_alerts": critical_alerts,
-        "sources": source_counts,
+            "sources": source_counts,
     }
 
 
@@ -142,8 +166,25 @@ def fetch_weather_data():
             source = "cache" if snapshot else "none"
 
     if not snapshot:
-        return {"status": "failed", "timestamp": now.isoformat(), "source": source}
+        return {
+            "status": "failed",
+            "timestamp": now.isoformat(),
+            "source": source,
+            "data_status": "unavailable",
+            "available": False,
+            "is_synthetic": False,
+            "is_stale": False,
+            "observed_at": None,
+            "fetched_at": None,
+        }
 
+    data_status = "cached" if source == "cache" else ("fallback" if source == "openmeteo" else "live")
+    fetched_at = snapshot.get("fetched_at", now)
+    if isinstance(fetched_at, str):
+        fetched_at = timezone.datetime.fromisoformat(fetched_at)
+    if timezone.is_naive(fetched_at):
+        fetched_at = timezone.make_aware(fetched_at)
+    snapshot = {**snapshot, "fetched_at": fetched_at.isoformat(), "data_status": data_status, "is_stale": data_status == "cached"}
     cache.set(WEATHER_CACHE_KEY, snapshot, timeout=60 * 60)
     weather = WeatherData.objects.create(
         timestamp=now,
@@ -151,6 +192,12 @@ def fetch_weather_data():
         temperature=float(snapshot.get("temperature", 30.0)),
         precipitation=float(snapshot.get("precipitation", 0.0)),
         weather_impact_factor=float(snapshot.get("weather_impact_factor", 1.0)),
+        source=source,
+        data_status=data_status,
+        is_synthetic=False,
+        is_stale=data_status == "cached",
+        fetched_at=fetched_at,
+        observed_at=None,
     )
 
     previous = WeatherData.objects.filter(is_deleted=False).exclude(pk=weather.pk).order_by("-timestamp").first()
@@ -169,6 +216,11 @@ def fetch_weather_data():
         "status": "ok",
         "timestamp": now.isoformat(),
         "source": source,
+        "data_status": data_status,
+        "available": True,
+        "is_synthetic": False,
+        "is_stale": data_status == "cached",
+        "fetched_at": fetched_at.isoformat(),
         "weather_impact_factor": weather.weather_impact_factor,
     }
 

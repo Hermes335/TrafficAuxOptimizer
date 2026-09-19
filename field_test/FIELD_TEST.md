@@ -45,6 +45,10 @@ The first field activity uses **Atrium Rotonda** as a data-collection pilot. Man
 
 The existing automated comparison command is configured for the original Diversion Road + Jaro district. For the Atrium Rotonda pilot, compare the two shadow-pilot CSV files manually until the selected locations and comparison workflow are configured.
 
+The comparison command requires an explicit `--location` value. Use `--location "Atrium Rotonda"` for a bottleneck name or `--location "Diversion Road + Jaro"` for the historical district. Application TSI uses the normalized `[0,1]` scale. The raw `TSI` column in the shadow observation CSV has undocumented units and is never numerically compared with `App_TSI` by the command.
+
+The current dashboard staffing implementation uses TSI thresholds `>= 0.5` and `>= 0.8`. The older `TSI > 0.70` rule in the questionnaire materials is proposed methodology, not active application logic.
+
 ---
 
 ## 2. Test District
@@ -167,7 +171,13 @@ This creates Deployment records with `source=manual` for comparison.
 ### Step 4: Verify Import
 
 ```bash
-python manage.py field_test_compare --shift afternoon
+python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon
+```
+
+For a bottleneck-name pilot, select it explicitly, for example:
+
+```bash
+python manage.py field_test_compare --location "Atrium Rotonda" --shift afternoon
 ```
 
 Should show manual assignments for each bottleneck.
@@ -226,7 +236,7 @@ After both weeks are complete:
 
 ```bash
 cd traffic_dss_backend
-python manage.py field_test_compare --shift afternoon
+python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon
 ```
 
 This outputs:
@@ -260,7 +270,7 @@ The system's fitness function combines:
 Run the baseline comparison command to get fitness scores:
 
 ```bash
-python manage.py field_test_compare --shift afternoon
+python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon
 ```
 
 ---

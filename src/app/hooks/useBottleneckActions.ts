@@ -81,7 +81,7 @@ export function useBottleneckActions({
     setBottleneckActionError(null);
     setBottleneckActionNotice(null);
     try {
-      await createDashboardBottleneck({
+      const created = await createDashboardBottleneck({
         id: newBottleneckId.trim() || undefined,
         name: newBottleneckName.trim(),
         latitude: pendingPoint.latitude,
@@ -91,6 +91,7 @@ export function useBottleneckActions({
         road_priority_weight: Number(newBottleneckWeight),
       });
       await reloadDashboard();
+      setSelectedBottleneckId(created.id);
       setPendingPoint(null);
       setNewBottleneckId("");
       setNewBottleneckName("");
@@ -138,7 +139,7 @@ export function useBottleneckActions({
     setBottleneckActionError(null);
     setBottleneckActionNotice(null);
     try {
-      await updateDashboardBottleneck(selectedBottleneckId, {
+      const updated = await updateDashboardBottleneck(selectedBottleneckId, {
         name: detailPanelName.trim(),
         latitude,
         longitude,
@@ -153,7 +154,7 @@ export function useBottleneckActions({
         ...prev,
         bottlenecks: prev.bottlenecks.map((b) =>
           b.id === selectedBottleneckId
-            ? { ...b, name: detailPanelName.trim(), latitude, longitude, tsi: Number.isFinite(tsi) ? tsi : b.tsi, status: newStatus }
+            ? { ...b, ...updated, name: detailPanelName.trim(), latitude, longitude, tsi: Number.isFinite(tsi) ? tsi : b.tsi, status: newStatus }
             : b,
         ),
       }));

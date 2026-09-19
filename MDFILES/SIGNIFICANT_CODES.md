@@ -175,7 +175,7 @@ def fetch_tomtom_traffic(latitude, longitude):
     # 0.0 = free flow (green dot)
     # 0.4 = moderate (yellow dot)
     # 0.6 = heavy (orange dot)
-    # 0.8+ = critical (red dot)
+    # TSI >= 0.8 = critical (red dot)
 ```
 
 ---

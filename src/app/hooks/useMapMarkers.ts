@@ -6,7 +6,7 @@ import { updatePOI, updateIncident } from "../services/backend";
 
 interface UseMapMarkersOptions {
   mapRef: React.RefObject<maplibregl.Map | null>;
-  markersRef: React.RefObject<maplibregl.Marker[]>;
+  markersRef: React.MutableRefObject<maplibregl.Marker[]>;
   hasFittedRef: React.MutableRefObject<boolean>;
   filteredBottlenecks: Bottleneck[];
   incidents: Incident[];

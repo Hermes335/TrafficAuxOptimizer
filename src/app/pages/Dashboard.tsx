@@ -121,8 +121,9 @@ export function Dashboard() {
   }, [ba.selectedBottleneckId]);
 
   // --- Weather derived ---
-  const weatherLabel = weatherSnapshot.condition.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-  const weatherStatusTone = weatherSnapshot.weather_impact_factor >= 1.7 ? "Severe" : weatherSnapshot.weather_impact_factor >= 1.3 ? "Moderate" : "Clear";
+  const weatherLabel = (weatherSnapshot.condition ?? "weather unavailable").replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  const weatherImpactFactor = weatherSnapshot.weather_impact_factor ?? 1;
+  const weatherStatusTone = weatherImpactFactor >= 1.7 ? "Severe" : weatherImpactFactor >= 1.3 ? "Moderate" : "Clear";
   const weatherStyle = weatherStatusTone === "Severe"
     ? { overlayClass: "bg-slate-700/18", blurClass: "backdrop-blur-[0.8px]", gradient: "radial-gradient(circle at 30% 35%, rgba(71, 85, 105, 0.40) 0%, transparent 52%), radial-gradient(circle at 70% 65%, rgba(30, 41, 59, 0.32) 0%, transparent 54%)", chipClass: "bg-rose-500 text-white", bannerClass: "bg-rose-500 text-white", iconClass: "text-rose-100", icon: CloudRain }
     : weatherStatusTone === "Moderate"
@@ -305,7 +306,7 @@ export function Dashboard() {
                 savingEditBottleneck={ba.savingEditBottleneck}
               />
             )}
-            <WeatherOverlay showWeatherOverlay={showWeatherOverlay} weatherStyle={weatherStyle} WeatherIndicatorIcon={WeatherIndicatorIcon} weatherLabel={weatherLabel} weatherStatusTone={weatherStatusTone} weatherImpactFactor={weatherSnapshot.weather_impact_factor} />
+            <WeatherOverlay showWeatherOverlay={showWeatherOverlay} weatherStyle={weatherStyle} WeatherIndicatorIcon={WeatherIndicatorIcon} weatherLabel={weatherLabel} weatherStatusTone={weatherStatusTone} weatherImpactFactor={weatherImpactFactor} />
           </div>
 
           <IncidentModal showIncidentModal={showIncidentModal} onClose={() => setShowIncidentModal(false)} selectedIncident={selectedIncident} incidentHeadline={incidentHeadline} incidentLocation={incidentLocation} />

@@ -1,43 +1,55 @@
 """
 Field test comparison: Manual ICTTMO vs Optimized deployment.
 
-Compares manual assignments (imported via CSV) against optimized assignments
-for the Diversion Road + Jaro test district.
+ Compares manual assignments (imported via CSV) against optimized assignments
+ for an explicitly selected bottleneck name or district.
 
 Usage:
-    python manage.py field_test_compare --shift afternoon
+    python manage.py field_test_compare --location "Atrium Rotonda" --shift afternoon
 """
+import csv
 from collections import defaultdict
+from pathlib import Path
 
 from django.core.management.base import BaseCommand
+from django.db.models import Q
 
 from core.models import Bottleneck, Deployment
-
-
-TEST_DISTRICT = "Diversion Road + Jaro"
 
 
 class Command(BaseCommand):
     help = "Compare manual vs optimized deployments for field test"
 
     def add_arguments(self, parser):
+        parser.add_argument("--location", type=str, required=True, help="Exact bottleneck name or district to compare")
         parser.add_argument("--shift", type=str, default="afternoon", help="Shift to compare")
+        parser.add_argument(
+            "--observations-csv",
+            type=str,
+            default="",
+            help="Optional field observations CSV; raw TSI values are checked but never normalized or compared",
+        )
 
     def handle(self, *args, **options):
+        location = options["location"].strip()
         shift = options["shift"]
+        observations_csv = options["observations_csv"]
 
-        # Get test district bottlenecks
+        # Match either an explicitly selected bottleneck name or district.
         bottlenecks = list(Bottleneck.objects.filter(
-            is_deleted=False, district=TEST_DISTRICT
+            Q(name__iexact=location) | Q(district__iexact=location),
+            is_deleted=False,
         ).values("id", "name", "latitude", "longitude", "tsi", "road_priority_weight"))
 
         if not bottlenecks:
-            self.stdout.write(self.style.ERROR(f"No bottlenecks found in district: {TEST_DISTRICT}"))
+            self.stdout.write(self.style.ERROR(f"No bottlenecks found for location: {location}"))
             return
+
+        self._report_observation_tsi(observations_csv)
 
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("=" * 60))
-        self.stdout.write(self.style.SUCCESS(f"FIELD TEST COMPARISON - {TEST_DISTRICT}"))
+        self.stdout.write(self.style.SUCCESS(f"FIELD TEST COMPARISON - {location}"))
         self.stdout.write(self.style.SUCCESS("=" * 60))
         self.stdout.write("")
 
@@ -112,8 +124,10 @@ class Command(BaseCommand):
         # TSI Comparison
         self.stdout.write("")
         self.stdout.write("-" * 40)
-        self.stdout.write("TRAFFIC SEVERITY (TSI)")
+        self.stdout.write("APPLICATION TRAFFIC SEVERITY (NORMALIZED TSI)")
         self.stdout.write("-" * 40)
+        self.stdout.write("Database TSI values below use the application-normalized [0,1] scale.")
+        self.stdout.write("No quantitative comparison with raw field-observation TSI is performed.")
 
         for bn in bottlenecks:
             tsi = bn.get("tsi", 0) or 0
@@ -137,7 +151,7 @@ class Command(BaseCommand):
             self.stdout.write(f"  Officers:  Manual {manual_officers} -> Optimized {opt_officers} ({sign_o}{officers_delta})")
         elif manual_count == 0:
             self.stdout.write(self.style.WARNING(""))
-            self.stdout.write(self.style.WARNING("  No manual deployments found for this district/shift."))
+            self.stdout.write(self.style.WARNING("  No manual deployments found for this location/shift."))
             self.stdout.write("  Import manual data with: python manage.py import_icttmo_schedule --csv path/to/file.csv")
         elif opt_count == 0:
             self.stdout.write(self.style.WARNING(""))
@@ -145,3 +159,29 @@ class Command(BaseCommand):
             self.stdout.write("  Run optimization and publish results first.")
 
         self.stdout.write("")
+
+    def _report_observation_tsi(self, observations_csv: str):
+        if not observations_csv:
+            return
+
+        try:
+            with Path(observations_csv).open(newline="", encoding="utf-8-sig") as handle:
+                rows = list(csv.DictReader(handle))
+        except OSError as exc:
+            self.stdout.write(self.style.WARNING(f"Could not read field observations CSV: {exc}"))
+            return
+
+        raw_values = []
+        for row in rows:
+            try:
+                raw_values.append(float(row["TSI"]))
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        if any(value < 0 or value > 1 for value in raw_values):
+            self.stdout.write(self.style.WARNING(
+                "Field observation TSI is not comparable to application TSI: "
+                "values fall outside the documented [0,1] range. No conversion was applied."
+            ))
+        else:
+            self.stdout.write("Field observation TSI values are within [0,1]; source semantics still require confirmation.")
