@@ -72,3 +72,29 @@ def test_ga_returns_top_three_and_history(parameters):
     assert len(result.top_solutions) == 3
     assert result.best_fitness > 0
     assert all("assignments" in row for row in result.top_solutions)
+
+
+def test_ga_never_keeps_a_bottleneck_over_its_staffing_cap():
+    optimizer = GeneticDeploymentOptimizer(seed=11)
+    officers = [{"id": index, "badge_number": f"OFC-{index:03d}", "current_latitude": 10.72, "current_longitude": 122.56} for index in range(1, 9)]
+    bottlenecks = [
+        {
+            "id": "B-CAPPED",
+            "name": "Capped Junction",
+            "latitude": 10.72,
+            "longitude": 122.56,
+            "road_priority_weight": 2.0,
+            "tsi": 0.9,
+            "max_officers_allowed": 2,
+        },
+    ]
+
+    result = optimizer.run(
+        officers=officers,
+        bottlenecks=bottlenecks,
+        parameters={"population_size": 60, "generations": 50, "mutation_rate": 0.1, "crossover_rate": 0.8, "elitism_count": 3},
+        weather_impact_factor=1.0,
+    )
+
+    for solution in result.top_solutions:
+        assert len(solution["assignments"]) <= 2

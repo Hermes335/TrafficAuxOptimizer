@@ -73,6 +73,8 @@ def run_optimization(run_id: str):
             "longitude": bottleneck.longitude,
             "road_priority_weight": bottleneck.road_priority_weight,
             "tsi": tsi_val,
+            "min_officers_required": bottleneck.min_officers_required,
+            "max_officers_allowed": bottleneck.max_officers_allowed,
         })
 
     synthetic_flags = []

@@ -302,17 +302,13 @@ class GeneticDeploymentOptimizer:
         if coverage_ratio < min_coverage:
             violations.append(f"coverage_below_{min_coverage:.0%}:{coverage_ratio:.2f}")
 
-        # Constraint 2: No severe over-assignment
-        # Allow up to 3x the fair share (total_officers / total_bottlenecks)
-        # This accounts for the reality that officer count may far exceed bottleneck count
-        fair_share = len(officers) / max(1, len(bottlenecks))
-        max_allowed = max(4, int(fair_share * 3))
-
+        # Constraint 2: Respect each bottleneck's operational staffing cap.
         bottleneck_counts: dict[int, int] = {}
         for idx in chromosome:
             if 0 <= idx < len(bottlenecks):
                 bottleneck_counts[idx] = bottleneck_counts.get(idx, 0) + 1
         for b_idx, count in bottleneck_counts.items():
+            max_allowed = max(1, int(bottlenecks[b_idx].get("max_officers_allowed", 5)))
             if count > max_allowed:
                 violations.append(f"over_assigned:{bottlenecks[b_idx].get('id', b_idx)}:{count}>{max_allowed}")
 
@@ -524,13 +520,21 @@ class GeneticDeploymentOptimizer:
 
     # ─── Population initialization ────────────────────────────────────────
 
-    def _init_population(self, population_size: int, officer_count: int, bottleneck_count: int, poi_nearby: list[int] | None = None) -> list[list[int]]:
+    def _init_population(
+        self,
+        population_size: int,
+        officer_count: int,
+        bottleneck_count: int,
+        poi_nearby: list[int] | None = None,
+        max_officers_allowed: list[int] | None = None,
+    ) -> list[list[int]]:
         """Initialize population with feasibility-checked chromosomes.
         Ensures minimum coverage (each bottleneck gets at least one officer if possible)
         before distributing remaining officers randomly. POI-nearby bottlenecks are
         prioritized and guaranteed coverage first."""
         population = []
         poi_set = set(poi_nearby or [])
+        caps = max_officers_allowed or [officer_count] * bottleneck_count
         poi_bottlenecks = [b for b in range(bottleneck_count) if b in poi_set]
         other_bottlenecks = [b for b in range(bottleneck_count) if b not in poi_set]
         min_coverage_target = min(bottleneck_count, officer_count)
@@ -554,7 +558,11 @@ class GeneticDeploymentOptimizer:
 
             # Phase 3: Distribute remaining officers randomly
             while len(chromosome) < officer_count:
-                chromosome.append(self.rng.randrange(0, bottleneck_count))
+                available = [
+                    b for b in range(bottleneck_count)
+                    if chromosome.count(b) < max(1, int(caps[b]))
+                ]
+                chromosome.append(self.rng.choice(available) if available else -1)
 
             # Shuffle so the coverage officers aren't always first
             self.rng.shuffle(chromosome)
@@ -614,6 +622,26 @@ class GeneticDeploymentOptimizer:
             bottleneck_officers[donor_bn].remove(donor_officer)
             bottleneck_officers[bottleneck_idx] = [donor_officer]
 
+    @staticmethod
+    def _repair_capacity(chromosome: list[int], bottlenecks: list[dict]):
+        """Move excess officers to the unassigned slot until every cap is met."""
+        counts: dict[int, int] = {}
+        for bottleneck_idx in chromosome:
+            if 0 <= bottleneck_idx < len(bottlenecks):
+                counts[bottleneck_idx] = counts.get(bottleneck_idx, 0) + 1
+
+        for bottleneck_idx, count in counts.items():
+            cap = max(1, int(bottlenecks[bottleneck_idx].get("max_officers_allowed", 5)))
+            excess = count - cap
+            if excess <= 0:
+                continue
+            for officer_idx in range(len(chromosome) - 1, -1, -1):
+                if excess <= 0:
+                    break
+                if chromosome[officer_idx] == bottleneck_idx:
+                    chromosome[officer_idx] = -1
+                    excess -= 1
+
     # ─── Main run loop ────────────────────────────────────────────────────
 
     def run(
@@ -646,7 +674,17 @@ class GeneticDeploymentOptimizer:
         # Pre-compute distance matrix (avoids repeated geodesic calls in fitness loop)
         distance_matrix = self._precompute_distance_matrix(officers, bottlenecks)
 
-        pop = self._init_population(config["population_size"], len(officers), len(bottlenecks), poi_nearby)
+        max_officers_allowed = [
+            max(1, int(bottleneck.get("max_officers_allowed", 5)))
+            for bottleneck in bottlenecks
+        ]
+        pop = self._init_population(
+            config["population_size"],
+            len(officers),
+            len(bottlenecks),
+            poi_nearby,
+            max_officers_allowed,
+        )
         generation_fitness: list[float] = []
         hypervolume_history: list[float] = []
         no_improvement_count = 0
@@ -740,6 +778,8 @@ class GeneticDeploymentOptimizer:
                 # Repair operator: ensure minimum coverage after genetic operators
                 self._repair_coverage(child1, len(bottlenecks), poi_nearby)
                 self._repair_coverage(child2, len(bottlenecks), poi_nearby)
+                self._repair_capacity(child1, bottlenecks)
+                self._repair_capacity(child2, bottlenecks)
                 next_population.append(child1)
                 if len(next_population) < config["population_size"]:
                     next_population.append(child2)
@@ -789,6 +829,8 @@ class GeneticDeploymentOptimizer:
         for rank, (chromosome, metrics) in enumerate(population, start=1):
             assignments = []
             for officer_idx, bottleneck_idx in enumerate(chromosome):
+                if bottleneck_idx < 0 or bottleneck_idx >= len(bottlenecks):
+                    continue
                 officer = officers[officer_idx]
                 bottleneck = bottlenecks[bottleneck_idx]
                 assignments.append({

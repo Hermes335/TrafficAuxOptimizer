@@ -28,6 +28,8 @@ class BottleneckSerializer(serializers.ModelSerializer):
             "road_priority_weight",
             "tsi",
             "heatmap_tsi",
+            "min_officers_required",
+            "max_officers_allowed",
             "is_archived",
             "district",
             "bottleneck_type",

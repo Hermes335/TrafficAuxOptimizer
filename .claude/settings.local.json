@@ -4,12 +4,12 @@
     "ANTHROPIC_BASE_URL": "https://openrouter.ai/api",
     "ANTHROPIC_AUTH_TOKEN": "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",
     "ANTHROPIC_API_KEY": "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",
-    "ANTHROPIC_MODEL": "dots-studio/dots-3-note-preview:free",
-    "ANTHROPIC_DEFAULT_SONNET_MODEL": "dots-studio/dots-3-note-preview:free",
-    "ANTHROPIC_DEFAULT_OPUS_MODEL": "dots-studio/dots-3-note-preview:free",
-    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "dots-studio/dots-3-note-preview:free",
-    "ANTHROPIC_SMALL_FAST_MODEL": "dots-studio/dots-3-note-preview:free",
-    "CLAUDE_CODE_SUBAGENT_MODEL": "dots-studio/dots-3-note-preview:free"
+    "ANTHROPIC_MODEL": "unbiased/pareto",
+    "ANTHROPIC_DEFAULT_SONNET_MODEL": "unbiased/pareto",
+    "ANTHROPIC_DEFAULT_OPUS_MODEL": "unbiased/pareto",
+    "ANTHROPIC_DEFAULT_HAIKU_MODEL": "unbiased/pareto",
+    "ANTHROPIC_SMALL_FAST_MODEL": "unbiased/pareto",
+    "CLAUDE_CODE_SUBAGENT_MODEL": "unbiased/pareto"
   },
   "permissions": {
     "allow": [
@@ -28,7 +28,7 @@
   },
   "model": "sonnet",
   "modelSettings": {
-    "dots-studio/dots-3-note-preview:free": {
+    "unbiased/pareto": {
       "effortLevel": "xhigh"
     }
   }

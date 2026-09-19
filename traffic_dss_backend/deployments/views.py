@@ -109,6 +109,18 @@ class DeploymentAssignView(APIView):
 				status=status.HTTP_409_CONFLICT
 			)
 
+		assigned_count = Deployment.objects.filter(
+			is_deleted=False,
+			bottleneck=bottleneck,
+			shift=shift,
+			status="assigned",
+		).count()
+		if assigned_count >= max(1, bottleneck.max_officers_allowed):
+			return Response(
+				{"detail": f"{bottleneck.name} already has its maximum of {bottleneck.max_officers_allowed} officers for the {shift} shift."},
+				status=status.HTTP_400_BAD_REQUEST,
+			)
+
 		# Validation Rule 4: Respect the active roster cap. Only 60 officers may remain active.
 		active_roster_cap = 60
 		active_officer_count = Officer.objects.filter(is_deleted=False, status="available").count()
@@ -214,6 +226,19 @@ class DeploymentPublishOptimizationView(APIView):
 		assignments = (top_solutions[0] or {}).get("assignments") or []
 		if not assignments:
 			return Response({"detail": "Top solution has no assignments to deploy."}, status=status.HTTP_400_BAD_REQUEST)
+
+		assignment_counts = {}
+		for item in assignments:
+			bottleneck_id = item.get("bottleneck_id")
+			bottleneck = Bottleneck.objects.filter(pk=bottleneck_id, is_deleted=False).first()
+			if not bottleneck:
+				continue
+			assignment_counts[bottleneck_id] = assignment_counts.get(bottleneck_id, 0) + 1
+			if assignment_counts[bottleneck_id] > max(1, bottleneck.max_officers_allowed):
+				return Response(
+					{"detail": f"Optimization result exceeds the maximum of {bottleneck.max_officers_allowed} officers for {bottleneck.name}. Re-run optimization."},
+					status=status.HTTP_400_BAD_REQUEST,
+				)
 
 		payload = request.data or {}
 		shift = str(payload.get("shift") or (run.parameters or {}).get("shift") or "afternoon").strip()

@@ -170,6 +170,8 @@ class DashboardBottlenecksView(APIView):
 					"assigned_officer_count": assigned_count,
 					"required_officer_count": required_officers,
 					"required_officers": required_officers,
+					"min_officers_required": b.min_officers_required,
+					"max_officers_allowed": b.max_officers_allowed,
 					"staffing_gap": staffing_gap,
 					"coverage_status": coverage_status,
 					"operational_alerts": operational_alerts,
