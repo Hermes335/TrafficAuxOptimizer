@@ -63,6 +63,7 @@ export function Dashboard() {
     mapRef: map.mapRef,
     addMode: ba.addMode,
     setAddMode: ba.setAddMode,
+    setPendingPoint: ba.setPendingPoint,
     editPickFromMap: ba.editPickFromMap,
     setEditLatitude: ba.setEditLatitude,
     setEditLongitude: ba.setEditLongitude,
@@ -289,6 +290,30 @@ export function Dashboard() {
           </div>
 
           {ba.addMode && <div className="absolute left-1/2 top-20 z-20 -translate-x-1/2 rounded-full bg-orange-500 px-6 py-2 text-sm font-bold text-white shadow-lg animate-pulse">Click map to place {ba.addMode}</div>}
+
+          {ba.addMode === "bottleneck" && ba.pendingPoint && (
+            <form
+              onSubmit={(event) => { event.preventDefault(); void ba.onCreateBottleneck(); }}
+              className="absolute right-4 top-20 z-30 w-72 space-y-3 rounded-xl bg-white p-4 shadow-xl"
+            >
+              <h3 className="font-semibold text-gray-900">Add bottleneck</h3>
+              <p className="text-xs text-gray-600">Location: {ba.pendingPoint.latitude}, {ba.pendingPoint.longitude}</p>
+              <input aria-label="Bottleneck name" required placeholder="Name" value={ba.newBottleneckName} onChange={(event) => ba.setNewBottleneckName(event.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
+              <input aria-label="Bottleneck ID" placeholder="ID (optional)" value={ba.newBottleneckId} onChange={(event) => ba.setNewBottleneckId(event.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
+              <input aria-label="District" placeholder="District" value={ba.newBottleneckDistrict} onChange={(event) => ba.setNewBottleneckDistrict(event.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
+              <select aria-label="Bottleneck type" value={ba.newBottleneckType} onChange={(event) => ba.setNewBottleneckType(event.target.value)} className="w-full rounded border px-3 py-2 text-sm">
+                <option value="intersection">Intersection</option><option value="bridge">Bridge</option><option value="school_zone">School zone</option><option value="market">Market</option><option value="terminal">Terminal</option><option value="other">Other</option>
+              </select>
+              <label className="block text-xs text-gray-600">Road priority weight
+                <input type="number" min="0.01" step="0.01" required value={ba.newBottleneckWeight} onChange={(event) => ba.setNewBottleneckWeight(event.target.value)} className="mt-1 w-full rounded border px-3 py-2 text-sm" />
+              </label>
+              {data.bottleneckActionError && <p role="alert" className="text-sm text-red-600">{data.bottleneckActionError}</p>}
+              <div className="flex gap-2">
+                <button type="submit" disabled={data.savingBottleneck} className="rounded bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{data.savingBottleneck ? "Saving…" : "Create"}</button>
+                <button type="button" onClick={() => { ba.setPendingPoint(null); ba.setAddMode(null); }} className="rounded border px-3 py-2 text-sm">Cancel</button>
+              </div>
+            </form>
+          )}
 
           <div className="relative h-full w-full overflow-hidden bg-gray-100">
             <div ref={map.mapContainerRef} className="h-full w-full" />

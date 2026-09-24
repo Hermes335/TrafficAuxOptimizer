@@ -6,6 +6,7 @@ interface UseMapClickHandlerOptions {
   mapRef: React.RefObject<maplibregl.Map | null>;
   addMode: "bottleneck" | "incident" | "poi" | null;
   setAddMode: (v: null) => void;
+  setPendingPoint: (point: { latitude: number; longitude: number }) => void;
   editPickFromMap: boolean;
   setEditLatitude: (v: string) => void;
   setEditLongitude: (v: string) => void;
@@ -20,6 +21,7 @@ export function useMapClickHandler({
   mapRef,
   addMode,
   setAddMode,
+  setPendingPoint,
   editPickFromMap,
   setEditLatitude,
   setEditLongitude,
@@ -39,26 +41,11 @@ export function useMapClickHandler({
 
       if (addMode) {
         if (addMode === "bottleneck") {
-          const id = `B-${Math.floor(Math.random() * 10000)}`;
-          const newBottleneck = {
-            id,
-            name: `New Bottleneck ${id}`,
-            status: "warning" as const,
-            latitude,
-            longitude,
-            tsi: 0.5,
-            road_priority_weight: 1.0,
-            weather_impact_factor: 1.0,
-            deployed_officers: 0,
-            required_officers: 2,
-            assigned_officers: [] as Array<{ name: string; badge_number: string }>,
-          };
-          setDashboardSnapshot((prev) => ({
-            ...prev,
-            bottlenecks: [...prev.bottlenecks, newBottleneck],
-          }));
-          setSelectedBottleneckId(id);
-          setAddMode(null);
+          // Store the clicked coordinates for the bottleneck creation form
+          // Do NOT create a local bottleneck - let the user fill the form and submit via API
+          setPendingPoint({ latitude, longitude });
+          // Keep addMode as "bottleneck" so the form stays open
+          // The form will use pendingPoint for latitude/longitude when submitted
         } else if (addMode === "incident") {
           const id = Math.floor(Math.random() * 10000);
           setDashboardSnapshot((prev) => ({
@@ -100,5 +87,5 @@ export function useMapClickHandler({
       map.getCanvas().style.cursor = "";
       map.off("click", onMapClick);
     };
-  }, [addMode, editPickFromMap, mapRef, setAddMode, setDashboardSnapshot, setSelectedBottleneckId, setPois, setEditLatitude, setEditLongitude, setBottleneckActionError, setBottleneckActionNotice]);
+  }, [addMode, editPickFromMap, mapRef, setAddMode, setPendingPoint, setDashboardSnapshot, setSelectedBottleneckId, setPois, setEditLatitude, setEditLongitude, setBottleneckActionError, setBottleneckActionNotice]);
 }
