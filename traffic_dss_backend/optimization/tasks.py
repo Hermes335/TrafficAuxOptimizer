@@ -1,203 +1,92 @@
-from datetime import timedelta
+from hashlib import sha256
 
-from asgiref.sync import async_to_sync
-from channels.layers import get_channel_layer
 from celery import shared_task
 from django.utils import timezone
 
 from core.models import Bottleneck, Incident, Officer, OptimizationRun, POI, WeatherData
+from core.realtime import broadcast
+from core.staffing import required_staffing
 from .engine import GeneticDeploymentOptimizer
 from .progress_store import save_progress
 
 
-def _broadcast_progress(run_id: str, payload: dict):
-    channel_layer = get_channel_layer()
-    if channel_layer is None:
-        return
-    async_to_sync(channel_layer.group_send)(
-        f"optimization_{run_id}",
-        {
-            "type": "optimization_event",
-            "data": payload,
-        },
-    )
+def _broadcast_progress(run_id, payload):
+    broadcast(f"optimization_{run_id}", "optimization_event", payload)
+
+
+def capture_inputs(params):
+    officers = list(Officer.objects.filter(is_deleted=False, status__in=["available", "deployed"],
+        shift=params.get("shift", "afternoon")).order_by("id").values("id", "badge_number", "current_latitude", "current_longitude"))
+    bottlenecks = []
+    for b in Bottleneck.objects.filter(is_deleted=False, is_archived=False).order_by("id"):
+        observation = b.traffic_data.filter(is_deleted=False).order_by("-timestamp").first()
+        bottlenecks.append({
+            "id": b.id, "name": b.name, "latitude": b.latitude, "longitude": b.longitude,
+            "road_priority_weight": b.road_priority_weight, "tsi": b.tsi,
+            "min_officers_required": required_staffing(b, b.incidents.filter(is_deleted=False, status__in=["active", "investigating"])), "max_officers_allowed": b.max_officers_allowed,
+            "provenance": {"value_origin": "bottleneck.tsi", "source": observation.source if observation else "manual",
+                "is_synthetic": bool(observation and observation.is_synthetic),
+                "data_status": observation.data_status if observation else "unverified",
+                "is_stale": bool(observation and (observation.is_stale or (timezone.now() - observation.timestamp).total_seconds() > 900)),
+                "observed_at": observation.observed_at.isoformat() if observation and observation.observed_at else None,
+                "fetched_at": observation.fetched_at.isoformat() if observation and observation.fetched_at else None},
+        })
+    weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
+    return officers, bottlenecks, weather
 
 
 @shared_task
-def run_optimization(run_id: str):
-    run = OptimizationRun.objects.select_related("created_by").get(run_id=run_id)
-    params = run.parameters or {}
-    optimizer = GeneticDeploymentOptimizer()
-
-    if run.status == "cancelled":
-        cancelled_payload = {
-            "event": "optimization_cancelled",
-            "run_id": run_id,
-            "status": "cancelled",
-            "current_generation": 0,
-            "total_generations": int(params.get("generations", 300)),
-            "current_fitness": 0.0,
-            "updated_at": timezone.now().isoformat(),
-        }
-        save_progress(run_id, cancelled_payload)
-        _broadcast_progress(run_id, cancelled_payload)
-        return {"run_id": run_id, "best_fitness": 0.0, "status": "cancelled"}
-
-    officers_qs = Officer.objects.filter(
-        is_deleted=False,
-        status__in=["available", "deployed"],
-        shift=params.get("shift", "afternoon"),
-    ).order_by("id")
-    officers = [
-        {
-            "id": officer.id,
-            "badge_number": officer.badge_number,
-            "current_latitude": officer.current_latitude,
-            "current_longitude": officer.current_longitude,
-        }
-        for officer in officers_qs
-    ]
-
-    bottlenecks_qs = Bottleneck.objects.filter(is_deleted=False).order_by("id")
-    bottlenecks = []
-    for bottleneck in bottlenecks_qs:
-        # TSI priority: bottleneck.tsi field > latest TrafficData record > 0.0
-        tsi_val = float(bottleneck.tsi) if bottleneck.tsi and bottleneck.tsi > 0 else (
-            bottleneck.traffic_data.filter(is_deleted=False).order_by("-timestamp").values_list("traffic_severity_index", flat=True).first()
-            or 0.0
-        )
-        bottlenecks.append({
-            "id": bottleneck.id,
-            "name": bottleneck.name,
-            "latitude": bottleneck.latitude,
-            "longitude": bottleneck.longitude,
-            "road_priority_weight": bottleneck.road_priority_weight,
-            "tsi": tsi_val,
-            "min_officers_required": bottleneck.min_officers_required,
-            "max_officers_allowed": bottleneck.max_officers_allowed,
-        })
-
-    synthetic_flags = []
-
-    all_weights = [b["road_priority_weight"] for b in bottlenecks]
-    if len(set(all_weights)) == 1:
-        for i, bottleneck in enumerate(bottlenecks):
-            bottleneck["road_priority_weight"] = 0.5 + (i % 3) * 0.3
-        synthetic_flags.append("road_priority_weight")
-
-    tsi_values = [b["tsi"] for b in bottlenecks]
-    if all(tsi == 0.0 for tsi in tsi_values):
-        for i, bottleneck in enumerate(bottlenecks):
-            bottleneck["tsi"] = 0.3 + (i % 5) * 0.12
-        synthetic_flags.append("tsi")
-
-    weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
-    wif = float(getattr(weather, "weather_impact_factor", 1.0))
-
-    # Fetch active incidents with location data
-    active_incidents = list(
-        Incident.objects.filter(
-            is_deleted=False, status="active", latitude__isnull=False, longitude__isnull=False
-        ).values("latitude", "longitude", "severity", "incident_type")
-    )
-
-    run.status = "running"
-    run.save(update_fields=["status", "updated_at"])
-
-    total_generations = max(50, min(1000, int(params.get("generations", 300))))
-
-    start_time = timezone.now()
-
-    def progress_callback(current_generation: int, _: int, current_fitness: float):
-        elapsed = (timezone.now() - start_time).total_seconds()
-        rate = current_generation / max(elapsed, 1)
-        remaining = (total_generations - current_generation) / max(rate, 0.001)
-        est_completion = (timezone.now() + timedelta(seconds=remaining)).isoformat()
-
-        payload = {
-            "event": "optimization_progress",
-            "run_id": run_id,
-            "status": "running",
-            "current_generation": current_generation,
-            "total_generations": total_generations,
-            "current_fitness": round(current_fitness, 4),
-            "estimated_completion": est_completion,
-            "updated_at": timezone.now().isoformat(),
-        }
+def run_optimization(run_id):
+    # Conditional transitions prevent late worker writes from reviving cancelled runs.
+    if not OptimizationRun.objects.filter(run_id=run_id, status="queued").update(status="running", updated_at=timezone.now()):
+        return {"run_id": run_id, "status": OptimizationRun.objects.get(run_id=run_id).status}
+    run = OptimizationRun.objects.get(run_id=run_id)
+    params = run.parameters
+    try:
+        officers, bottlenecks, weather = capture_inputs(params)
+        wif = float(weather.weather_impact_factor) if weather else 1.0
+        incidents = list(Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"],
+            latitude__isnull=False, longitude__isnull=False).values("latitude", "longitude", "severity", "incident_type"))
+        pois = list(POI.objects.filter(is_deleted=False, is_active=True).values("latitude", "longitude", "priority_boost"))
+        input_snapshot = {"officers": officers, "bottlenecks": [dict(b) for b in bottlenecks],
+            "weather": {"impact_factor": wif if weather else None, "source": weather.source if weather else "missing",
+                "data_status": weather.data_status if weather else "missing",
+                "is_synthetic": bool(weather and weather.is_synthetic),
+                "observed_at": weather.timestamp.isoformat() if weather else None,
+                "is_stale": bool(weather and (weather.is_stale or (timezone.now() - weather.timestamp).total_seconds() > 1800)),
+                "assumption": None if weather else "Neutral travel multiplier; weather unavailable"},
+            "incidents": incidents, "pois": pois,
+            "travel_time_model": {"speed_kmh": "max(8, 28 * (1 - TSI))", "missing_officer_location_distance_km": 3.0},
+            "captured_at": timezone.now().isoformat()}
+        def progress(generation, total, fitness):
+            if not OptimizationRun.objects.filter(pk=run.pk, status="running").exists():
+                return
+            payload = {"event": "optimization_progress", "run_id": run_id, "status": "running",
+                "current_generation": generation, "total_generations": total, "current_fitness": fitness}
+            save_progress(run_id, payload)
+            _broadcast_progress(run_id, payload)
+        result = GeneticDeploymentOptimizer().run(officers=officers, bottlenecks=bottlenecks, parameters=params,
+            weather_impact_factor=wif, incidents=incidents, pois=pois,
+            seed=int(sha256(run_id.encode()).hexdigest()[:8], 16), progress_callback=progress,
+            cancel_check=lambda: not OptimizationRun.objects.filter(pk=run.pk, status="running").exists())
+        result_data = {"top_solutions": result.top_solutions, "weather_impact_factor": wif,
+            "synthetic_data_used": (["weather"] if weather and weather.is_synthetic else []) + [b["id"] for b in bottlenecks if b["provenance"]["is_synthetic"]], "input_snapshot": input_snapshot,
+            "pareto_curve_data": result.pareto_curve_data, "converged_early": result.converged_early}
+        changed = OptimizationRun.objects.filter(pk=run.pk, status="running").update(status=result.status,
+            fitness_scores=result.generation_fitness, result_data=result_data, updated_at=timezone.now())
+        if not changed:
+            return {"run_id": run_id, "status": "cancelled"}
+        payload = {"event": "optimization_complete" if result.status == "completed" else "optimization_" + result.status,
+            "run_id": run_id, "status": result.status, "current_generation": len(result.generation_fitness),
+            "total_generations": params.get("generations", 300), "current_fitness": result.best_fitness}
         save_progress(run_id, payload)
         _broadcast_progress(run_id, payload)
-
-    # Fetch active POIs for priority boost
-    pois = [
-        {"latitude": p.latitude, "longitude": p.longitude, "priority_boost": p.priority_boost}
-        for p in POI.objects.filter(is_deleted=False, is_active=True)
-    ]
-
-    try:
-        run_seed = int(run_id.replace('opt-', '').replace('-', '')) % (2**31)
-        result = optimizer.run(
-            officers=officers,
-            bottlenecks=bottlenecks,
-            parameters=params,
-            weather_impact_factor=wif,
-            incidents=active_incidents,
-            pois=pois if pois else None,
-            seed=run_seed,
-            progress_callback=progress_callback,
-            cancel_check=lambda: OptimizationRun.objects.filter(run_id=run_id, is_deleted=False, status="cancelled").exists(),
-        )
+        broadcast("dashboard_live", "dashboard_event", payload)
+        return payload
     except Exception as exc:
-        run.status = "failed"
-        run.result_data = {"error": str(exc)}
-        run.save(update_fields=["status", "result_data", "updated_at"])
-        failure_payload = {
-                "event": "optimization_failed",
-            "run_id": run_id,
-            "status": "failed",
-            "error": str(exc),
-            "updated_at": timezone.now().isoformat(),
-        }
-        save_progress(run_id, failure_payload)
-        _broadcast_progress(run_id, failure_payload)
+        if OptimizationRun.objects.filter(pk=run.pk, status="running").update(
+                status="failed", result_data={"error": str(exc)}, updated_at=timezone.now()):
+            payload = {"event": "optimization_failed", "run_id": run_id, "status": "failed", "error": str(exc)}
+            save_progress(run_id, payload)
+            _broadcast_progress(run_id, payload)
         raise
-
-    run.fitness_scores = result.generation_fitness
-    run.result_data = {
-        "top_solutions": result.top_solutions,
-        "weather_impact_factor": wif,
-        "synthetic_data_used": synthetic_flags if synthetic_flags else None,
-        "pareto_curve_data": result.pareto_curve_data,
-        "converged_early": result.converged_early,
-    }
-    run.status = result.status
-    run.save(update_fields=["fitness_scores", "result_data", "status", "updated_at"])
-
-    if result.status != "completed":
-        event_name = "optimization_cancelled" if result.status == "cancelled" else "optimization_failed"
-        failed_payload = {
-            "event": event_name,
-            "run_id": run_id,
-            "status": result.status,
-            "current_generation": len(result.generation_fitness),
-            "total_generations": total_generations,
-            "current_fitness": round(result.best_fitness, 4),
-            "updated_at": timezone.now().isoformat(),
-        }
-        save_progress(run_id, failed_payload)
-        _broadcast_progress(run_id, failed_payload)
-        return {"run_id": run_id, "best_fitness": result.best_fitness, "status": result.status}
-
-    completed_payload = {
-        "event": "optimization_complete",
-        "run_id": run_id,
-        "status": "completed",
-        "current_generation": total_generations,
-        "total_generations": total_generations,
-        "current_fitness": round(result.best_fitness, 4),
-        "estimated_completion": timezone.now().isoformat(),
-        "updated_at": timezone.now().isoformat(),
-    }
-    save_progress(run_id, completed_payload)
-    _broadcast_progress(run_id, completed_payload)
-
-    return {"run_id": run_id, "best_fitness": result.best_fitness, "status": result.status}

@@ -7,6 +7,7 @@ interface BottleneckDetailPanelProps {
   onClose: () => void;
   onDelete: (id: string) => Promise<void>;
   deletingId: string | null;
+  canManage: boolean;
 }
 
 export function BottleneckDetailPanel({
@@ -14,9 +15,10 @@ export function BottleneckDetailPanel({
   onClose,
   onDelete,
   deletingId,
+  canManage,
 }: BottleneckDetailPanelProps) {
   const tsiPercent = Math.round((bottleneck.tsi ?? 0) * 100);
-  const weatherImpact = bottleneck.weather_impact_factor ?? 1.0;
+  const weatherImpact = bottleneck.weather_impact_factor;
   const assignedOfficers = bottleneck.assigned_officers ?? [];
   const deployedCount = bottleneck.deployed_officers ?? assignedOfficers.length;
   const requiredCount = bottleneck.required_officers ?? 2;
@@ -32,7 +34,7 @@ export function BottleneckDetailPanel({
           <MapPin className="h-5 w-5 text-blue-600" />
           <h3 className="font-semibold text-blue-900">Bottleneck Details</h3>
         </div>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600">
+        <button aria-label="Close bottleneck details" onClick={onClose} className="text-gray-400 hover:text-gray-600">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -69,11 +71,11 @@ export function BottleneckDetailPanel({
           <div className="text-xs font-semibold text-gray-600">WEATHER IMPACT FACTOR (WIF)</div>
           <div className="flex items-center gap-2">
             <span className={`text-2xl font-bold ${weatherColor}`}>
-              {weatherImpact.toFixed(2)}x
+              {weatherImpact == null ? "Unavailable" : weatherImpact.toFixed(2) + "x"}
             </span>
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            {weatherImpact >= 1.7 ? "Severe impact - rainfall/conditions slowing traffic" : weatherImpact >= 1.3 ? "Moderate impact - conditions affecting travel times" : "Low impact - normal conditions"}
+            {weatherImpact == null ? "No weather observation available" : weatherImpact >= 1.7 ? "Severe impact - rainfall/conditions slowing traffic" : weatherImpact >= 1.3 ? "Moderate impact - conditions affecting travel times" : "Low impact - normal conditions"}
           </div>
         </div>
 
@@ -115,7 +117,7 @@ export function BottleneckDetailPanel({
         <ConfirmDialog
           trigger={
             <button
-              disabled={deletingId === bottleneck.id}
+              disabled={!canManage || deletingId === bottleneck.id}
               className="w-full rounded-lg border border-red-600 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
             >
               {deletingId === bottleneck.id ? "Removing..." : "Remove Bottleneck"}

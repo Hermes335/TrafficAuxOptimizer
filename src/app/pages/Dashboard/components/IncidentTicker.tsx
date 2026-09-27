@@ -1,10 +1,11 @@
+import { useState } from "react";
 import { AlertCircle, X, TriangleAlert, CircleAlert, Droplets, Construction, ShieldAlert, Pencil } from "lucide-react";
 import { Link } from "react-router";
 import type { Incident } from "../../../services/backend";
 
 interface IncidentTickerProps {
   incidents: Incident[];
-  onRemoveIncident?: (id: number) => void;
+  onRemoveIncident?: (id: number) => Promise<void>;
 }
 
 const severityConfig: Record<string, { bg: string; text: string; border: string; icon: typeof TriangleAlert }> = {
@@ -22,6 +23,8 @@ const typeIcons: Record<string, typeof TriangleAlert> = {
 };
 
 export function IncidentTicker({ incidents, onRemoveIncident }: IncidentTickerProps) {
+  const [error, setError] = useState<string | null>(null);
+  const [pending, setPending] = useState<number | null>(null);
   return (
     <div className="rounded-lg border bg-white p-4">
       <div className="mb-3 flex items-center gap-2">
@@ -32,6 +35,7 @@ export function IncidentTicker({ incidents, onRemoveIncident }: IncidentTickerPr
         </span>
       </div>
       <div className="space-y-2">
+        {error && <p role="alert" className="text-red-700">{error}</p>}
         {incidents.length === 0 && (
           <div className="rounded-lg bg-green-50 p-3 text-center text-sm text-green-700">
             No active incidents
@@ -68,7 +72,8 @@ export function IncidentTicker({ incidents, onRemoveIncident }: IncidentTickerPr
                 </Link>
                 {onRemoveIncident && (
                   <button
-                    onClick={() => onRemoveIncident(incident.id)}
+                    disabled={pending === incident.id}
+                    onClick={async () => { setPending(incident.id); setError(null); try { await onRemoveIncident(incident.id); } catch (e) { setError(e instanceof Error ? e.message : "Resolution failed. Incident remains active."); } finally { setPending(null); } }}
                     className="rounded p-1 hover:bg-red-100"
                     title="Remove incident"
                     aria-label="Remove incident"

@@ -4,7 +4,7 @@ Django + DRF backend for the Traffic Deployment DSS.
 
 ## Implemented (Phase 1)
 
-- Core PostGIS-ready models for bottlenecks, officers, incidents, deployments, optimization runs, traffic/weather data, scenarios, and audit logs.
+- Core PostGIS-ready models for bottlenecks, officers, incidents, deployments, optimization runs, traffic/weather data, and audit logs.
 - JWT authentication endpoints.
 - CRUD-style API endpoints for dashboard, incidents, deployments, optimization, scenarios, external data, and admin tools.
 - OpenAPI schema + Swagger UI at `/api/docs/`.
@@ -17,7 +17,6 @@ Django + DRF backend for the Traffic Deployment DSS.
 2. Install dependencies:
    - `pip install -r requirements.txt`
 3. Run migrations:
-   - `python manage.py makemigrations`
    - `python manage.py migrate`
 4. Create a superuser:
    - `python manage.py createsuperuser`
@@ -32,4 +31,7 @@ Django + DRF backend for the Traffic Deployment DSS.
 
 ## Notes
 
-- GA, external integrations (TomTom/PAGASA/Open-Meteo), and richer websocket broadcasting are scaffolded and ready for deeper implementation in Phases 2-4.
+- Operational writes require the supervisor group or administrator status. Dispatchers can report/update/resolve incidents and manage POIs.
+- Scheduling rules live in `deployments/services.py`; all API creation, update, and publication paths use this service.
+- Run tests using `python -m pytest --ds=config.test_settings -p no:cacheprovider`.
+- See `../IMPLEMENTATION_REPORT_2026-09-24.md` for migration and verification notes.

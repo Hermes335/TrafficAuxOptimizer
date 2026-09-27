@@ -19,28 +19,6 @@ class GARunResult:
     converged_early: bool = False
 
 
-SCENARIO_PRESETS = {
-    "typhoon": {
-        "tsi_weight": 0.30,
-        "wif_weight": 0.50,
-        "rpw_weight": 0.15,
-        "resource_utilization_weight": 0.05,
-    },
-    "special_event": {
-        "tsi_weight": 0.50,
-        "wif_weight": 0.15,
-        "rpw_weight": 0.25,
-        "resource_utilization_weight": 0.10,
-    },
-    "balanced": {
-        "tsi_weight": 0.25,
-        "wif_weight": 0.25,
-        "rpw_weight": 0.25,
-        "resource_utilization_weight": 0.25,
-    },
-}
-
-
 class GeneticDeploymentOptimizer:
     """NSGA-II multi-objective optimizer for officer-to-bottleneck assignments."""
 
@@ -52,18 +30,10 @@ class GeneticDeploymentOptimizer:
 
     @staticmethod
     def _clamp_parameters(parameters: dict) -> dict:
-        scenario = parameters.get("scenario", "")
-        if scenario and scenario in SCENARIO_PRESETS:
-            preset = SCENARIO_PRESETS[scenario]
-            tsi_weight = preset["tsi_weight"]
-            wif_weight = preset["wif_weight"]
-            rpw_weight = preset["rpw_weight"]
-            resource_utilization_weight = preset["resource_utilization_weight"]
-        else:
-            tsi_weight = max(0.0, min(1.0, float(parameters.get("tsi_weight", 0.35))))
-            wif_weight = max(0.0, min(1.0, float(parameters.get("wif_weight", 0.25))))
-            rpw_weight = max(0.0, min(1.0, float(parameters.get("rpw_weight", 0.25))))
-            resource_utilization_weight = max(0.0, min(1.0, float(parameters.get("resource_utilization_weight", 0.15))))
+        tsi_weight = max(0.0, min(1.0, float(parameters.get("tsi_weight", 0.35))))
+        wif_weight = max(0.0, min(1.0, float(parameters.get("wif_weight", 0.25))))
+        rpw_weight = max(0.0, min(1.0, float(parameters.get("rpw_weight", 0.25))))
+        resource_utilization_weight = max(0.0, min(1.0, float(parameters.get("resource_utilization_weight", 0.15))))
 
         total_weight = tsi_weight + wif_weight + rpw_weight + resource_utilization_weight
         if total_weight <= 0:
@@ -81,7 +51,6 @@ class GeneticDeploymentOptimizer:
             "resource_utilization_weight": resource_utilization_weight / total_weight,
             "tournament_size": 3,
             "enable_early_stopping": bool(parameters.get("enable_early_stopping", True)),
-            "scenario": scenario,
         }
 
     def _distance_km(self, officer: dict, bottleneck: dict) -> float:
@@ -248,7 +217,8 @@ class GeneticDeploymentOptimizer:
             if incident_boosts and bottleneck_idx in incident_boosts:
                 effective_priority += incident_boosts[bottleneck_idx]["priority_boost"]
 
-            assigned_priority_weight += effective_priority
+            if bottleneck_idx not in set(chromosome[:officer_idx]):
+                assigned_priority_weight += effective_priority
             speed_kmh = max(8.0, 28.0 * (1.0 - effective_tsi))
             if distance_matrix:
                 dist = distance_matrix[officer_idx][bottleneck_idx]
@@ -312,6 +282,11 @@ class GeneticDeploymentOptimizer:
             if count > max_allowed:
                 violations.append(f"over_assigned:{bottlenecks[b_idx].get('id', b_idx)}:{count}>{max_allowed}")
 
+        minimums = [max(1, int(b.get("min_officers_required", 1))) for b in bottlenecks]
+        if sum(minimums) <= len(officers):
+            for idx, required in enumerate(minimums):
+                if bottleneck_counts.get(idx, 0) < required:
+                    violations.append(f"understaffed:{bottlenecks[idx].get('id', idx)}")
         return (len(violations) > 0, violations)
 
     def _evaluate(
@@ -545,7 +520,7 @@ class GeneticDeploymentOptimizer:
             # Phase 1: Assign officers to POI-nearby bottlenecks first (guaranteed coverage)
             poi_order = poi_bottlenecks[:]
             self.rng.shuffle(poi_order)
-            for bn in poi_order:
+            for bn in poi_order[:officer_count]:
                 chromosome.append(bn)
 
             # Phase 2: Fill remaining coverage with other bottlenecks
@@ -644,6 +619,23 @@ class GeneticDeploymentOptimizer:
 
     # ─── Main run loop ────────────────────────────────────────────────────
 
+    def _repair_staffing(self, chromosome, bottlenecks):
+        self._repair_capacity(chromosome, bottlenecks)
+        minimums = [max(1, int(b.get("min_officers_required", 1))) for b in bottlenecks]
+        feasible = sum(minimums) <= len(chromosome) and all(
+            need <= max(1, int(b.get("max_officers_allowed", 5))) for need, b in zip(minimums, bottlenecks))
+        if not feasible:
+            self._repair_coverage(chromosome, len(bottlenecks))
+            self._repair_capacity(chromosome, bottlenecks)
+            return
+        for target, need in enumerate(minimums):
+            while chromosome.count(target) < need:
+                donor = next((i for i, idx in enumerate(chromosome)
+                    if idx < 0 or chromosome.count(idx) > minimums[idx]), None)
+                if donor is None:
+                    break
+                chromosome[donor] = target
+
     def run(
         self,
         officers: list[dict],
@@ -685,6 +677,8 @@ class GeneticDeploymentOptimizer:
             poi_nearby,
             max_officers_allowed,
         )
+        for chromosome in pop:
+            self._repair_staffing(chromosome, bottlenecks)
         generation_fitness: list[float] = []
         hypervolume_history: list[float] = []
         no_improvement_count = 0
@@ -778,8 +772,8 @@ class GeneticDeploymentOptimizer:
                 # Repair operator: ensure minimum coverage after genetic operators
                 self._repair_coverage(child1, len(bottlenecks), poi_nearby)
                 self._repair_coverage(child2, len(bottlenecks), poi_nearby)
-                self._repair_capacity(child1, bottlenecks)
-                self._repair_capacity(child2, bottlenecks)
+                self._repair_staffing(child1, bottlenecks)
+                self._repair_staffing(child2, bottlenecks)
                 next_population.append(child1)
                 if len(next_population) < config["population_size"]:
                     next_population.append(child2)
@@ -848,6 +842,7 @@ class GeneticDeploymentOptimizer:
                 "road_priority_coverage": metrics["road_priority_coverage"],
                 "constraints_violated": metrics.get("constraints_violated", False),
                 "generated_at": datetime.now(UTC).isoformat(),
+                "staffing_shortages": {b["id"]: max(0, int(b.get("min_officers_required", 1)) - chromosome.count(i)) for i, b in enumerate(bottlenecks) if chromosome.count(i) < int(b.get("min_officers_required", 1))},
                 "assignments": assignments,
             })
         return top_solutions

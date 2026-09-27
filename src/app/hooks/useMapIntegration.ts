@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 
 const mapCenter: [number, number] = [122.5621, 10.7202];
@@ -11,6 +11,7 @@ interface UseMapIntegrationOptions {
 export function useMapIntegration({ selectedView, tomTomTrafficTileUrl }: UseMapIntegrationOptions) {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
+  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const hasFittedRef = useRef(false);
 
@@ -51,6 +52,7 @@ export function useMapIntegration({ selectedView, tomTomTrafficTileUrl }: UseMap
     });
 
     mapRef.current = map;
+    setMapInstance(map);
 
     return () => {
       markersRef.current.forEach((marker) => marker.remove());
@@ -58,6 +60,7 @@ export function useMapIntegration({ selectedView, tomTomTrafficTileUrl }: UseMap
       hasFittedRef.current = false;
       map.remove();
       mapRef.current = null;
+      setMapInstance(null);
     };
   }, [tomTomTrafficTileUrl]);
 
@@ -70,5 +73,5 @@ export function useMapIntegration({ selectedView, tomTomTrafficTileUrl }: UseMap
     mapRef.current.setPaintProperty("tomtom-traffic-flow", "raster-opacity", opacity);
   }, [selectedView]);
 
-  return { mapContainerRef, mapRef, markersRef, hasFittedRef };
+  return { mapContainerRef, mapRef, mapInstance, markersRef, hasFittedRef };
 }

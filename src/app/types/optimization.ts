@@ -32,7 +32,6 @@ export interface OptimizationRunParams {
   wif_weight: number;
   rpw_weight: number;
   resource_utilization_weight: number;
-  scenario?: string;
 }
 
 export function encodeRunParams(params: OptimizationRunParams): string {

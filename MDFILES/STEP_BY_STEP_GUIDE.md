@@ -176,10 +176,8 @@ Run these one by one:
 - `GET /api/optimization/results/:run_id/`
 - `GET /api/deployments/schedule/`
 - `POST /api/incidents/report/`
-- `GET /api/scenarios/`
 - `GET /api/weather/current/`
 - `GET /api/traffic/real-time/`
-- `GET /api/analytics/trends/`
 
 ## 11) Validate websocket channels
 Check that these connect and receive messages:
@@ -203,7 +201,7 @@ Run this flow in the app:
 4. Observe progress updates
 5. Open optimization results
 6. Submit incident with photo
-7. Open scenarios and schedule pages
+7. Preview and confirm publication on the deployment board
 8. Logout (if JWT mode)
 
 ## 14) Measure performance

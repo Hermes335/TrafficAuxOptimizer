@@ -1,3 +1,4 @@
+import { operationalTime } from "../services/operationalTime";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TrendingUp, Users, AlertCircle, Target, Clock, Activity, CheckCircle2, XCircle, ChevronLeft, AlertTriangle } from "lucide-react";
 import { Link, useNavigate } from "react-router";
@@ -7,7 +8,6 @@ import { StatusBadge } from "../components/StatusBadge";
 import { ErrorFeedback } from "../components/ErrorFeedback";
 import {
   cancelOptimizationRun,
-  fetchOptimizationResults,
   fetchOptimizationStatus,
   runOptimization,
   subscribeToOptimizationStream,
@@ -29,7 +29,7 @@ export function OptimizationRunning() {
   const [error, setError] = useState<string | null>(null);
   const [convergenceData, setConvergenceData] = useState<ConvergencePoint[]>([]);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
-  const startedRef = useRef(!!existingRunId);
+  const startPromise = useRef<ReturnType<typeof runOptimization> | null>(null);
 
   const progress = useMemo(() => {
     if (!status || status.total_generations <= 0) {
@@ -137,165 +137,61 @@ export function OptimizationRunning() {
   };
 
   useEffect(() => {
-    if (startedRef.current) {
-      return;
-    }
-    startedRef.current = true;
+    let active = true;
     let unsubscribe: (() => void) | undefined;
     let pollTimer: number | undefined;
-
-    // If run_id is in URL, connect to existing run instead of starting new one
-    if (existingRunId) {
-      setRunEvents([{ label: `Reconnected to run: ${existingRunId}`, tone: "neutral" }]);
-
-      unsubscribe = subscribeToOptimizationStream(existingRunId, (event) => {
-        if (event.current_generation !== undefined) {
-          setConvergenceData((prev) =>
-            upsertConvergencePoint(prev, {
-              id: `point-${event.current_generation}`,
-              generation: event.current_generation,
-              bestFitness: event.current_fitness ?? 0,
-              avgFitness: Math.max(0, (event.current_fitness ?? 0) * 0.82),
-            }),
-          );
-        }
-        if (event.status) setStatus((prev) => ({ ...prev, ...event } as OptimizationStatus));
-        if (event.event === "optimization_complete") setRunEvents((prev) => [...prev, { label: "Optimization completed!", tone: "success" }]);
-        if (event.event === "optimization_failed") setRunEvents((prev) => [...prev, { label: `Optimization failed: ${event.error ?? "unknown"}`, tone: "danger" }]);
-        if (event.event === "optimization_cancelled") setRunEvents((prev) => [...prev, { label: "Optimization cancelled", tone: "warning" }]);
-      });
-
-      pollTimer = window.setInterval(async () => {
-        try {
-          const latestStatus = await fetchOptimizationStatus(existingRunId);
-          setStatus((prev) => ({ ...prev, ...latestStatus }));
-          if (latestStatus.status === "completed" || latestStatus.status === "failed" || latestStatus.status === "cancelled") {
-            if (pollTimer) window.clearInterval(pollTimer);
-          }
-        } catch { /* ignore poll errors */ }
-      }, 1500);
-      return () => { unsubscribe?.(); if (pollTimer) window.clearInterval(pollTimer); };
-    }
-
-    const payload = {
-      shift: query.get("shift") || "afternoon",
-      population_size: Number(query.get("population_size") || 200),
-      generations: Number(query.get("generations") || 300),
-      mutation_rate: Number(query.get("mutation_rate") || 0.1),
-      crossover_rate: Number(query.get("crossover_rate") || 0.8),
-      elitism_count: Number(query.get("elitism_count") || 5),
-      tsi_weight: Number(query.get("tsi_weight") || 0.35),
-      wif_weight: Number(query.get("wif_weight") || 0.25),
-      rpw_weight: Number(query.get("rpw_weight") || 0.25),
-      resource_utilization_weight: Number(query.get("resource_utilization_weight") || 0.15),
-    };
-
-    runOptimization(payload)
-      .then((run) => {
-        setRunId(run.run_id);
-        setStatus(run);
-        setRunEvents([{ label: `Run started: ${run.run_id}`, tone: "success" }]);
-
-        unsubscribe = subscribeToOptimizationStream(run.run_id, (event) => {
-          if (event.current_generation !== undefined) {
-            setConvergenceData((prev) =>
-              upsertConvergencePoint(prev, {
-                id: `point-${event.current_generation}`,
-                generation: event.current_generation,
-                bestFitness: event.current_fitness ?? 0,
-                avgFitness: Math.max(0, (event.current_fitness ?? 0) * 0.82),
-              }),
-            );
-          }
-          setStatus((prev) => ({ ...prev, ...event }));
-          const eventTone: RunEvent["tone"] =
-            event.status === "completed"
-              ? "success"
-              : event.status === "failed"
-                ? "danger"
-                : "neutral";
-
-          setRunEvents((prev) => [
-            ...prev,
-            {
-              label: `${event.event ?? "optimization_event"} • gen ${event.current_generation ?? 0}`,
-              tone: eventTone,
-            },
-          ].slice(-8));
-
-          if (event.status === "completed" || event.status === "failed" || event.status === "cancelled") {
-            if (pollTimer) {
-              window.clearInterval(pollTimer);
-              pollTimer = undefined;
-            }
-          }
+    const terminal = (value: string) => ["completed", "failed", "cancelled"].includes(value);
+    const accept = (latest: OptimizationStatus) => {
+      if (!active) return;
+      setStatus(latest); setError(latest.error ?? null);
+      if (latest.current_generation > 0) {
+        setConvergenceData(previous => {
+          const next = upsertConvergencePoint(previous, {
+            id: `point-${latest.current_generation}`, generation: latest.current_generation,
+            bestFitness: latest.current_fitness ?? 0, avgFitness: 0,
+          });
+          let total = 0;
+          return next.map((point, index) => { total += point.bestFitness; return {...point, avgFitness: total / (index + 1)}; });
         });
-
-        pollTimer = window.setInterval(() => {
-          fetchOptimizationStatus(run.run_id)
-            .then((latest) => {
-              const pollTone: RunEvent["tone"] =
-                latest.status === "completed" ? "success" : latest.status === "failed" ? "danger" : "neutral";
-
-              setStatus(latest);
-              setRunEvents((prev) => [
-                ...prev,
-                {
-                  label: `Polled status: ${latest.status} • gen ${latest.current_generation}/${latest.total_generations}`,
-                  tone: pollTone,
-                },
-              ].slice(-8));
-              setConvergenceData((prev) =>
-                upsertConvergencePoint(prev, {
-                  id: `poll-${latest.current_generation}`,
-                  generation: latest.current_generation,
-                  bestFitness: latest.current_fitness,
-                  avgFitness: Math.max(0, latest.current_fitness * 0.82),
-                }),
-              );
-
-              if (latest.status === "completed" || latest.status === "failed") {
-                if (pollTimer) {
-                  window.clearInterval(pollTimer);
-                  pollTimer = undefined;
-                }
-                fetchOptimizationResults(run.run_id)
-                  .then((result) => {
-                    if (!Array.isArray(result.fitness_scores) || result.fitness_scores.length === 0) {
-                      return;
-                    }
-                    const rebuilt = result.fitness_scores.map((score, index) => ({
-                      id: `final-${index + 1}`,
-                      generation: index + 1,
-                      bestFitness: score,
-                      avgFitness: Math.max(0, score * 0.82),
-                    }));
-                    setConvergenceData(rebuilt.slice(-120));
-                  })
-                  .catch(() => {
-                    return;
-                  });
-              }
-            })
-            .catch(() => {
-              // keep UI alive while websocket updates are active
-            });
-        }, 1500);
-      })
-      .catch((runError: unknown) => {
-        const message = runError instanceof Error ? runError.message : "Failed to start optimization";
-        setError(message);
-      });
-
-    return () => {
-      if (pollTimer) {
-        window.clearInterval(pollTimer);
       }
-      if (unsubscribe) {
-        unsubscribe();
-      }
+      setRunEvents(previous => [...previous, {
+        label: `${latest.status} · generation ${latest.current_generation ?? 0}`,
+        tone: latest.status === "failed" ? "danger" as const : latest.status === "completed" ? "success" as const : "neutral" as const,
+      }].slice(-8));
+      if (terminal(latest.status) && pollTimer) { window.clearInterval(pollTimer); pollTimer = undefined; }
     };
-  }, [query]);
+    const connect = async (id: string) => {
+      if (!active) return;
+      setRunId(id);
+      // Reloading this page reconnects to the persisted run.
+      window.history.replaceState(null, "", "/optimization-running?run_id=" + encodeURIComponent(id));
+      const poll = async () => {
+        try { const latest = await fetchOptimizationStatus(id); accept(latest); }
+        catch (e) { if (active) setError(e instanceof Error ? e.message : "Status refresh failed; data may be stale."); }
+      };
+      unsubscribe = subscribeToOptimizationStream(id, accept);
+      pollTimer = window.setInterval(poll, 2000);
+      await poll();
+    };
+    if (existingRunId) void connect(existingRunId);
+    else {
+      if (!startPromise.current) startPromise.current = runOptimization({
+        shift: query.get("shift") ?? "afternoon",
+        population_size: Number(query.get("population_size") ?? 200),
+        generations: Number(query.get("generations") ?? 300),
+        mutation_rate: Number(query.get("mutation_rate") ?? 0.1),
+        crossover_rate: Number(query.get("crossover_rate") ?? 0.8),
+        elitism_count: Number(query.get("elitism_count") ?? 5),
+        tsi_weight: Number(query.get("tsi_weight") ?? 0.35),
+        wif_weight: Number(query.get("wif_weight") ?? 0.25),
+        rpw_weight: Number(query.get("rpw_weight") ?? 0.25),
+        resource_utilization_weight: Number(query.get("resource_utilization_weight") ?? 0.15),
+      });
+      startPromise.current.then(run => { if (active) { accept(run); void connect(run.run_id); } })
+        .catch(e => { if (active) setError(e instanceof Error ? e.message : "Unable to start optimization."); });
+    }
+    return () => { active = false; unsubscribe?.(); if (pollTimer) window.clearInterval(pollTimer); };
+  }, [existingRunId, query]);
 
   return (
     <div className="flex h-full">
@@ -447,7 +343,7 @@ export function OptimizationRunning() {
             <div className="flex items-center justify-between">
               <span className="text-gray-600">Last Update</span>
               <span className="font-medium text-gray-900">
-                {status?.estimated_completion ? new Date(status.estimated_completion).toLocaleTimeString() : "pending"}
+                {status?.estimated_completion ? operationalTime(status.estimated_completion) : "pending"}
               </span>
             </div>
             <div className="rounded bg-white/70 p-2">
@@ -566,6 +462,7 @@ export function OptimizationRunning() {
         </div>
 
         {/* Fitness Convergence Curve */}
+        {error && <p role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-800">{error}</p>}
         <div className="mb-8 flex-1 rounded-xl bg-white p-6 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -589,7 +486,7 @@ export function OptimizationRunning() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-gray-400" />
-                <span className="text-gray-700">Average Fitness (Cumulative)</span>
+                <span className="text-gray-700">Running mean of best fitness</span>
               </div>
             </div>
             {/* Y-axis indicator properly positioned to avoid overlap */}
@@ -614,14 +511,14 @@ export function OptimizationRunning() {
               </div>
               <p className="text-sm text-gray-600">
                 {status?.estimated_completion
-                  ? `Estimated completion ${new Date(status.estimated_completion).toLocaleTimeString()}`
+                  ? `Estimated completion ${operationalTime(status.estimated_completion)}`
                   : "Estimating completion from backend stream..."}
               </p>
             </div>
             <div className="rounded-lg bg-blue-50 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <Users className="h-5 w-5 text-blue-600" />
-                <span className="font-medium">CANDIDATE PLANS</span>
+                <span className="font-medium">CANDIDATE PLANS (ESTIMATE)</span>
               </div>
               <p className="text-sm text-gray-600">{candidatePlans}</p>
             </div>
@@ -659,7 +556,7 @@ export function OptimizationRunning() {
           </div>
 
           <div className="rounded-lg bg-gray-50 p-4">
-            <div className="mb-1 text-xs text-gray-600">Average Fitness</div>
+            <div className="mb-1 text-xs text-gray-600">Mean of best fitness</div>
             <div className="flex items-end gap-2">
               <div className="text-2xl font-bold">{averageFitness.toFixed(1)}</div>
               <div className="mb-1 text-sm text-gray-600">SCORE</div>

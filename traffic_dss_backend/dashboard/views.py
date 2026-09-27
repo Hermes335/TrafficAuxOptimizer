@@ -1,6 +1,10 @@
+from django.db import transaction
+from deployments.services import lock_schedule
+from core.realtime import broadcast
+from core.staffing import required_staffing, shift_staffing
 import logging
 
-from django.db.models import Avg, Count, OuterRef, Prefetch, Subquery
+from django.db.models import Avg, Count, OuterRef, Prefetch, Subquery, Q
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import permissions, status
@@ -14,6 +18,7 @@ from core.data_quality_checks import get_data_quality_issues
 from core.models import Bottleneck, Deployment, Incident, Officer, OptimizationRun, POI, TrafficData, WeatherData
 from core.serializers import BottleneckSerializer, OfficerSerializer, IncidentCreateSerializer, IncidentResponseSerializer, POISerializer
 from core.utils import write_audit_log
+from core.permissions import IsSupervisor, SupervisorWrite
 
 
 logger = logging.getLogger(__name__)
@@ -21,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 def _generate_next_bottleneck_id() -> str:
 	existing_ids = (
-		Bottleneck.objects.filter(is_deleted=False, id__regex=r"^B-\d{3}$")
+		Bottleneck.objects.filter(id__regex=r"^B-\d{3}$")
 		.values_list("id", flat=True)
 	)
 	max_number = 0
@@ -42,28 +47,31 @@ class DashboardKPIsView(APIView):
 	throttle_classes = []
 
 	def get(self, request):
-		active_deployments = Bottleneck.objects.filter(is_deleted=False).count()
-		active_officers = Officer.objects.filter(is_deleted=False, status__in=["available", "deployed"]).count()
-		deployed_officers = Officer.objects.filter(is_deleted=False, status="deployed").count()
-		critical_incidents = Incident.objects.filter(is_deleted=False, status="active", severity="critical").count()
-		recent_weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
-		avg_tsi = TrafficData.objects.filter(is_deleted=False).aggregate(value=Avg("traffic_severity_index"))["value"] or 0.0
-
-		coverage_efficiency = max(0, min(100, 90 - (critical_incidents * 5)))
-		avg_response_time = round(8 + (avg_tsi * 10), 1)
-		resource_utilization = 0 if active_officers == 0 else round((deployed_officers / active_officers) * 100, 1)
-		weather_correlation = float(getattr(recent_weather, "weather_impact_factor", 1.0))
-
-		return Response(
-			{
-				"coverage_efficiency": coverage_efficiency,
-				"avg_response_time": avg_response_time,
-				"resource_utilization": resource_utilization,
-				"weather_correlation": weather_correlation,
-				"deployed_officers": deployed_officers,
-				"active_officers": active_officers,
-			}
-		)
+		from core.operational_time import operational_date, shift_window
+		from core.staffing import required_staffing
+		from rest_framework import serializers
+		shift = serializers.ChoiceField(choices=["morning", "afternoon"]).run_validation(request.query_params.get("shift", "afternoon"))
+		day = serializers.DateField().run_validation(request.query_params.get("date", str(operational_date())))
+		start, end = shift_window(shift, day)
+		nodes = list(Bottleneck.objects.filter(is_deleted=False, is_archived=False).prefetch_related("incidents"))
+		assigned = Deployment.objects.filter(is_deleted=False, status__in=["assigned", "completed"], shift=shift, start_time__lt=end, end_time__gt=start)
+		requirements = {b.id: required_staffing(b, [i for i in b.incidents.all() if not i.is_deleted and i.status in {"active", "investigating"}]) for b in nodes}
+		rows = list(assigned)
+		counts = {b.id: shift_staffing([d for d in rows if d.bottleneck_id == b.id], requirements[b.id], start, end) for b in nodes}
+		required = sum(requirements.values())
+		fulfilled = sum(covered for _, covered in counts.values())
+		active_officers = Officer.objects.filter(is_deleted=False, shift=shift, status__in=["available", "deployed"]).count()
+		deployed = assigned.values("officer").distinct().count()
+		weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
+		return Response({
+			"coverage_efficiency": round(100 * fulfilled / required, 1) if required else None,
+			"required_staffing": required, "assigned_staffing": round(sum(count for count, _ in counts.values()), 2), "shortages": round(required - fulfilled, 2),
+			"avg_response_time": None, "response_time_kind": "unavailable", "response_time_window": {"start": start.isoformat(), "end": end.isoformat()},
+			"resource_utilization": round(100 * deployed / active_officers, 1) if active_officers else None,
+			"weather_impact_factor": weather.weather_impact_factor if weather else None,
+			"deployed_officers": deployed, "active_officers": active_officers, "shift": shift,
+			"operational_date": day, "as_of": timezone.now().isoformat(),
+		})
 
 
 class DashboardBottlenecksView(APIView):
@@ -71,23 +79,28 @@ class DashboardBottlenecksView(APIView):
 	throttle_classes = []
 
 	def get(self, request):
+		from core.operational_time import shift_window, operational_date
+		from rest_framework import serializers
+		scope_shift = serializers.ChoiceField(choices=["morning", "afternoon"]).run_validation(request.query_params.get("shift", "afternoon"))
+		day = serializers.DateField().run_validation(request.query_params.get("date", str(operational_date())))
+		scope_start, scope_end = shift_window(scope_shift, day)
 		latest_traffic_tsi = TrafficData.objects.filter(
 			is_deleted=False,
 			bottleneck_id=OuterRef("pk"),
 		).order_by("-timestamp").values("traffic_severity_index")[:1]
 
 		bottlenecks = (
-			Bottleneck.objects.filter(is_deleted=False)
+			Bottleneck.objects.filter(is_deleted=False, is_archived=False)
 			.annotate(latest_tsi=Subquery(latest_traffic_tsi))
 			.prefetch_related(
 				Prefetch(
 					"incidents",
-					queryset=Incident.objects.filter(is_deleted=False, status="active").order_by("-timestamp"),
+					queryset=Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"]).order_by("-timestamp"),
 					to_attr="active_incidents",
 				),
 				Prefetch(
 					"deployments",
-					queryset=Deployment.objects.filter(is_deleted=False, status="assigned").select_related("officer"),
+					queryset=Deployment.objects.filter(is_deleted=False, status__in=["assigned", "completed"], start_time__lt=scope_end, end_time__gt=scope_start, shift=scope_shift).select_related("officer"),
 					to_attr="active_deployments",
 				),
 			)
@@ -104,7 +117,7 @@ class DashboardBottlenecksView(APIView):
 			)
 		)
 		weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
-		wif = float(getattr(weather, "weather_impact_factor", 1.0)) if weather else 1.0
+		wif = float(weather.weather_impact_factor) if weather else None
 
 		paginator = PageNumberPagination()
 		page = paginator.paginate_queryset(bottlenecks, request, view=self)
@@ -117,27 +130,16 @@ class DashboardBottlenecksView(APIView):
 				for d in deployments
 			]
 			# Use bottleneck's tsi field if available, otherwise fall back to traffic data
-			tsi_val = b.tsi if b.tsi and b.tsi > 0 else (float(b.latest_tsi) if b.latest_tsi is not None else 0.0)
+			tsi_val = b.tsi
 			status_value = "normal"
-			if active_incident or tsi_val >= 0.8:
+			if tsi_val >= 0.8:
 				status_value = "critical"
 			elif tsi_val >= 0.4:
 				status_value = "warning"
 			
-			# Compute required officers dynamically based on TSI and incidents.
-			# Use the actual live values for the bottleneck, not a hardcoded fallback.
-			required_officers = max(1, b.min_officers_required)
-			if tsi_val >= 0.8:
-				required_officers = b.max_officers_allowed
-			elif tsi_val >= 0.5:
-				required_officers = min(b.max_officers_allowed, max(1, required_officers + 1))
-			if active_incident and active_incident.severity == "critical":
-				required_officers = min(b.max_officers_allowed, required_officers + 1)
-			if required_officers < 1:
-				required_officers = 1
-
-			assigned_count = len(assigned_officers)
-			staffing_gap = max(required_officers - assigned_count, 0)
+			required_officers = required_staffing(b, b.active_incidents)
+			assigned_count, covered_count = shift_staffing(deployments, required_officers, scope_start, scope_end)
+			staffing_gap = max(required_officers - covered_count, 0)
 			if assigned_count < required_officers:
 				coverage_status = "critical" if active_incident and active_incident.severity == "critical" else "warning"
 			elif assigned_count > required_officers:
@@ -168,11 +170,12 @@ class DashboardBottlenecksView(APIView):
 				{
 					"id": b.id,
 					"name": b.name,
+					"district": b.district, "bottleneck_type": b.bottleneck_type, "road_priority_weight": b.road_priority_weight,
 					"latitude": b.latitude,
 					"longitude": b.longitude,
 					"status": status_value,
 					"tsi": round(tsi_val, 2),
-					"weather_impact_factor": round(wif * (1 + tsi_val * 0.3), 2),
+					"weather_impact_factor": wif,
 					"assigned_officers": assigned_officers,
 					"deployed_officers": assigned_count,
 					"assigned_officer_count": assigned_count,
@@ -195,8 +198,17 @@ class DashboardOfficersView(APIView):
 	throttle_classes = []
 
 	def get(self, request):
-		officers = Officer.objects.filter(is_deleted=False).order_by("name")
+		officers = Officer.objects.filter(is_deleted=False).order_by("name", "id")
+		term = request.query_params.get("search", "").strip()
+		if term:
+			officers = officers.filter(Q(name__icontains=term) | Q(badge_number__icontains=term))
+		for key in ["shift", "status"]:
+			value = request.query_params.get(key)
+			if value and value != "all":
+				officers = officers.filter(**{key: value})
 		paginator = PageNumberPagination()
+		paginator.page_size_query_param = "page_size"
+		paginator.max_page_size = 100
 		page = paginator.paginate_queryset(officers, request, view=self)
 		return paginator.get_paginated_response(OfficerSerializer(page, many=True).data)
 
@@ -218,9 +230,11 @@ class DashboardDataQualityView(APIView):
 
 
 class DashboardBottleneckManageView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+	permission_classes = [IsSupervisor]
 
+	@transaction.atomic
 	def post(self, request):
+		lock_schedule()
 		payload = request.data or {}
 		name = str(payload.get("name", "")).strip()
 		if not name:
@@ -241,25 +255,18 @@ class DashboardBottleneckManageView(APIView):
 		)
 		serializer.is_valid(raise_exception=True)
 		created = serializer.save()
+		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "bottlenecks_updated"}))
 
 		return Response(BottleneckSerializer(created).data, status=status.HTTP_201_CREATED)
 
+	@transaction.atomic
 	def put(self, request, bottleneck_id: str):
+		lock_schedule()
 		bottleneck = Bottleneck.objects.filter(id=bottleneck_id, is_deleted=False).first()
 		if not bottleneck:
 			return Response({"detail": "Bottleneck not found."}, status=status.HTTP_404_NOT_FOUND)
 
 		payload = request.data or {}
-		tsi_raw = payload.get("tsi")
-		# Convert to float, default to existing value if None
-		try:
-			tsi_val = float(tsi_raw) if tsi_raw is not None else bottleneck.tsi
-		except (TypeError, ValueError):
-			tsi_val = bottleneck.tsi
-
-		if tsi_val is not None and (tsi_val < 0 or tsi_val > 1):
-			return Response({"detail": "TSI must be between 0 and 1."}, status=status.HTTP_400_BAD_REQUEST)
-
 		allowed_fields = {
 			"name": payload.get("name", bottleneck.name),
 			"latitude": payload.get("latitude", bottleneck.latitude),
@@ -267,15 +274,18 @@ class DashboardBottleneckManageView(APIView):
 			"district": payload.get("district", bottleneck.district),
 			"bottleneck_type": payload.get("bottleneck_type", bottleneck.bottleneck_type),
 			"road_priority_weight": payload.get("road_priority_weight", bottleneck.road_priority_weight),
-			"tsi": tsi_val,
+			"tsi": payload.get("tsi", bottleneck.tsi),
 		}
 
 		serializer = BottleneckSerializer(bottleneck, data=allowed_fields, partial=True)
 		serializer.is_valid(raise_exception=True)
 		updated = serializer.save()
+		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "bottlenecks_updated"}))
 		return Response(BottleneckSerializer(updated).data)
 
+	@transaction.atomic
 	def delete(self, request, bottleneck_id: str):
+		lock_schedule()
 		bottleneck = Bottleneck.objects.filter(id=bottleneck_id, is_deleted=False).first()
 		if not bottleneck:
 			return Response({"detail": "Bottleneck not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -294,20 +304,26 @@ class DashboardBottleneckManageView(APIView):
 
 		bottleneck.is_deleted = True
 		bottleneck.save(update_fields=["is_deleted", "updated_at"])
+		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "bottlenecks_updated"}))
 		return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class DashboardOfficerManageView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+	permission_classes = [IsSupervisor]
 
+	@transaction.atomic
 	def post(self, request):
+		lock_schedule()
 		payload = request.data or {}
 		serializer = OfficerSerializer(data=payload)
 		serializer.is_valid(raise_exception=True)
 		created = serializer.save()
+		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "officers_updated"}))
 		return Response(OfficerSerializer(created).data, status=status.HTTP_201_CREATED)
 
+	@transaction.atomic
 	def put(self, request, officer_id: int):
+		lock_schedule()
 		officer = Officer.objects.filter(pk=officer_id, is_deleted=False).first()
 		if not officer:
 			return Response({"detail": "Officer not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -315,9 +331,12 @@ class DashboardOfficerManageView(APIView):
 		serializer = OfficerSerializer(officer, data=request.data or {}, partial=True)
 		serializer.is_valid(raise_exception=True)
 		updated = serializer.save()
+		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "officers_updated"}))
 		return Response(OfficerSerializer(updated).data)
 
+	@transaction.atomic
 	def delete(self, request, officer_id: int):
+		lock_schedule()
 		officer = Officer.objects.filter(pk=officer_id, is_deleted=False).first()
 		if not officer:
 			return Response({"detail": "Officer not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -331,6 +350,7 @@ class DashboardOfficerManageView(APIView):
 
 		officer.is_deleted = True
 		officer.save(update_fields=["is_deleted", "updated_at"])
+		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "officers_updated"}))
 		return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -340,15 +360,17 @@ class ActiveIncidentsView(APIView):
 
 	def get(self, request):
 		incidents = (
-			Incident.objects.filter(is_deleted=False, status="active")
+			Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"])
 			.select_related("bottleneck")
-			.order_by("-timestamp")[:50]
+			.order_by("-timestamp", "-id")
 		)
+		paginator = PageNumberPagination()
+		page = paginator.paginate_queryset(incidents, request, view=self)
 		data = []
-		for i in incidents:
+		for i in page:
 			lat = i.latitude
 			lon = i.longitude
-			if not lat and i.bottleneck:
+			if lat is None and i.bottleneck:
 				lat = i.bottleneck.latitude
 				lon = i.bottleneck.longitude
 			data.append({
@@ -362,7 +384,7 @@ class ActiveIncidentsView(APIView):
 				"description": i.description,
 				"timestamp": i.timestamp.isoformat() if i.timestamp else None,
 			})
-		return Response(data)
+		return paginator.get_paginated_response(data)
 
 
 class IncidentListCreateView(APIView):
@@ -384,6 +406,8 @@ class IncidentListCreateView(APIView):
 		serializer.is_valid(raise_exception=True)
 		incident = serializer.save()
 		write_audit_log(request.user, "create", "incident", {"incident_id": incident.id})
+		from core.realtime import broadcast
+		broadcast("dashboard_live", "dashboard_event", {"event": "incident_reported", "id": incident.id})
 		return Response(IncidentResponseSerializer(incident).data, status=status.HTTP_201_CREATED)
 
 
@@ -396,14 +420,17 @@ class IncidentDetailView(APIView):
 			return Response({"detail": "Incident not found"}, status=status.HTTP_404_NOT_FOUND)
 		return Response(IncidentResponseSerializer(incident).data)
 
+	@transaction.atomic
 	def put(self, request, incident_id):
-		incident = Incident.objects.filter(id=incident_id, is_deleted=False).first()
+		incident = Incident.objects.select_for_update().filter(id=incident_id, is_deleted=False).first()
 		if not incident:
 			return Response({"detail": "Incident not found"}, status=status.HTTP_404_NOT_FOUND)
 		serializer = IncidentCreateSerializer(incident, data=request.data, partial=True)
 		serializer.is_valid(raise_exception=True)
 		incident = serializer.save()
 		write_audit_log(request.user, "update", "incident", {"incident_id": incident.id})
+		from core.realtime import broadcast
+		broadcast("dashboard_live", "dashboard_event", {"event": "incident_updated", "id": incident.id})
 		return Response(IncidentResponseSerializer(incident).data)
 
 
@@ -425,6 +452,7 @@ class POIListView(APIView):
 		serializer = POISerializer(data=data)
 		if serializer.is_valid():
 			poi = serializer.save()
+			broadcast("dashboard_live", "dashboard_event", {"event": "pois_updated"})
 			return Response(POISerializer(poi).data, status=status.HTTP_201_CREATED)
 		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -448,6 +476,7 @@ class POIDetailView(APIView):
 			return Response({"detail": "POI not found."}, status=status.HTTP_404_NOT_FOUND)
 		poi.is_deleted = True
 		poi.save(update_fields=["is_deleted", "updated_at"])
+		broadcast("dashboard_live", "dashboard_event", {"event": "pois_updated"})
 		return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -512,43 +541,9 @@ class DashboardMapDataView(APIView):
 
 
 class QuickOptimizeView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+	permission_classes = [IsSupervisor]
 
 	def post(self, request):
-		payload = request.data or {}
-		created_by = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
-		if created_by is None:
-			created_by = get_user_model().objects.create_user(username="desktop-runner")
-		run = OptimizationRun.objects.create(
-			run_id=f"opt-{timezone.now().strftime('%Y%m%d%H%M%S%f')}",
-			timestamp=timezone.now(),
-			status="queued",
-			parameters={
-				"mode": "quick",
-				"shift": payload.get("shift", "afternoon"),
-			},
-			fitness_scores=[],
-			result_data={},
-			created_by=created_by,
-		)
-		write_audit_log(created_by, "create", "optimization_run", {"run_id": run.run_id, "mode": "quick"})
-		try:
-			from optimization.tasks import run_optimization
-			run_optimization.delay(run.run_id)
-		except Exception as exc:
-			logger.exception("Failed to enqueue Quick Optimize run %s", run.run_id)
-			run.status = "failed"
-			run.result_data = {
-				"error": "Failed to enqueue Quick Optimize job.",
-				"enqueue_error": str(exc),
-			}
-			run.save(update_fields=["status", "result_data", "updated_at"])
-			return Response(
-				{
-					"run_id": run.run_id,
-					"status": run.status,
-					"detail": "Quick Optimize could not be started because the background queue is unavailable.",
-				},
-				status=status.HTTP_503_SERVICE_UNAVAILABLE,
-			)
-		return Response({"run_id": run.run_id, "status": run.status}, status=status.HTTP_202_ACCEPTED)
+		from optimization.services import start_run
+		run, queued = start_run(request.user, request.data)
+		return Response({"run_id": run.run_id, "status": run.status, **({} if queued else {"detail": "Background queue unavailable."})}, status=202 if queued else 503)

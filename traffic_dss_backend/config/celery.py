@@ -9,6 +9,7 @@ app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
 
 app.conf.beat_schedule = {
+    "deployment-lifecycle": {"task": "core.tasks.deployment_lifecycle", "schedule": 60.0},
     "fetch-traffic-data-every-5-minutes": {
         "task": "external.tasks.fetch_traffic_data",
         "schedule": 300.0,

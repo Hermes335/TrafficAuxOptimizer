@@ -1,7 +1,8 @@
+import { popupCard } from "../services/mapPopup";
 import { useEffect } from "react";
 import maplibregl from "maplibre-gl";
 import type { Bottleneck, DeploymentScheduleItem } from "../services/backend";
-import { getCongestionSeverity, getSeverityColor } from "../types/severity";
+import { getCongestionSeverity } from "../types/severity";
 
 interface UseMapAssignmentLinesOptions {
   mapRef: React.RefObject<maplibregl.Map | null>;
@@ -21,6 +22,9 @@ export function useMapAssignmentLines({
 
     const map = mapRef.current;
 
+    let onDotClick: ((event: maplibregl.MapMouseEvent) => void) | undefined;
+    const enter = () => { map.getCanvas().style.cursor = "pointer"; };
+    const leave = () => { map.getCanvas().style.cursor = ""; };
     const addLayers = () => {
       // Remove existing layers/sources if present
       if (map.getLayer("assignment-lines")) map.removeLayer("assignment-lines");
@@ -140,32 +144,21 @@ export function useMapAssignmentLines({
       });
 
       // Add click popup for assignment dots
-      const onDotClick = (e: maplibregl.MapMouseEvent) => {
+      onDotClick = (e: maplibregl.MapMouseEvent) => {
         const features = map.queryRenderedFeatures(e.point, { layers: ["assignment-dots"] });
         if (!features.length) return;
         const props = features[0].properties;
         new maplibregl.Popup({ offset: 15 })
           .setLngLat(e.lngLat)
-          .setHTML(
-            `<div style="min-width:180px">
-              <div style="font-weight:600;margin-bottom:4px">${props?.id || ""}</div>
-              <div style="font-size:13px;margin-bottom:6px">${props?.name || ""}</div>
-              <div style="font-size:12px;color:#3b82f6;font-weight:600">${props?.officer_count || 0} officer(s) assigned</div>
-              <div style="font-size:11px;color:#6b7280;margin-top:4px">${props?.officers || "None"}</div>
-            </div>`
-          )
+          .setDOMContent(popupCard(String(props?.name ?? ""), [String(props?.id ?? ""), `${props?.officer_count ?? 0} officer(s) assigned`, String(props?.officers ?? "None")]))
           .addTo(map);
       };
 
       map.on("click", "assignment-dots", onDotClick);
 
       // Change cursor on hover
-      map.on("mouseenter", "assignment-dots", () => {
-        map.getCanvas().style.cursor = "pointer";
-      });
-      map.on("mouseleave", "assignment-dots", () => {
-        map.getCanvas().style.cursor = "";
-      });
+      map.on("mouseenter", "assignment-dots", enter);
+      map.on("mouseleave", "assignment-dots", leave);
     };
 
     if (map.isStyleLoaded()) {
@@ -175,6 +168,10 @@ export function useMapAssignmentLines({
     }
 
     return () => {
+      map.off("load", addLayers);
+      if (onDotClick) map.off("click", "assignment-dots", onDotClick);
+      map.off("mouseenter", "assignment-dots", enter);
+      map.off("mouseleave", "assignment-dots", leave);
       if (map.getLayer("assignment-lines")) map.removeLayer("assignment-lines");
       if (map.getLayer("assignment-dots")) map.removeLayer("assignment-dots");
       if (map.getSource("assignments")) map.removeSource("assignments");

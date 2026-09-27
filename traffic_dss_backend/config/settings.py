@@ -54,8 +54,6 @@ INSTALLED_APPS = [
     "optimization",
     "deployments",
     "incidents",
-    "scenarios",
-    "analytics_app",
     "adminpanel",
     "external",
 ]
@@ -128,7 +126,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Manila'
 
 USE_I18N = True
 

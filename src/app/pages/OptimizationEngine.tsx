@@ -1,18 +1,18 @@
+import { PublishScheduleButton } from "../components/PublishScheduleButton";
+import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle, ChevronLeft, Clock, Target, TrendingDown, Users, TrendingUp } from "lucide-react";
+import { AlertCircle, ChevronLeft, Clock, Target, TrendingDown, Users, TrendingUp } from "lucide-react";
 import { ResponsiveContainer, ComposedChart, Scatter, Cell, CartesianGrid, XAxis, YAxis, Tooltip } from "recharts";
 import { Link } from "react-router";
 import PrettyCurve from "../components/PrettyCurve";
 import { StatusBadge } from "../components/StatusBadge";
-import { LoadingState, EmptyState } from "../components/LoadingState";
 import {
   fetchOptimizationResults,
   fetchOptimizationStatus,
-  publishDeploymentsFromOptimization,
   type OptimizationResults,
   type OptimizationStatus,
 } from "../services/backend";
-import { type ConvergencePoint, upsertConvergencePoint, getRunStatusToneClass } from "../types/optimization";
+import { type ConvergencePoint, upsertConvergencePoint } from "../types/optimization";
 
 function buildConvergenceFromScores(scores: number[]): ConvergencePoint[] {
   let runningTotal = 0;
@@ -28,29 +28,13 @@ function buildConvergenceFromScores(scores: number[]): ConvergencePoint[] {
 }
 
 export function OptimizationEngine() {
+  const { user } = useAuth();
+  const canManage = user?.role === "supervisor" || user?.role === "administrator";
   const runId = useMemo(() => new URLSearchParams(window.location.search).get("run_id"), []);
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
   const [results, setResults] = useState<OptimizationResults | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [convergenceData, setConvergenceData] = useState<ConvergencePoint[]>([]);
-  const [publishing, setPublishing] = useState(false);
-  const [publishError, setPublishError] = useState<string | null>(null);
-  const [publishNotice, setPublishNotice] = useState<string | null>(null);
-
-  const onPublish = async () => {
-    if (!runId) return;
-    setPublishing(true);
-    setPublishError(null);
-    setPublishNotice(null);
-    try {
-      const result = await publishDeploymentsFromOptimization({ run_id: runId, shift: "afternoon", replace_existing: true });
-      setPublishNotice(`Published ${result.created} deployments.`);
-    } catch (e: unknown) {
-      setPublishError(e instanceof Error ? e.message : "Failed to publish.");
-    } finally {
-      setPublishing(false);
-    }
-  };
 
   useEffect(() => {
     if (!runId) {
@@ -90,7 +74,7 @@ export function OptimizationEngine() {
           setConvergenceData(rebuilt.slice(-200));
         }
 
-        if (latestStatus.status === "completed" || latestStatus.status === "failed") {
+        if (latestStatus.status === "completed" || ["failed", "cancelled"].includes(latestStatus.status)) {
           if (timer) {
             window.clearInterval(timer);
             timer = undefined;
@@ -125,7 +109,6 @@ export function OptimizationEngine() {
 
   const bestSolution = results?.top_solutions?.[0];
   const assignments = bestSolution?.assignments ?? [];
-  const statusToneClass = getRunStatusToneClass(status?.status);
 
   return (
     <div className="h-full overflow-y-auto bg-gray-50 p-8">
@@ -180,8 +163,8 @@ export function OptimizationEngine() {
               icon={<Users className="h-4 w-4" />}
             />
             <StatCard
-              label="Coverage Efficiency"
-              value={bestSolution?.coverage_efficiency ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}
+              label="Location coverage"
+              value={bestSolution?.coverage_efficiency != null ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}
               icon={<TrendingDown className="h-4 w-4" />}
             />
           </div>
@@ -204,7 +187,7 @@ export function OptimizationEngine() {
               </div>
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-gray-400" />
-                <span className="text-gray-700">Average Fitness</span>
+                <span className="text-gray-700">Running mean of best fitness</span>
               </div>
             </div>
 
@@ -265,14 +248,30 @@ export function OptimizationEngine() {
           <div className="space-y-4">
             <div className="rounded-xl bg-white p-6 shadow-sm">
               <h3 className="mb-3 font-semibold">Solution Summary</h3>
+              <p className="mb-3 text-xs text-gray-600">Travel time is a model estimate using congestion-adjusted speed and straight-line distance; missing officer coordinates use 3 km. Location coverage counts distinct nodes.</p>
+              <p className="mb-3 text-sm">Unfilled staffing requirements: {bestSolution?.staffing_shortages ? Object.entries(bestSolution.staffing_shortages).map(([node, count]) => `${node}: ${count}`).join(", ") || "None" : "Unavailable in this saved run"}</p>
               <div className="space-y-2 text-sm text-gray-700">
-                <div>Coverage Efficiency: {bestSolution?.coverage_efficiency ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}</div>
-                <div>Avg Response Time: {bestSolution?.avg_response_time ? `${bestSolution.avg_response_time.toFixed(1)} min` : "pending"}</div>
-                <div>Resource Utilization: {bestSolution?.resource_utilization ? `${bestSolution.resource_utilization.toFixed(1)}%` : "pending"}</div>
-                <div>Road Priority Coverage: {bestSolution?.road_priority_coverage ? `${bestSolution.road_priority_coverage.toFixed(1)}%` : "pending"}</div>
+                <div>Coverage Efficiency: {bestSolution?.coverage_efficiency != null ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}</div>
+                <div>Estimated travel time: {bestSolution?.avg_response_time != null ? `${bestSolution.avg_response_time.toFixed(1)} min` : "pending"}</div>
+                <div>Resource Utilization: {bestSolution?.resource_utilization != null ? `${bestSolution.resource_utilization.toFixed(1)}%` : "pending"}</div>
+                <div>Road Priority Coverage: {bestSolution?.road_priority_coverage != null ? `${bestSolution.road_priority_coverage.toFixed(1)}%` : "pending"}</div>
               </div>
             </div>
 
+            {results?.input_snapshot && <details className="rounded-xl bg-white p-4">
+              <summary className="cursor-pointer font-semibold">Input sources and freshness</summary>
+              <p className="mt-2 text-xs">Captured: {results.input_snapshot.captured_at}</p>
+              <p className="text-sm">Weather: {results.input_snapshot.weather.source} · {results.input_snapshot.weather.data_status}
+                {results.input_snapshot.weather.is_stale ? " · stale" : ""}
+                {results.input_snapshot.weather.is_synthetic ? " · simulated" : ""}
+              </p>
+              {results.input_snapshot.weather.assumption && <p className="text-sm">{results.input_snapshot.weather.assumption}</p>}
+              <ul className="mt-2 space-y-2 text-xs">{results.input_snapshot.bottlenecks.map(b => <li key={b.id}>
+                {b.id}: TSI {b.tsi}, priority {b.road_priority_weight} · {b.provenance.source} · {b.provenance.data_status}
+                {b.provenance.is_stale ? " · stale" : ""}{b.provenance.is_synthetic ? " · simulated" : ""}
+                {b.provenance.observed_at ? ` · observed ${b.provenance.observed_at}` : " · observation time unavailable"}
+              </li>)}</ul>
+            </details>}
             {/* Pareto Front Visualization */}
             {results?.pareto_curve_data && results.pareto_curve_data.length > 0 && (
               <div className="rounded-xl bg-white p-6 shadow-sm">
@@ -377,21 +376,13 @@ export function OptimizationEngine() {
               </div>
             )}
 
-            {status?.status === "completed" && (
+            {canManage && status?.status === "completed" && (
               <div className="rounded-xl bg-white p-6 shadow-sm">
                 <h2 className="mb-3 font-semibold">Publish Deployment</h2>
                 <p className="mb-3 text-sm text-gray-600">
                   Publish the top solution as the deployment schedule for this shift.
                 </p>
-                <button
-                  onClick={onPublish}
-                  disabled={publishing}
-                  className="w-full rounded-lg bg-yellow-400 px-4 py-3 font-semibold text-white hover:bg-yellow-500 disabled:opacity-50"
-                >
-                  {publishing ? "Publishing..." : "Publish to Schedule"}
-                </button>
-                {publishError && <p className="mt-2 text-sm text-red-600">{publishError}</p>}
-                {publishNotice && <p className="mt-2 text-sm text-green-600">{publishNotice}</p>}
+                <PublishScheduleButton runId={runId ?? ""} syntheticSources={results?.synthetic_data_used} />
               </div>
             )}
 

@@ -12,10 +12,8 @@ const GanttChart = lazy(() => import("./pages/GanttChart").then(m => ({ default:
 const Optimization = lazy(() => import("./pages/Optimization").then(m => ({ default: m.Optimization })));
 const OptimizationEngine = lazy(() => import("./pages/OptimizationEngine").then(m => ({ default: m.OptimizationEngine })));
 const OptimizationRunning = lazy(() => import("./pages/OptimizationRunning").then(m => ({ default: m.OptimizationRunning })));
-const Scenarios = lazy(() => import("./pages/Scenarios").then(m => ({ default: m.Scenarios })));
 const ComponentLibrary = lazy(() => import("./pages/ComponentLibrary").then(m => ({ default: m.ComponentLibrary })));
 const IncidentReport = lazy(() => import("./pages/IncidentReport").then(m => ({ default: m.IncidentReport })));
-const Analytics = lazy(() => import("./pages/Analytics").then(m => ({ default: m.Analytics })));
 const AuditLogs = lazy(() => import("./pages/AuditLogs").then(m => ({ default: m.AuditLogs })));
 const OfficerManagement = lazy(() => import("./pages/OfficerManagement").then(m => ({ default: m.OfficerManagement })));
 const Settings = lazy(() => import("./pages/Settings").then(m => ({ default: m.Settings })));
@@ -66,16 +64,14 @@ export const router = createBrowserRouter([
     children: [
       { index: true, Component: () => <PageLoader Component={Dashboard} /> },
       { path: "gantt-chart", Component: () => <PageLoader Component={GanttChart} /> },
-      { path: "optimization", Component: () => <PageLoader Component={Optimization} /> },
+      { path: "optimization", Component: () => <ProtectedRoute allowedRoles={["supervisor", "administrator"]}><PageLoader Component={Optimization} /></ProtectedRoute> },
       { path: "optimization-engine", Component: () => <PageLoader Component={OptimizationEngine} /> },
-      { path: "optimization-running", Component: () => <PageLoader Component={OptimizationRunning} /> },
-      { path: "scenarios", Component: () => <PageLoader Component={Scenarios} /> },
+      { path: "optimization-running", Component: () => <ProtectedRoute allowedRoles={["supervisor", "administrator"]}><PageLoader Component={OptimizationRunning} /></ProtectedRoute> },
       { path: "component-library", Component: () => <PageLoader Component={ComponentLibrary} /> },
       { path: "incident-report", Component: () => <PageLoader Component={IncidentReport} /> },
       { path: "incident-report/:id", Component: () => <PageLoader Component={IncidentReport} /> },
-      { path: "analytics", Component: () => <PageLoader Component={Analytics} /> },
-      { path: "officer-management", Component: () => <PageLoader Component={OfficerManagement} /> },
-      { path: "audit-logs", Component: () => <PageLoader Component={AuditLogs} /> },
+      { path: "officer-management", Component: () => <ProtectedRoute allowedRoles={["supervisor", "administrator"]}><PageLoader Component={OfficerManagement} /></ProtectedRoute> },
+      { path: "audit-logs", Component: () => <ProtectedRoute allowedRoles={["administrator"]}><PageLoader Component={AuditLogs} /></ProtectedRoute> },
       { path: "settings", Component: () => <PageLoader Component={Settings} /> },
     ],
   },

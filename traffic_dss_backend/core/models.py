@@ -141,13 +141,6 @@ class Deployment(TimeStampedSoftDeleteModel):
 			models.Index(fields=["bottleneck", "start_time"]),
 			models.Index(fields=["shift", "status"]),
 		]
-		constraints = [
-			models.UniqueConstraint(
-				fields=["officer", "shift"],
-				condition=models.Q(is_deleted=False, status="assigned"),
-				name="unique_officer_shift_assignment"
-			),
-		]
 
 
 class OptimizationRun(TimeStampedSoftDeleteModel):
@@ -215,15 +208,6 @@ class WeatherData(TimeStampedSoftDeleteModel):
 	class Meta:
 		indexes = [models.Index(fields=["timestamp", "condition"])]
 
-
-class Scenario(TimeStampedSoftDeleteModel):
-	name = models.CharField(max_length=120, unique=True)
-	description = models.TextField(blank=True)
-	preset_parameters = models.JSONField(default=dict)
-	is_default = models.BooleanField(default=False, db_index=True)
-
-	class Meta:
-		indexes = [models.Index(fields=["is_default", "name"])]
 
 
 class AuditLog(TimeStampedSoftDeleteModel):

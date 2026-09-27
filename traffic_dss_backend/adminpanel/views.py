@@ -1,7 +1,10 @@
+from django.db import transaction
+from deployments.services import lock_schedule
 from django.db import connection
 from django.utils import timezone
 from rest_framework import permissions, status
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from rest_framework.views import APIView
 
 from core.models import AuditLog, Bottleneck, Officer
@@ -13,14 +16,20 @@ class AuditLogListView(APIView):
 	permission_classes = [permissions.IsAdminUser]
 
 	def get(self, request):
-		queryset = AuditLog.objects.filter(is_deleted=False).order_by("-timestamp")[:500]
-		return Response(AuditLogSerializer(queryset, many=True).data)
+		queryset = AuditLog.objects.filter(is_deleted=False).order_by("-timestamp", "-id")
+		paginator = PageNumberPagination()
+		paginator.page_size_query_param = "page_size"
+		paginator.max_page_size = 100
+		page = paginator.paginate_queryset(queryset, request, view=self)
+		return paginator.get_paginated_response(AuditLogSerializer(page, many=True).data)
 
 
 class AdminBottleneckCreateView(APIView):
 	permission_classes = [permissions.IsAdminUser]
 
+	@transaction.atomic
 	def post(self, request):
+		lock_schedule()
 		serializer = BottleneckSerializer(data=request.data)
 		serializer.is_valid(raise_exception=True)
 		bottleneck = serializer.save()
@@ -31,7 +40,9 @@ class AdminBottleneckCreateView(APIView):
 class AdminOfficerUpdateView(APIView):
 	permission_classes = [permissions.IsAdminUser]
 
+	@transaction.atomic
 	def put(self, request, officer_id: int):
+		lock_schedule()
 		officer = Officer.objects.filter(pk=officer_id, is_deleted=False).first()
 		if not officer:
 			return Response({"detail": "Officer not found."}, status=status.HTTP_404_NOT_FOUND)

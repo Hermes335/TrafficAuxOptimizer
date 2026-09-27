@@ -34,31 +34,6 @@ def test_weather_api_reports_unavailable_without_data():
 
 
 @pytest.mark.django_db
-def test_trends_api_exposes_cached_provenance():
-    bottleneck = Bottleneck.objects.create(
-        id="B-TREND",
-        name="Trend Test",
-        latitude=10.72,
-        longitude=122.56,
-        district="Iloilo",
-    )
-    TrafficData.objects.create(
-        bottleneck=bottleneck,
-        timestamp="2026-09-19T00:00:00Z",
-        source="cache",
-        data_status="cached",
-        is_stale=True,
-        fetched_at="2026-09-18T23:00:00Z",
-        traffic_severity_index=0.4,
-        avg_speed=25,
-    )
-    response = APIClient().get("/api/analytics/trends/")
-    assert response.status_code == 200
-    assert response.json()["metadata"]["data_status"] == "cached"
-    assert response.json()["metadata"]["is_stale"] is True
-
-
-@pytest.mark.django_db
 def test_traffic_api_exposes_live_provenance_and_unavailable_state():
     bottleneck = Bottleneck.objects.create(
         id="B-TRAFFIC",

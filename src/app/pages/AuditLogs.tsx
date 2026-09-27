@@ -1,9 +1,12 @@
+import { operationalDate, operationalTime } from "../services/operationalTime";
 import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck, Clock3, FileText } from "lucide-react";
 import { LoadingState, EmptyState } from "../components/LoadingState";
 import { fetchAuditLogs, type AuditLogRecord } from "../services/backend";
 
 export function AuditLogs() {
+  const [page, setPage] = useState(1);
+  const [count, setCount] = useState(0);
   const [logs, setLogs] = useState<AuditLogRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -11,12 +14,13 @@ export function AuditLogs() {
   useEffect(() => {
     let active = true;
 
-    fetchAuditLogs()
-      .then((rows) => {
+    setLoading(true);
+    fetchAuditLogs(page)
+      .then((result) => {
         if (!active) {
           return;
         }
-        setLogs(rows);
+        setLogs(result.results); setCount(result.count);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -35,7 +39,7 @@ export function AuditLogs() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [page]);
 
   const permissionDenied = useMemo(() => {
     if (!error) {
@@ -57,6 +61,11 @@ export function AuditLogs() {
           Latest Events
         </div>
 
+        <div className="mb-3 flex gap-3">
+          <button disabled={page === 1 || loading} onClick={() => setPage(p => p - 1)}>Previous</button>
+          <span>Page {page} of {Math.max(1, Math.ceil(count / 25))}</span>
+          <button disabled={page * 25 >= count || loading} onClick={() => setPage(p => p + 1)}>Next</button>
+        </div>
         {loading && <LoadingState label="Loading audit logs..." />}
 
         {!loading && permissionDenied && (
@@ -88,12 +97,12 @@ export function AuditLogs() {
                 </tr>
               </thead>
               <tbody>
-                {logs.slice(0, 200).map((entry) => (
+                {logs.map((entry) => (
                   <tr key={entry.id} className="border-b align-top last:border-b-0">
                     <td className="px-3 py-2 text-gray-700">
                       <div className="flex items-center gap-1">
                         <Clock3 className="h-3.5 w-3.5 text-gray-400" />
-                        {new Date(entry.timestamp).toLocaleString()}
+                        {operationalDate(new Date(entry.timestamp))} {operationalTime(entry.timestamp)}
                       </div>
                     </td>
                     <td className="px-3 py-2 font-medium text-gray-900">#{entry.user}</td>

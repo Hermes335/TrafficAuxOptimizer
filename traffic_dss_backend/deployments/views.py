@@ -1,331 +1,77 @@
-from datetime import timedelta
-
+from django.db import DatabaseError
 from rest_framework import permissions, status
-from django.utils import timezone
-from django.utils.dateparse import parse_datetime
-from django.contrib.auth import get_user_model
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 
-from core.models import Bottleneck, Deployment, Officer, OptimizationRun
-from core.realtime import broadcast
+from core.models import Deployment
+from core.permissions import IsSupervisor, SupervisorWrite
+from core.operational_time import shift_window
 from core.serializers import DeploymentSerializer
-from core.utils import write_audit_log
+from .services import save_assignment, publish, clear_schedule, ScheduleConflict
+
+_default_shift_window = shift_window
 
 
-class DeploymentScheduleView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+class ScheduleWriteView(APIView):
+    permission_classes = [IsSupervisor]
 
-	def get(self, request):
-		queryset = Deployment.objects.filter(is_deleted=False).select_related("officer", "bottleneck").order_by("start_time")
-		paginator = PageNumberPagination()
-		page = paginator.paginate_queryset(queryset, request, view=self)
-		data = [
-			{
-				"id": d.id,
-				"officer": d.officer.badge_number,
-				"officer_name": d.officer.name,
-				"bottleneck": d.bottleneck.id,
-				"shift": d.shift,
-				"start_time": d.start_time,
-				"end_time": d.end_time,
-				"assignment_type": d.assignment_type,
-				"status": d.status,
-			}
-			for d in page
-		]
-		return paginator.get_paginated_response(data)
-
-	def delete(self, request):
-		shift = request.query_params.get("shift")
-		queryset = Deployment.objects.filter(is_deleted=False)
-		if shift:
-			queryset = queryset.filter(shift=shift)
-
-		# Collect affected officer IDs before deleting
-		affected_officer_ids = list(queryset.values_list("officer_id", flat=True))
-
-		deleted_count = queryset.update(is_deleted=True, updated_at=timezone.now())
-
-		# Update affected officers to "available" if they have no remaining active deployments
-		if affected_officer_ids:
-			for officer_id in set(affected_officer_ids):
-				has_active = Deployment.objects.filter(
-					is_deleted=False, officer_id=officer_id
-				).exists()
-				if not has_active:
-					Officer.objects.filter(pk=officer_id).update(status="available", updated_at=timezone.now())
-
-		write_audit_log(request.user, "delete", "deployment_schedule", {"shift": shift or "all", "cleared": deleted_count})
-		broadcast(
-			"dashboard_live",
-			"dashboard_event",
-			{
-				"event": "deployment_schedule_cleared",
-				"shift": shift or "all",
-				"cleared": deleted_count,
-				"timestamp": timezone.now().isoformat(),
-			},
-		)
-		return Response({"cleared": deleted_count, "shift": shift or "all"})
+    def handle_exception(self, exc):
+        if isinstance(exc, DatabaseError):
+            exc = ScheduleConflict("The schedule could not be saved. No changes were committed; refresh and retry.")
+        return super().handle_exception(exc)
 
 
-class DeploymentAssignView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+class DeploymentScheduleView(ScheduleWriteView):
+    permission_classes = [SupervisorWrite]
 
-	def post(self, request):
-		officer_id = request.data.get("officer")
-		bottleneck_id = request.data.get("bottleneck")
-		shift = request.data.get("shift")
-		
-		officer = Officer.objects.filter(pk=officer_id, is_deleted=False).first()
-		bottleneck = Bottleneck.objects.filter(pk=bottleneck_id, is_deleted=False).first()
-		
-		if not officer or not bottleneck:
-			return Response({"detail": "Invalid officer or bottleneck."}, status=status.HTTP_400_BAD_REQUEST)
-		
-		# Validation Rule 1: Officer must be available or deployed
-		if officer.status not in ["available", "deployed"]:
-			return Response(
-				{"detail": f"Officer {officer.badge_number} is {officer.status}, cannot assign."}, 
-				status=status.HTTP_400_BAD_REQUEST
-			)
-		
-		# Validation Rule 2: Officer shift must match the assignment shift
-		if officer.shift != shift:
-			return Response(
-				{"detail": f"Officer {officer.badge_number} works {officer.shift} shift, not {shift}."}, 
-				status=status.HTTP_400_BAD_REQUEST
-			)
-		
-		# Validation Rule 3: Officer must not already be assigned elsewhere in this shift
-		existing = Deployment.objects.filter(
-			is_deleted=False,
-			officer=officer,
-			shift=shift,
-			status="assigned"
-		).first()
-		if existing:
-			return Response(
-				{"detail": f"Officer {officer.badge_number} is already assigned to {existing.bottleneck.name} in {shift} shift."}, 
-				status=status.HTTP_409_CONFLICT
-			)
+    def get(self, request):
+        from core.operational_time import operational_date
+        from rest_framework import serializers
+        day = serializers.DateField().run_validation(request.query_params.get("date", str(operational_date())))
+        start, _ = shift_window("morning", day)
+        _, end = shift_window("afternoon", day)
+        queryset = Deployment.objects.filter(is_deleted=False, status__in=["assigned", "completed"], start_time__lt=end, end_time__gt=start).select_related("officer", "bottleneck").order_by("start_time", "id")
+        paginator = PageNumberPagination()
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        return paginator.get_paginated_response([{
+            "id": d.id, "officer": d.officer.badge_number, "officer_name": d.officer.name,
+            "bottleneck": d.bottleneck_id, "shift": d.shift, "start_time": d.start_time,
+            "end_time": d.end_time, "assignment_type": d.assignment_type, "status": d.status,
+        } for d in page])
 
-		assigned_count = Deployment.objects.filter(
-			is_deleted=False,
-			bottleneck=bottleneck,
-			shift=shift,
-			status="assigned",
-		).count()
-		if assigned_count >= max(1, bottleneck.max_officers_allowed):
-			return Response(
-				{"detail": f"{bottleneck.name} already has its maximum of {bottleneck.max_officers_allowed} officers for the {shift} shift."},
-				status=status.HTTP_400_BAD_REQUEST,
-			)
-
-		# Validation Rule 4: Respect the active roster cap. Only 60 officers may remain active.
-		active_roster_cap = 60
-		active_officer_count = Officer.objects.filter(is_deleted=False, status="available").count()
-		if officer.status == "available" and active_officer_count >= active_roster_cap and not Deployment.objects.filter(is_deleted=False, officer=officer, status="assigned").exists():
-			return Response(
-				{"detail": f"Active officer cap reached: only {active_roster_cap} officers may remain available for deployment."},
-				status=status.HTTP_400_BAD_REQUEST,
-			)
-
-		payload = dict(request.data)
-		if not payload.get("start_time"):
-			payload["start_time"] = _default_shift_window(shift)[0].isoformat()
-		if not payload.get("end_time"):
-			payload["end_time"] = _default_shift_window(shift)[1].isoformat()
-
-		serializer = DeploymentSerializer(data=payload)
-		serializer.is_valid(raise_exception=True)
-		deployment = serializer.save(officer=officer, bottleneck=bottleneck)
-		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
-		if actor is None:
-			actor = get_user_model().objects.create_user(username="desktop-runner")
-		write_audit_log(actor, "create", "deployment", {"deployment_id": deployment.id})
-		broadcast(
-			"dashboard_live",
-			"dashboard_event",
-			{
-				"event": "deployment_changed",
-				"deployment_id": deployment.id,
-				"officer": officer.badge_number,
-				"bottleneck_id": bottleneck.id,
-				"status": deployment.status,
-				"timestamp": deployment.created_at.isoformat(),
-			},
-		)
-		return Response(DeploymentSerializer(deployment).data, status=status.HTTP_201_CREATED)
+    def delete(self, request):
+        from rest_framework import serializers
+        raw = request.query_params.get("date")
+        day = serializers.DateField().run_validation(raw) if raw else None
+        return Response({"cleared": clear_schedule(request.user, request.query_params.get("shift"), day)})
 
 
-class DeploymentUpdateView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+class DeploymentAssignView(ScheduleWriteView):
+    def post(self, request):
+        deployment = save_assignment(request.user, request.data)
+        return Response(DeploymentSerializer(deployment).data, status=status.HTTP_201_CREATED)
 
-	def put(self, request, deployment_id: int):
-		deployment = Deployment.objects.filter(pk=deployment_id, is_deleted=False).first()
-		if not deployment:
-			return Response({"detail": "Deployment not found."}, status=status.HTTP_404_NOT_FOUND)
-		serializer = DeploymentSerializer(deployment, data=request.data, partial=True)
-		serializer.is_valid(raise_exception=True)
-		deployment = serializer.save()
-		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
-		if actor is None:
-			actor = get_user_model().objects.create_user(username="desktop-runner")
-		write_audit_log(actor, "update", "deployment", {"deployment_id": deployment.id})
-		broadcast(
-			"dashboard_live",
-			"dashboard_event",
-			{
-				"event": "deployment_changed",
-				"deployment_id": deployment.id,
-				"officer": deployment.officer.badge_number,
-				"bottleneck_id": deployment.bottleneck.id,
-				"status": deployment.status,
-				"timestamp": deployment.updated_at.isoformat(),
-			},
-		)
-		return Response(DeploymentSerializer(deployment).data)
+
+class DeploymentUpdateView(ScheduleWriteView):
+    def put(self, request, deployment_id):
+        deployment = save_assignment(request.user, request.data, deployment_id)
+        return Response(DeploymentSerializer(deployment).data)
 
 
 class OfficerDeploymentView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated]
 
-	def get(self, request, officer_id: int):
-		deployments = Deployment.objects.filter(officer_id=officer_id, is_deleted=False).order_by("-start_time")
-		return Response(DeploymentSerializer(deployments, many=True).data)
-
-
-def _default_shift_window(shift: str):
-	now = timezone.now()
-	base = now.replace(hour=0, minute=0, second=0, microsecond=0)
-	if shift == "morning":
-		return base + timedelta(hours=6), base + timedelta(hours=14)
-	if shift == "night":
-		return base + timedelta(hours=22), base + timedelta(days=1, hours=6)
-	return base + timedelta(hours=14), base + timedelta(hours=22)
+    def get(self, request, officer_id):
+        deployments = Deployment.objects.filter(officer_id=officer_id, is_deleted=False).order_by("-start_time")
+        return Response(DeploymentSerializer(deployments, many=True).data)
 
 
-class DeploymentPublishOptimizationView(APIView):
-	permission_classes = [permissions.IsAuthenticated]
+class DeploymentPublishOptimizationView(ScheduleWriteView):
+    def post(self, request):
+        return Response(publish(request.user, request.data), status=status.HTTP_201_CREATED)
 
-	def post(self, request):
-		run_id = str((request.data or {}).get("run_id", "")).strip()
-		if not run_id:
-			return Response({"detail": "run_id is required."}, status=status.HTTP_400_BAD_REQUEST)
 
-		run = OptimizationRun.objects.filter(run_id=run_id, is_deleted=False).first()
-		if not run:
-			return Response({"detail": "Optimization run not found."}, status=status.HTTP_404_NOT_FOUND)
-		if run.status != "completed":
-			return Response({"detail": "Only completed optimization runs can be published."}, status=status.HTTP_400_BAD_REQUEST)
-
-		top_solutions = (run.result_data or {}).get("top_solutions") or []
-		if not top_solutions:
-			return Response({"detail": "No solution data found for this run."}, status=status.HTTP_400_BAD_REQUEST)
-
-		assignments = (top_solutions[0] or {}).get("assignments") or []
-		if not assignments:
-			return Response({"detail": "Top solution has no assignments to deploy."}, status=status.HTTP_400_BAD_REQUEST)
-
-		assignment_counts = {}
-		for item in assignments:
-			bottleneck_id = item.get("bottleneck_id")
-			bottleneck = Bottleneck.objects.filter(pk=bottleneck_id, is_deleted=False).first()
-			if not bottleneck:
-				continue
-			assignment_counts[bottleneck_id] = assignment_counts.get(bottleneck_id, 0) + 1
-			if assignment_counts[bottleneck_id] > max(1, bottleneck.max_officers_allowed):
-				return Response(
-					{"detail": f"Optimization result exceeds the maximum of {bottleneck.max_officers_allowed} officers for {bottleneck.name}. Re-run optimization."},
-					status=status.HTTP_400_BAD_REQUEST,
-				)
-
-		payload = request.data or {}
-		shift = str(payload.get("shift") or (run.parameters or {}).get("shift") or "afternoon").strip()
-		assignment_type = str(payload.get("assignment_type") or "static").strip()
-		status_value = str(payload.get("status") or "assigned").strip()
-		replace_existing = bool(payload.get("replace_existing", True))
-
-		start_raw = payload.get("start_time")
-		end_raw = payload.get("end_time")
-		start_time = parse_datetime(start_raw) if isinstance(start_raw, str) else None
-		end_time = parse_datetime(end_raw) if isinstance(end_raw, str) else None
-		if not start_time or not end_time:
-			start_time, end_time = _default_shift_window(shift)
-
-		if replace_existing:
-			old_officer_ids = list(
-				Deployment.objects.filter(
-					is_deleted=False, shift=shift, start_time=start_time, end_time=end_time,
-				).values_list("officer_id", flat=True)
-			)
-			Deployment.objects.filter(
-				is_deleted=False,
-				shift=shift,
-				start_time=start_time,
-				end_time=end_time,
-			).update(is_deleted=True, updated_at=timezone.now())
-			# Reset old officers to "available" if no remaining active deployments
-			for officer_id in set(old_officer_ids):
-				if not Deployment.objects.filter(is_deleted=False, officer_id=officer_id).exists():
-					Officer.objects.filter(pk=officer_id).update(status="available", updated_at=timezone.now())
-
-		created_count = 0
-		skipped = []
-		deployed_officer_ids = set()
-		for item in assignments:
-			officer_id = item.get("officer_id")
-			bottleneck_id = item.get("bottleneck_id")
-			officer = Officer.objects.filter(pk=officer_id, is_deleted=False).first()
-			bottleneck = Bottleneck.objects.filter(pk=bottleneck_id, is_deleted=False).first()
-			if not officer or not bottleneck:
-				skipped.append({"officer_id": officer_id, "bottleneck_id": bottleneck_id})
-				continue
-
-			Deployment.objects.create(
-				officer=officer,
-				bottleneck=bottleneck,
-				shift=shift,
-				start_time=start_time,
-				end_time=end_time,
-				assignment_type=assignment_type,
-				status=status_value,
-				source="optimized",
-			)
-			deployed_officer_ids.add(officer.id)
-			created_count += 1
-
-		# Update deployed officers to "deployed" status
-		if deployed_officer_ids:
-			Officer.objects.filter(pk__in=deployed_officer_ids).update(status="deployed", updated_at=timezone.now())
-
-		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
-		if actor is None:
-			actor = get_user_model().objects.create_user(username="desktop-runner")
-		write_audit_log(actor, "create", "deployment_batch", {"run_id": run_id, "created": created_count, "skipped": len(skipped)})
-		broadcast(
-			"dashboard_live",
-			"dashboard_event",
-			{
-				"event": "deployment_batch_published",
-				"run_id": run_id,
-				"created": created_count,
-				"skipped": len(skipped),
-				"timestamp": timezone.now().isoformat(),
-			},
-		)
-
-		return Response(
-			{
-				"run_id": run_id,
-				"created": created_count,
-				"skipped": skipped,
-				"start_time": start_time,
-				"end_time": end_time,
-				"shift": shift,
-			},
-			status=status.HTTP_201_CREATED,
-		)
+class DeploymentPreviewView(ScheduleWriteView):
+    def post(self, request):
+        return Response(publish(request.user, request.data, preview=True))

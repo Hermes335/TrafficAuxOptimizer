@@ -2,13 +2,15 @@ import pytest
 from datetime import timedelta
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
+from core.operational_time import shift_window
 from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from core.assignment_scoring import score_candidate_officer
-from core.models import Bottleneck, Deployment, Incident, Officer, OptimizationRun, POI, Scenario
+from core.models import Bottleneck, Deployment, Incident, Officer, OptimizationRun, POI
 
 
 @pytest.mark.django_db
@@ -168,7 +170,7 @@ def test_poi_list_uses_default_pagination():
 
 
 @pytest.mark.django_db
-def test_deployment_and_scenario_lists_return_paginated_results():
+def test_deployment_list_returns_paginated_results():
     user = get_user_model().objects.create_user(username="list-page", password="pass12345")
     officer = Officer.objects.create(
         name="List Officer",
@@ -186,28 +188,24 @@ def test_deployment_and_scenario_lists_return_paginated_results():
         officer=officer,
         bottleneck=bottleneck,
         shift="morning",
-        start_time=timezone.now(),
-        end_time=timezone.now() + timedelta(hours=1),
+        start_time=shift_window("morning")[0],
+        end_time=shift_window("morning")[1],
     )
-    Scenario.objects.create(name="List Scenario", description="Pagination test")
 
     client = APIClient()
     client.force_authenticate(user=user)
     deployment_response = client.get("/api/deployments/schedule/")
-    scenario_response = client.get("/api/scenarios/")
 
     assert deployment_response.status_code == 200
     assert deployment_response.json()["count"] == 1
     assert len(deployment_response.json()["results"]) == 1
-    assert scenario_response.status_code == 200
-    assert scenario_response.json()["count"] == 1
-    assert scenario_response.json()["results"][0]["name"] == "List Scenario"
 
 
 @pytest.mark.django_db
 @patch("optimization.tasks.run_optimization.delay")
 def test_quick_optimize_enqueue_success_returns_queued(mock_delay):
     user = get_user_model().objects.create_user(username="quick-success", password="pass12345")
+    user.groups.add(Group.objects.get(name="supervisor"))
     client = APIClient()
     client.force_authenticate(user=user)
 
@@ -225,10 +223,11 @@ def test_quick_optimize_enqueue_success_returns_queued(mock_delay):
 @patch("optimization.tasks.run_optimization.delay", side_effect=RuntimeError("broker unavailable"))
 def test_quick_optimize_enqueue_failure_returns_503_and_marks_run_failed(mock_delay, caplog):
     user = get_user_model().objects.create_user(username="quick-failure", password="pass12345")
+    user.groups.add(Group.objects.get(name="supervisor"))
     client = APIClient()
     client.force_authenticate(user=user)
 
-    with caplog.at_level("ERROR", logger="dashboard.views"):
+    with caplog.at_level("ERROR", logger="optimization"):
         response = client.post("/api/dashboard/quick-optimize/", {"shift": "afternoon"}, format="json")
 
     assert response.status_code == 503
@@ -236,9 +235,9 @@ def test_quick_optimize_enqueue_failure_returns_503_and_marks_run_failed(mock_de
     assert "queued" not in response.json()["detail"].lower()
     run = OptimizationRun.objects.get(run_id=response.json()["run_id"])
     assert run.status == "failed"
-    assert run.result_data["error"] == "Failed to enqueue Quick Optimize job."
+    assert run.result_data["error"] == "Background queue unavailable."
     assert run.result_data["enqueue_error"] == "broker unavailable"
-    assert "Failed to enqueue Quick Optimize run" in caplog.text
+    assert "Failed to enqueue optimization" in caplog.text
     mock_delay.assert_called_once_with(run.run_id)
 
 
@@ -278,6 +277,7 @@ def test_incident_reporting_flow():
 @pytest.mark.django_db
 def test_deployment_assignment_uses_default_shift_window_when_times_missing():
     user = get_user_model().objects.create_user(username="assigner", password="pass12345")
+    user.groups.add(Group.objects.get(name="supervisor"))
     officer = Officer.objects.create(
         name="Test Officer",
         badge_number="TEST-ASSIGN-001",
@@ -317,6 +317,7 @@ def test_deployment_assignment_uses_default_shift_window_when_times_missing():
 @pytest.mark.django_db
 def test_bottleneck_create_then_update_persists():
     user = get_user_model().objects.create_user(username="bottleneck-editor", password="pass12345")
+    user.groups.add(Group.objects.get(name="supervisor"))
     client = APIClient()
     client.force_authenticate(user=user)
 
@@ -486,8 +487,9 @@ def test_dashboard_data_quality_report_flags_placeholder_records():
 
 
 @pytest.mark.django_db
-def test_active_officer_cap_blocks_excess_assignments():
+def test_active_officer_cap_blocks_roster_expansion():
     user = get_user_model().objects.create_user(username="capcheck", password="pass12345")
+    user.groups.add(Group.objects.get(name="supervisor"))
     bottleneck = Bottleneck.objects.create(
         id="B-007",
         name="Capacity Check Bottleneck",
@@ -506,27 +508,17 @@ def test_active_officer_cap_blocks_excess_assignments():
             status="available",
         )
 
-    extra_officer = Officer.objects.create(
-        name="Extra Officer",
-        badge_number="CAP-EXTRA-001",
-        shift="morning",
-        status="available",
-    )
-
     client = APIClient()
     client.force_authenticate(user=user)
-    response = client.post(
-        "/api/deployments/assign/",
-        {
-            "officer": extra_officer.id,
-            "bottleneck": bottleneck.id,
-            "shift": "morning",
-        },
-        format="json",
-    )
+    response = client.post("/api/dashboard/officers/manage/", {
+        "name": "Extra Officer", "badge_number": "CAP-EXTRA-001",
+        "shift": "morning", "status": "available",
+    }, format="json")
 
     assert response.status_code == 400, response.json()
-    assert "60" in response.json()["detail"]
+    assert "60" in response.json()["status"][0]
+    assert Officer.objects.filter(is_deleted=False).count() == 60
+
 
 
 @pytest.mark.django_db

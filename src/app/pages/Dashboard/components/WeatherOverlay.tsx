@@ -6,7 +6,7 @@ interface WeatherOverlayProps {
   WeatherIndicatorIcon: ComponentType<{ className?: string }>;
   weatherLabel: string;
   weatherStatusTone: string;
-  weatherImpactFactor: number;
+  weatherImpactFactor: number | null;
 }
 
 export function WeatherOverlay({ showWeatherOverlay, weatherStyle, WeatherIndicatorIcon, weatherLabel, weatherStatusTone, weatherImpactFactor }: WeatherOverlayProps) {
@@ -17,7 +17,7 @@ export function WeatherOverlay({ showWeatherOverlay, weatherStyle, WeatherIndica
       <div className="absolute inset-0" style={{ backgroundImage: weatherStyle.gradient }} />
       <div className={`absolute left-1/2 top-28 z-20 -translate-x-1/2 rounded-lg px-4 py-2 text-sm font-medium shadow-lg ${weatherStyle.bannerClass}`}>
         <WeatherIndicatorIcon className={`mr-2 inline h-4 w-4 ${weatherStyle.iconClass}`} />
-        {weatherLabel} - {weatherStatusTone} impact - WIF {weatherImpactFactor.toFixed(2)}x
+        {weatherLabel} - {weatherStatusTone} impact - WIF {weatherImpactFactor == null ? "unavailable" : weatherImpactFactor.toFixed(2) + "x"}
       </div>
     </div>
   );

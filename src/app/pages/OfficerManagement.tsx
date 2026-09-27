@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, Search, Trash2, UserRound, UserPlus } from "lucide-react";
 import { useOfficerManagement } from "../hooks/useOfficerManagement";
-import { fetchDashboardOfficers, type DashboardOfficerRecord } from "../services/backend";
+import { fetchOfficersPage, type DashboardOfficerRecord } from "../services/backend";
 
 function formatStatusLabel(status: string): string {
   return status.replace("_", " ").replace(/\b\w/g, (char) => char.toUpperCase());
@@ -9,6 +9,9 @@ function formatStatusLabel(status: string): string {
 
 export function OfficerManagement() {
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
+  const [page, setPage] = useState(1);
+  const [count, setCount] = useState(0);
+  const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -16,8 +19,8 @@ export function OfficerManagement() {
   const [shiftFilter, setShiftFilter] = useState<"all" | "morning" | "afternoon">("all");
 
   const reloadOfficers = async () => {
-    const rows = await fetchDashboardOfficers();
-    setOfficers(rows);
+    const result = await fetchOfficersPage(page, search, statusFilter, shiftFilter);
+    setOfficers(result.results); setCount(result.count);
   };
 
   const officerMgmt = useOfficerManagement({ reloadOfficers });
@@ -25,10 +28,11 @@ export function OfficerManagement() {
   useEffect(() => {
     let active = true;
 
-    fetchDashboardOfficers()
-      .then((rows) => {
+    setLoading(true); setError(null);
+    fetchOfficersPage(page, search, statusFilter, shiftFilter)
+      .then((result) => {
         if (!active) return;
-        setOfficers(rows);
+        setOfficers(result.results); setCount(result.count);
         setLoading(false);
       })
       .catch((loadError: unknown) => {
@@ -41,22 +45,9 @@ export function OfficerManagement() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [page, search, statusFilter, shiftFilter, refreshKey]);
 
-  const filteredOfficers = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    return officers.filter((officer) => {
-      const matchesSearch =
-        term.length === 0 ||
-        officer.name.toLowerCase().includes(term) ||
-        officer.badge_number.toLowerCase().includes(term) ||
-        (officer.skills ?? []).some((skill) => skill.toLowerCase().includes(term));
-
-      const matchesStatus = statusFilter === "all" || officer.status === statusFilter;
-      const matchesShift = shiftFilter === "all" || officer.shift === shiftFilter;
-      return matchesSearch && matchesStatus && matchesShift;
-    });
-  }, [officers, search, statusFilter, shiftFilter]);
+  const filteredOfficers = officers;
 
   const availableCount = officers.filter((officer) => officer.status === "available").length;
   const deployedCount = officers.filter((officer) => officer.status === "deployed").length;
@@ -86,27 +77,33 @@ export function OfficerManagement() {
       <div className="grid gap-4 md:grid-cols-3">
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Total Officers</span>
+            <span className="text-sm text-gray-500">Matching officers</span>
             <UserRound className="h-4 w-4 text-yellow-500" />
           </div>
-          <div className="mt-3 text-2xl font-bold text-gray-900">{officers.length}</div>
+          <div className="mt-3 text-2xl font-bold text-gray-900">{count}</div>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Available</span>
+            <span className="text-sm text-gray-500">Available on this page</span>
             <span className="h-2.5 w-2.5 rounded-full bg-green-500" />
           </div>
           <div className="mt-3 text-2xl font-bold text-green-600">{availableCount}</div>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Deployed</span>
+            <span className="text-sm text-gray-500">Deployed on this page</span>
             <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
           </div>
           <div className="mt-3 text-2xl font-bold text-blue-600">{deployedCount}</div>
         </div>
       </div>
 
+      <div className="flex items-center gap-3">
+        <button disabled={page === 1 || loading} onClick={() => setPage(p => p - 1)}>Previous</button>
+        <span>Page {page} of {Math.max(1, Math.ceil(count / 25))}</span>
+        <button disabled={page * 25 >= count || loading} onClick={() => setPage(p => p + 1)}>Next</button>
+        <button onClick={() => setRefreshKey(k => k + 1)} className="underline">Refresh</button>
+      </div>
       {officerMgmt.officerError && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{officerMgmt.officerError}</p>}
       {officerMgmt.officerNotice && <p className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{officerMgmt.officerNotice}</p>}
       {error && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
@@ -141,7 +138,7 @@ export function OfficerManagement() {
               className="rounded border border-gray-300 px-3 py-2 text-sm outline-none focus:border-yellow-400"
             >
               <option value="available">Available</option>
-              <option value="deployed">Deployed</option>
+              <option value="deployed" disabled>Deployed (managed by schedule)</option>
               <option value="off_duty">Off Duty</option>
               <option value="unavailable">Unavailable</option>
             </select>
@@ -184,7 +181,7 @@ export function OfficerManagement() {
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) => { setPage(1); setSearch(event.target.value); }}
                 placeholder="Search name, badge, or skill"
                 className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-10 pr-3 text-sm text-gray-700 outline-none transition focus:border-yellow-400"
               />
@@ -194,7 +191,7 @@ export function OfficerManagement() {
           <div className="flex flex-wrap gap-2 md:justify-end">
             <select
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
+              onChange={(event) => { setPage(1); setStatusFilter(event.target.value as typeof statusFilter); }}
               className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-yellow-400"
             >
               <option value="all">All Status</option>
@@ -206,7 +203,7 @@ export function OfficerManagement() {
 
             <select
               value={shiftFilter}
-              onChange={(event) => setShiftFilter(event.target.value as typeof shiftFilter)}
+              onChange={(event) => { setPage(1); setShiftFilter(event.target.value as typeof shiftFilter); }}
               className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 outline-none focus:border-yellow-400"
             >
               <option value="all">All Shifts</option>

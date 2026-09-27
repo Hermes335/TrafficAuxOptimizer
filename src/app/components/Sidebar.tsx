@@ -1,11 +1,10 @@
+import { useAuth } from "../contexts/AuthContext";
 import { NavLink } from "react-router";
 import {
   LayoutDashboard,
   CalendarRange,
   Zap,
-  FlaskConical,
   AlertTriangle,
-  BarChart3,
   Clock,
   Users,
   Settings as SettingsIcon,
@@ -23,6 +22,7 @@ function SidebarNavLink({ item, collapsed }: { item: { icon: React.ComponentType
   const link = (
     <NavLink
       to={item.path}
+      aria-label={item.label}
       className={({ isActive }) =>
         `transition-colors ${
           collapsed
@@ -53,17 +53,17 @@ function SidebarNavLink({ item, collapsed }: { item: { icon: React.ComponentType
 }
 
 export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
+  const { user } = useAuth();
+  const canManage = user?.role === "supervisor" || user?.role === "administrator";
   const navItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-    { icon: CalendarRange, label: "Gantt Chart", path: "/gantt-chart" },
+    { icon: CalendarRange, label: "Deployment Board", path: "/gantt-chart" },
     { icon: Zap, label: "Optimization", path: "/optimization" },
-    { icon: FlaskConical, label: "Scenarios", path: "/scenarios" },
     { icon: AlertTriangle, label: "Incident Report", path: "/incident-report" },
   ];
 
   const secondaryItems = [
     { icon: Users, label: "Officer Management", path: "/officer-management" },
-    { icon: BarChart3, label: "Analytics", path: "/analytics" },
     { icon: Clock, label: "Audit Logs", path: "/audit-logs" },
     { icon: SettingsIcon, label: "System", path: "/settings" },
   ];
@@ -76,7 +76,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     >
       <div className="flex-1 overflow-y-auto py-4">
         <nav className={`space-y-1 ${collapsed ? "px-1" : "px-2"}`}>
-          {navItems.map((item) => (
+          {navItems.filter(item => canManage || item.path !== "/optimization").map((item) => (
             <SidebarNavLink key={item.path} item={item} collapsed={collapsed} />
           ))}
         </nav>
@@ -84,7 +84,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
         <div className="my-4 border-t"></div>
 
         <nav className={`space-y-1 ${collapsed ? "px-1" : "px-2"}`}>
-          {secondaryItems.map((item) => (
+          {secondaryItems.filter(item => (canManage || item.path !== "/officer-management") && (user?.role === "administrator" || item.path !== "/audit-logs")).map((item) => (
             <SidebarNavLink key={item.path} item={item} collapsed={collapsed} />
           ))}
         </nav>
@@ -92,6 +92,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
 
       <div className="border-t p-2">
         <button
+          aria-label={collapsed ? "Expand navigation" : "Collapse navigation"}
           onClick={() => setCollapsed(!collapsed)}
           className={`transition-colors ${
             collapsed

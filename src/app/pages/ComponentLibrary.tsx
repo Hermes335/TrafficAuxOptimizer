@@ -1,4 +1,4 @@
-import { Bell, Home, User } from "lucide-react";
+import { Bell, Home } from "lucide-react";
 import { BarChart, Bar, ResponsiveContainer, XAxis, YAxis } from "recharts";
 import PrettyCurve from "../components/PrettyCurve";
 

@@ -9,10 +9,6 @@ interface QuickOptimizeCardProps {
   WeatherIndicatorIcon: ComponentType<{ className?: string }>;
   weatherStyle: { iconClass: string; chipClass: string };
   weatherLabel: string;
-  impactRadiusKm: number;
-  estimatedClearMinutes: number;
-  networkHealthLabel: string;
-  networkHealthClass: string;
   selectedIncident: Incident | null;
 }
 
@@ -22,10 +18,6 @@ export function QuickOptimizeCard({
   WeatherIndicatorIcon,
   weatherStyle,
   weatherLabel,
-  impactRadiusKm,
-  estimatedClearMinutes,
-  networkHealthLabel,
-  networkHealthClass,
   selectedIncident,
 }: QuickOptimizeCardProps) {
   return (
@@ -39,10 +31,10 @@ export function QuickOptimizeCard({
       <div className="mb-4">
         <label className="mb-2 block text-xs font-medium text-gray-600">SELECT SHIFT</label>
         <div className="flex gap-2">
-          <button onClick={() => setSelectedShift("Morning")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all ${selectedShift === "Morning" ? "bg-yellow-400 text-white" : "bg-white text-gray-700 hover:bg-gray-50"}`}>
+          <button onClick={() => setSelectedShift("Morning")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all ${selectedShift === "Morning" ? "bg-yellow-400 text-gray-900" : "bg-white text-gray-700 hover:bg-gray-50"}`}>
             Morning<div className="text-xs opacity-75">6:00 AM - 2:00 PM</div>
           </button>
-          <button onClick={() => setSelectedShift("Afternoon")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all ${selectedShift === "Afternoon" ? "bg-yellow-400 text-white" : "bg-white text-gray-700 hover:bg-gray-50"}`}>
+          <button onClick={() => setSelectedShift("Afternoon")} className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all ${selectedShift === "Afternoon" ? "bg-yellow-400 text-gray-900" : "bg-white text-gray-700 hover:bg-gray-50"}`}>
             Afternoon<div className="text-xs opacity-75">2:00 PM - 10:00 PM</div>
           </button>
         </div>
@@ -55,12 +47,7 @@ export function QuickOptimizeCard({
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${weatherStyle.chipClass}`}>{weatherLabel}</span>
         </div>
       </div>
-      <div className="mb-4 space-y-2 text-sm">
-        <div className="flex items-center justify-between"><span className="text-gray-600">Impact Radius</span><span className="font-medium">{impactRadiusKm} KM</span></div>
-        <div className="flex items-center justify-between"><span className="text-gray-600">Estimated Clear Time</span><span className="font-medium">{estimatedClearMinutes} MIN</span></div>
-        <div className="flex items-center justify-between"><span className="text-gray-600">Network Health</span><span className={`font-medium ${networkHealthClass}`}>{networkHealthLabel}</span></div>
-      </div>
-      <Link to="/optimization" className="flex w-full items-center justify-center gap-2 rounded-lg bg-yellow-400 py-3 font-semibold text-white shadow-md transition-all hover:bg-yellow-500 hover:shadow-lg">
+      <Link to={`/optimization?shift=${selectedShift.toLowerCase()}`} className="flex w-full items-center justify-center gap-2 rounded-lg bg-yellow-400 py-3 font-semibold text-gray-900 shadow-md transition-all hover:bg-yellow-500 hover:shadow-lg">
         Run Optimization
       </Link>
       <p className="mt-3 text-center text-xs text-gray-600">

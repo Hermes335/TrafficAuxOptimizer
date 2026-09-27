@@ -35,7 +35,7 @@ function startDjangoBackend() {
 
   const projectRoot = path.resolve(__dirname, "..");
   const djangoRoot = path.join(projectRoot, "traffic_dss_backend");
-  const pythonExe = path.join(projectRoot, ".venv", "Scripts", "python.exe");
+  const pythonExe = require("../scripts/python-path.cjs")(projectRoot);
 
   backendProcess = spawn(
     pythonExe,
@@ -47,6 +47,7 @@ function startDjangoBackend() {
     },
   );
 
+  backendProcess.on("error", error => console.error("Could not start Django:", error.message));
   backendProcess.on("exit", (code) => {
     if (code && code !== 0) {
       console.error(`Django backend exited with code ${code}`);

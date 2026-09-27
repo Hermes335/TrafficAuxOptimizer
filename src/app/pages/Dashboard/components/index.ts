@@ -1,9 +1,7 @@
 export { KPICards } from "./KPICards";
 export { BottleneckList } from "./BottleneckList";
-export { QuickOptimize } from "./QuickOptimize";
 export { BottleneckDetailPanel } from "./BottleneckDetailPanel";
 export { IncidentTicker } from "./IncidentTicker";
-export { SystemStats } from "./SystemStats";
 export { QuickOptimizeCard } from "./QuickOptimizeCard";
 export { MapControls } from "./MapControls";
 export { WeatherOverlay } from "./WeatherOverlay";

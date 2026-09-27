@@ -41,3 +41,18 @@ async def test_dashboard_websocket_connects_and_pongs():
     assert pong["event"] == "pong"
 
     await communicator.disconnect()
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+async def test_lifecycle_producer_preserves_event_name_through_dashboard_consumer():
+    from core.tasks import _broadcast_incident_event
+    user = await sync_to_async(get_user_model().objects.create_user)(username="lifecycle-ws")
+    token = str(AccessToken.for_user(user))
+    communicator = WebsocketCommunicator(application, f"/ws/dashboard/?token={token}")
+    connected, _ = await communicator.connect()
+    assert connected
+    await communicator.receive_json_from()
+    await sync_to_async(_broadcast_incident_event)("incident_updated", {"id": 7, "status": "resolved"})
+    event = await communicator.receive_json_from()
+    assert event["event"] == "incident_updated" and event["id"] == 7
+    await communicator.disconnect()

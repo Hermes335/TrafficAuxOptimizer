@@ -31,16 +31,16 @@ export function EditBottleneckOverlay({
       </div>
       <div className="space-y-3">
         <div>
-          <label className="block text-xs font-medium text-gray-600">Name</label>
-          <input type="text" value={editBottleneckName} onChange={(e) => setEditBottleneckName(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
+          <label htmlFor="node-name" className="block text-xs font-medium text-gray-600">Name</label>
+          <input autoFocus type="text" id="node-name" value={editBottleneckName} onChange={(e) => setEditBottleneckName(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600">District</label>
-          <input type="text" value={editBottleneckDistrict} onChange={(e) => setEditBottleneckDistrict(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
+          <label htmlFor="node-district" className="block text-xs font-medium text-gray-600">District</label>
+          <input type="text" id="node-district" value={editBottleneckDistrict} onChange={(e) => setEditBottleneckDistrict(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600">Type</label>
-          <select value={editBottleneckType} onChange={(e) => setEditBottleneckType(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm">
+          <label htmlFor="node-type" className="block text-xs font-medium text-gray-600">Type</label>
+          <select id="node-type" value={editBottleneckType} onChange={(e) => setEditBottleneckType(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm">
             <option value="intersection">Intersection</option>
             <option value="bridge">Bridge</option>
             <option value="school_zone">School Zone</option>
@@ -50,17 +50,17 @@ export function EditBottleneckOverlay({
           </select>
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-600">Priority Weight</label>
-          <input type="number" value={editBottleneckWeight} onChange={(e) => setEditBottleneckWeight(e.target.value)} min="0.1" step="0.1" className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
+          <label htmlFor="node-weight" className="block text-xs font-medium text-gray-600">Priority Weight</label>
+          <input type="number" id="node-weight" value={editBottleneckWeight} onChange={(e) => setEditBottleneckWeight(e.target.value)} min="0" step="0.1" className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div>
-            <label className="block text-xs font-medium text-gray-600">Latitude</label>
-            <input type="number" value={editLatitude} onChange={(e) => setEditLatitude(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
+            <label htmlFor="node-lat" className="block text-xs font-medium text-gray-600">Latitude</label>
+            <input type="number" id="node-lat" value={editLatitude} onChange={(e) => setEditLatitude(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-600">Longitude</label>
-            <input type="number" value={editLongitude} onChange={(e) => setEditLongitude(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
+            <label htmlFor="node-lon" className="block text-xs font-medium text-gray-600">Longitude</label>
+            <input type="number" id="node-lon" value={editLongitude} onChange={(e) => setEditLongitude(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
           </div>
         </div>
         <label className="flex items-center gap-2 text-xs">
@@ -69,7 +69,7 @@ export function EditBottleneckOverlay({
         </label>
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 rounded border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-          <button onClick={onSave} disabled={savingEditBottleneck} className="flex-1 rounded bg-yellow-400 px-3 py-1.5 text-sm font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300">
+          <button onClick={onSave} disabled={savingEditBottleneck} className="flex-1 rounded bg-yellow-400 px-3 py-1.5 text-sm font-medium text-gray-900 hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300">
             {savingEditBottleneck ? "Saving..." : "Update"}
           </button>
         </div>

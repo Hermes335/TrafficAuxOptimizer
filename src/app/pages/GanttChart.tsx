@@ -1,3 +1,6 @@
+import { PublishScheduleButton } from "../components/PublishScheduleButton";
+import { useAuth } from "../contexts/AuthContext";
+import { operationalDate, operationalHour, operationalTime } from "../services/operationalTime";
 import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronUp, Download, XCircle } from "lucide-react";
 import { GanttTimeline } from "./GanttChart/GanttTimeline";
 import { useEffect, useMemo, useState } from "react";
@@ -10,7 +13,7 @@ import {
   fetchDashboardOfficers,
   fetchDeploymentSchedule,
   fetchOptimizationHistory,
-  publishDeploymentsFromOptimization,
+  subscribeToDashboardStream,
   type BottleneckOption,
   type DashboardOfficerRecord,
   type DeploymentScheduleItem,
@@ -18,19 +21,26 @@ import {
 } from "../services/backend";
 
 export function GanttChart() {
+  const { user } = useAuth();
+  const canManage = user?.role === "supervisor" || user?.role === "administrator";
+  const [day, setDay] = useState(operationalDate());
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [lastRefresh, setLastRefresh] = useState<string | null>(null);
+  const [connection, setConnection] = useState("connecting");
   const topCollapseStorageKey = "gantt-chart-top-collapsed";
   const bottomCollapseStorageKey = "gantt-chart-bottom-collapsed";
 
   const [schedule, setSchedule] = useState<DeploymentScheduleItem[]>([]);
-  const [scheduleSnapshot, setScheduleSnapshot] = useState<DeploymentScheduleItem[] | null>(null);
   const [bottlenecks, setBottlenecks] = useState<BottleneckOption[]>([]);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
   const [query, setQuery] = useState("");
   const [shiftFilter, setShiftFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
+  const [runPage, setRunPage] = useState(1);
+  const [runCount, setRunCount] = useState(0);
   const [completedRuns, setCompletedRuns] = useState<OptimizationHistoryItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
-  const [publishingSchedule, setPublishingSchedule] = useState(false);
+  const selectedRunSyntheticSources = completedRuns.find(run => run.run_id === selectedRunId)?.result_data?.synthetic_data_used;
   const [clearingSchedule, setClearingSchedule] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
@@ -48,29 +58,20 @@ export function GanttChart() {
     return window.localStorage.getItem(bottomCollapseStorageKey) === "true";
   });
 
-  const restorePreviousSchedule = () => {
-    if (!scheduleSnapshot) {
-      setPublishError("No previous schedule snapshot is available to restore.");
-      return;
-    }
-
-    setSchedule(scheduleSnapshot);
-    setPublishNotice("Restored the previous schedule view locally. Refresh to re-sync with the backend.");
-    setPublishError(null);
-  };
-
   useEffect(() => {
     let active = true;
 
-    Promise.all([fetchDeploymentSchedule(), fetchBottlenecks(), fetchDashboardOfficers(), fetchOptimizationHistory()])
+    Promise.all([fetchDeploymentSchedule(day), fetchBottlenecks(), fetchDashboardOfficers(), fetchOptimizationHistory(runPage, "completed")])
       .then(([deployments, bottleneckRows, officerRows, optimizationRuns]) => {
         if (!active) {
           return;
         }
         setSchedule(deployments);
+        setError(null); setLastRefresh(new Date().toISOString());
         setBottlenecks(bottleneckRows);
         setOfficers(officerRows);
-        const completed = optimizationRuns.filter((run) => run.status === "completed");
+        setRunCount(optimizationRuns.count);
+        const completed = optimizationRuns.results.filter((run) => run.status === "completed");
         setCompletedRuns(completed);
         if (completed.length > 0) {
           setSelectedRunId(completed[0].run_id);
@@ -87,7 +88,11 @@ export function GanttChart() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [day, refreshKey, runPage]);
+
+  useEffect(() => subscribeToDashboardStream(event => {
+    if (["deployment_changed", "optimization_complete", "officers_updated", "bottlenecks_updated"].includes(event.event)) setRefreshKey(k => k + 1);
+  }, undefined, state => { setConnection(state); if (state === "live") setRefreshKey(k => k + 1); }), []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -103,13 +108,13 @@ export function GanttChart() {
 
   const groupedByBottleneck = useMemo(() => {
     const map = new Map<string, DeploymentScheduleItem[]>();
-    schedule.forEach((item) => {
+    schedule.filter(d => d.status === "assigned" && (shiftFilter === "all" || d.shift === shiftFilter)).forEach((item) => {
       const list = map.get(item.bottleneck) ?? [];
       list.push(item);
       map.set(item.bottleneck, list);
     });
     return map;
-  }, [schedule]);
+  }, [schedule, shiftFilter]);
 
   const filteredSchedule = useMemo(() => {
     const term = query.trim().toLowerCase();
@@ -141,19 +146,19 @@ export function GanttChart() {
   const activeAssignments = filteredSchedule.length;
   const assignedOfficerCodes = useMemo(() => new Set(filteredSchedule.map((item) => item.officer)), [filteredSchedule]);
   const availableOfficerPool = useMemo(
-    () => officers.filter((officer) => officer.status !== "off_duty" && officer.status !== "unavailable" && !assignedOfficerCodes.has(officer.badge_number)),
-    [officers, assignedOfficerCodes],
+    () => officers.filter((officer) => (shiftFilter === "all" || officer.shift === shiftFilter) && officer.status !== "off_duty" && officer.status !== "unavailable" && !assignedOfficerCodes.has(officer.badge_number)),
+    [officers, assignedOfficerCodes, shiftFilter],
   );
 
-  const hourSlots = useMemo(() => Array.from({ length: 9 }, (_, idx) => 14 + idx), []);
+  const hourSlots = useMemo(() => Array.from({ length: shiftFilter === "all" ? 16 : 8 }, (_, idx) => (shiftFilter === "afternoon" ? 14 : 6) + idx), [shiftFilter]);
   const matrixRows = useMemo(() => {
-    const bottleneckRows = bottlenecks.slice(0, 8);
+    const bottleneckRows = bottlenecks;
     return bottleneckRows.map((row) => {
-      const rowAssignments = filteredSchedule.filter((assignment) => assignment.bottleneck === row.id);
+      const rowAssignments = filteredSchedule.filter((assignment) => assignment.bottleneck === row.id && assignment.status === "assigned");
       const cells = hourSlots.map((hour) => {
         const overlapCount = rowAssignments.filter((assignment) => {
-          const startHour = new Date(assignment.start_time).getHours();
-          const endHour = new Date(assignment.end_time).getHours();
+          const startHour = operationalHour(new Date(assignment.start_time));
+          const endHour = operationalHour(new Date(assignment.end_time));
           return startHour <= hour && endHour > hour;
         }).length;
         return overlapCount;
@@ -163,53 +168,22 @@ export function GanttChart() {
   }, [bottlenecks, filteredSchedule, hourSlots]);
 
   const matrixLegend = [
-    { label: "Optimal (2+ Officers)", className: "bg-yellow-400" },
-    { label: "Sufficient (1 Officer)", className: "bg-yellow-200" },
-    { label: "Critical (0 Officers)", className: "bg-rose-100" },
+    { label: "2+ officers", className: "bg-yellow-400" },
+    { label: "1 officer", className: "bg-yellow-200" },
+    { label: "No officers", className: "bg-rose-100" },
   ];
 
   const reloadSchedule = async () => {
-    const rows = await fetchDeploymentSchedule();
+    const rows = await fetchDeploymentSchedule(day);
     setSchedule(rows);
   };
 
-  const onPublishSchedule = async () => {
-    if (!selectedRunId) {
-      setPublishError("Select a completed optimization run first.");
-      return;
-    }
-
-    setScheduleSnapshot(schedule);
-    setPublishingSchedule(true);
-    setPublishError(null);
-    setPublishNotice(null);
-    try {
-      const result = await publishDeploymentsFromOptimization({
-        run_id: selectedRunId,
-        shift: shiftFilter === "all" ? "afternoon" : (shiftFilter as "morning" | "afternoon"),
-        replace_existing: true,
-      });
-      await reloadSchedule();
-      setPublishNotice(`Published ${result.created} deployments from ${selectedRunId}.`);
-      if (result.skipped.length > 0) {
-        setPublishError(`${result.skipped.length} assignments were skipped due to missing officer or bottleneck.`);
-      }
-    } catch (publishActionError: unknown) {
-      setPublishError(
-        publishActionError instanceof Error ? publishActionError.message : "Failed to publish optimization schedule.",
-      );
-    } finally {
-      setPublishingSchedule(false);
-    }
-  };
-
   const clearScheduleConfirmed = async () => {
-    setScheduleSnapshot(schedule);
     setClearingSchedule(true);
     setPublishError(null);
     setPublishNotice(null);
     try {
-      const result = await clearDeploymentSchedule(shiftFilter !== "all" ? shiftFilter : undefined);
+      const result = await clearDeploymentSchedule(shiftFilter !== "all" ? shiftFilter : undefined, day);
       await reloadSchedule();
       setPublishNotice(`Cleared ${result.cleared} deployment${result.cleared === 1 ? "" : "s"}.`);
     } catch (clearError: unknown) {
@@ -217,11 +191,6 @@ export function GanttChart() {
     } finally {
       setClearingSchedule(false);
     }
-  };
-
-  // used by retry paths (no typed confirmation) to directly attempt clear
-  const onClearSchedule = async () => {
-    await clearScheduleConfirmed();
   };
 
   const onExport = () => {
@@ -247,16 +216,12 @@ export function GanttChart() {
     URL.revokeObjectURL(url);
   };
 
-  const formattedToday = new Date().toLocaleDateString(undefined, {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
+  const formattedToday = day + " · Asia/Manila";
 
   const selectedShiftLabel = shiftFilter === "all" ? "All Shifts" : `Shift ${shiftFilter[0].toUpperCase()}${shiftFilter.slice(1)}`;
 
   return (
-    <div className="flex h-full flex-col bg-gray-50">
+    <div className="flex h-full flex-col overflow-auto bg-gray-50">
       <div className="border-b bg-white px-6 py-4">
         <div className="mb-3 flex items-center justify-between">
           <div>
@@ -284,7 +249,7 @@ export function GanttChart() {
                 </button>
                 <ConfirmDialog
                   title="Clear Schedule?"
-                  description="This will remove all active deployments. This action can be undone by restoring the previous schedule snapshot for this session."
+                  description={`This will cancel assignments for ${day}, ${shiftFilter} shift(s). Republishing a valid run creates a new schedule.`}
                   confirmText="Clear Schedule"
                   cancelText="Cancel"
                   isDangerous
@@ -293,17 +258,18 @@ export function GanttChart() {
                   onCancel={() => setPublishError("Clear schedule cancelled. Type CLEAR_SCHEDULE next time to confirm the reset.")}
                   trigger={
                     <button
-                      disabled={clearingSchedule || filteredSchedule.length === 0}
+                      disabled={!canManage || clearingSchedule || filteredSchedule.length === 0}
                       className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <XCircle className="h-4 w-4" />
                       {clearingSchedule ? "Clearing..." : "Clear Schedule"}
                     </button>
                   }
-                  disabled={clearingSchedule || filteredSchedule.length === 0}
+                  disabled={!canManage || clearingSchedule || filteredSchedule.length === 0}
                 />
                 <div className="flex items-center gap-2">
                   <select
+                    aria-label="Completed optimization run"
                     value={selectedRunId}
                     onChange={(event) => setSelectedRunId(event.target.value)}
                     className="rounded-lg border px-3 py-2 text-sm"
@@ -315,13 +281,10 @@ export function GanttChart() {
                       </option>
                     ))}
                   </select>
-                  <button
-                    onClick={onPublishSchedule}
-                    disabled={publishingSchedule || completedRuns.length === 0}
-                    className="rounded-lg bg-yellow-400 px-4 py-2 font-semibold text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
-                  >
-                    {publishingSchedule ? "Publishing..." : "Publish Schedule"}
-                  </button>
+                  <button aria-label="Previous run page" disabled={runPage === 1} onClick={() => setRunPage(p => p - 1)}>‹</button>
+                  <button aria-label="Older run page" disabled={runPage * 10 >= runCount} onClick={() => setRunPage(p => p + 1)}>›</button>
+                  {canManage && <PublishScheduleButton runId={selectedRunId} date={day} onPublished={reloadSchedule}
+                    syntheticSources={Array.isArray(selectedRunSyntheticSources) ? selectedRunSyntheticSources : null} />}
                 </div>
               </>
             )}
@@ -343,32 +306,18 @@ export function GanttChart() {
               <div className="mb-3">
                 <ErrorFeedback
                   error={publishError}
-                  onRetry={publishError.toLowerCase().includes("clear") ? onClearSchedule : onPublishSchedule}
                   onDismiss={() => setPublishError(null)}
                 />
               </div>
             )}
 
-            {scheduleSnapshot && (
-              <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="font-semibold">Rollback available</div>
-                    <div className="text-xs text-blue-700">A previous schedule snapshot is cached locally for this session.</div>
-                  </div>
-                  <button
-                    onClick={restorePreviousSchedule}
-                    className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-medium text-blue-700 hover:bg-blue-100"
-                  >
-                    Restore Previous Schedule
-                  </button>
-                </div>
-              </div>
-            )}
 
             <div className="mb-3">
               <div className="text-3xl font-bold text-gray-900">{formattedToday}</div>
               <div className="text-sm text-gray-600">{selectedShiftLabel}</div>
+              <label>Operational date <input type="date" value={day} onChange={e => { setSchedule([]); setDay(e.target.value); }} /></label>
+              <p role="status">{connection} · Last successful refresh: {lastRefresh ? operationalTime(lastRefresh) : "Not loaded"}</p>
+              <button onClick={() => setRefreshKey(k => k + 1)} className="underline">Refresh schedule</button>
             </div>
 
             <div className="rounded-lg border border-yellow-100 bg-yellow-50 px-4 py-3">
@@ -420,12 +369,14 @@ export function GanttChart() {
 
             <div className="mt-3 flex flex-col gap-3 md:flex-row">
               <input
+                aria-label="Search schedule"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search officer, bottleneck, type, status..."
                 className="w-full rounded-lg border px-3 py-2 text-sm md:flex-1"
               />
               <select
+                aria-label="Viewing shift"
                 value={shiftFilter}
                 onChange={(event) => setShiftFilter(event.target.value)}
                 className="rounded-lg border px-3 py-2 text-sm md:w-48"
@@ -508,8 +459,8 @@ export function GanttChart() {
                     <td className="px-4 py-3">{item.bottleneck}</td>
                     <td className="px-4 py-3">{item.officer} - {item.officer_name}</td>
                     <td className="px-4 py-3 capitalize">{item.shift}</td>
-                    <td className="px-4 py-3">{new Date(item.start_time).toLocaleString()}</td>
-                    <td className="px-4 py-3">{new Date(item.end_time).toLocaleString()}</td>
+                    <td className="px-4 py-3">{operationalTime(item.start_time)}</td>
+                    <td className="px-4 py-3">{operationalTime(item.end_time)}</td>
                     <td className="px-4 py-3 capitalize">{item.assignment_type}</td>
                     <td className="px-4 py-3">
                       <span className={`rounded px-2 py-1 text-xs font-medium capitalize ${
@@ -530,16 +481,16 @@ export function GanttChart() {
           <aside className="w-full space-y-4 overflow-y-auto lg:sticky lg:top-4 lg:h-[calc(100vh-10rem)] lg:w-80 lg:self-start">
             <div className="rounded-xl border bg-white p-4">
               <h3 className="mb-3 font-semibold">Coverage Matrix</h3>
-              <div className="space-y-1">
+              <div className="space-y-1 overflow-x-auto">
                 {/* Hour header */}
-                <div className="grid grid-cols-10 gap-1 text-[10px] text-gray-500">
+                <div className="grid gap-1 text-[10px] text-gray-500" style={{gridTemplateColumns: `4rem repeat(${hourSlots.length}, minmax(2rem, 1fr))`}}>
                   <div className="truncate pr-1" title="Bottleneck">BN</div>
                   {hourSlots.map((hour) => (
                     <div key={hour} className="text-center">{hour}:00</div>
                   ))}
                 </div>
                 {matrixRows.map(({ row, cells }) => (
-                  <div key={row.id} className="grid grid-cols-10 gap-1">
+                  <div key={row.id} className="grid gap-1" style={{gridTemplateColumns: `4rem repeat(${hourSlots.length}, minmax(2rem, 1fr))`}}>
                     <div className="truncate pr-1 text-[10px] font-medium text-gray-600" title={row.name ?? row.id}>
                       {(row.id ?? "").replace("bn-", "").slice(0, 6)}
                     </div>

@@ -92,18 +92,11 @@ class LoginView(APIView):
 
         # Get or create officer profile
         officer = Officer.objects.filter(
-            models.Q(user=user) | models.Q(badge_number__icontains=username)
+            models.Q(user=user, is_deleted=False)
         ).first()
 
-        # Determine role from user identity.
-        # Supervisor role is keyed off the username so it survives officer-profile
-        # changes (e.g. soft-deleted placeholder officers) rather than depending
-        # on an Officer record still existing.
-        role = "dispatcher"
-        if user.is_superuser or user.is_staff:
-            role = "administrator"
-        elif user.username == "supervisor":
-            role = "supervisor"
+        from core.permissions import user_role
+        role = user_role(user)
 
         # Generate tokens
         from rest_framework_simplejwt.tokens import RefreshToken
@@ -150,7 +143,6 @@ urlpatterns = [
     path("api/optimization/", include("optimization.urls")),
     path("api/deployments/", include("deployments.urls")),
     path("api/incidents/", include("incidents.urls")),
-    path("api/scenarios/", include("scenarios.urls")),
     path("api/", include("external.urls")),
     path("api/admin/", include("adminpanel.urls")),
     path("api/health/", HealthCheckView.as_view(), name="api-health"),

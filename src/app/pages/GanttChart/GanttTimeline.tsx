@@ -1,3 +1,4 @@
+import { operationalTime } from "../../services/operationalTime";
 import { useMemo } from "react";
 import { MapPin, ShieldCheck, UsersRound } from "lucide-react";
 import type { DeploymentScheduleItem } from "../../services/backend";
@@ -15,8 +16,8 @@ const STATUS_COLORS: Record<string, { bg: string; border: string; text: string; 
 };
 
 function formatShift(item: DeploymentScheduleItem) {
-  const start = new Date(item.start_time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  const end = new Date(item.end_time).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  const start = operationalTime(item.start_time);
+  const end = operationalTime(item.end_time);
   return `${item.shift} ${start}-${end}`;
 }
 

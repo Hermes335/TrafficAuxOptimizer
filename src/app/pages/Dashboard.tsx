@@ -1,7 +1,11 @@
+import { MarkerCreationForm } from "./Dashboard/components/MarkerCreationForm";
+import { poiCategories, PoiSymbol } from "../services/poiMarker";
+import { useAuth } from "../contexts/AuthContext";
+import { operationalDate, operationalShift } from "../services/operationalTime";
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronRight, Cloud, CloudRain, MapPin, Plus, Pencil, Trash2 } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { getApiBaseUrl, fetchPOIs, resolveIncident, type POI } from "../services/backend";
+import { getApiBaseUrl, resolveIncident } from "../services/backend";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useBottleneckActions } from "../hooks/useBottleneckActions";
 import { useMapIntegration } from "../hooks/useMapIntegration";
@@ -15,7 +19,6 @@ import {
   BottleneckDetailPanel,
   IncidentTicker,
   QuickOptimizeCard,
-  SystemStats,
   MapControls,
   WeatherOverlay,
   IncidentModal,
@@ -23,34 +26,26 @@ import {
 } from "./Dashboard/components";
 
 export function Dashboard() {
+  const {user} = useAuth();
+  const canManage = user?.role === "supervisor" || user?.role === "administrator";
+  const [selectedShift, setSelectedShift] = useState(operationalShift() === "morning" ? "Morning" : "Afternoon");
   // --- Data hook ---
-  const data = useDashboardData();
-  const { dashboardSnapshot, setDashboardSnapshot, weatherSnapshot, deployedOfficersCount, totalOfficersCount, deployments, reloadDashboard } = data;
+  const data = useDashboardData(selectedShift.toLowerCase());
+  const { dashboardSnapshot, weatherSnapshot, deployedOfficersCount, totalOfficersCount, deployments, reloadDashboard, pois, setPois } = data;
 
   // --- UI state ---
   const [selectedView, setSelectedView] = useState("Congestion");
   const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(false);
-  const [selectedShift, setSelectedShift] = useState("Afternoon");
   const [filterTerm, setFilterTerm] = useState("");
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
-  const [pois, setPois] = useState<POI[]>([]);
-
-  // Fetch POIs on mount
-  useEffect(() => {
-    fetchPOIs()
-      .then(setPois)
-      .catch(() => setPois([]));
-  }, []);
 
   // --- Bottleneck actions hook ---
   const ba = useBottleneckActions({
     dashboardSnapshot,
-    setDashboardSnapshot,
     reloadDashboard,
     setBottleneckActionError: data.setBottleneckActionError,
     setBottleneckActionNotice: data.setBottleneckActionNotice,
-    setSavingBottleneck: data.setSavingBottleneck,
     setDeletingBottleneckId: data.setDeletingBottleneckId,
   });
 
@@ -60,16 +55,12 @@ export function Dashboard() {
 
   // --- Map click handler ---
   useMapClickHandler({
-    mapRef: map.mapRef,
+    map: map.mapInstance,
     addMode: ba.addMode,
-    setAddMode: ba.setAddMode,
     setPendingPoint: ba.setPendingPoint,
     editPickFromMap: ba.editPickFromMap,
     setEditLatitude: ba.setEditLatitude,
     setEditLongitude: ba.setEditLongitude,
-    setDashboardSnapshot,
-    setSelectedBottleneckId: ba.setSelectedBottleneckId,
-    setPois,
     setBottleneckActionError: data.setBottleneckActionError,
     setBottleneckActionNotice: data.setBottleneckActionNotice,
   });
@@ -123,37 +114,17 @@ export function Dashboard() {
 
   // --- Weather derived ---
   const weatherLabel = (weatherSnapshot.condition ?? "weather unavailable").replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
-  const weatherImpactFactor = weatherSnapshot.weather_impact_factor ?? 1;
-  const weatherStatusTone = weatherImpactFactor >= 1.7 ? "Severe" : weatherImpactFactor >= 1.3 ? "Moderate" : "Clear";
+  const weatherImpactFactor = weatherSnapshot.weather_impact_factor;
+  const weatherStatusTone = weatherImpactFactor == null ? "Unavailable" : weatherImpactFactor >= 1.7 ? "Severe" : weatherImpactFactor >= 1.3 ? "Moderate" : "Clear";
   const weatherStyle = weatherStatusTone === "Severe"
     ? { overlayClass: "bg-slate-700/18", blurClass: "backdrop-blur-[0.8px]", gradient: "radial-gradient(circle at 30% 35%, rgba(71, 85, 105, 0.40) 0%, transparent 52%), radial-gradient(circle at 70% 65%, rgba(30, 41, 59, 0.32) 0%, transparent 54%)", chipClass: "bg-rose-500 text-white", bannerClass: "bg-rose-500 text-white", iconClass: "text-rose-100", icon: CloudRain }
     : weatherStatusTone === "Moderate"
-      ? { overlayClass: "bg-blue-500/14", blurClass: "backdrop-blur-[0.5px]", gradient: "radial-gradient(circle at 30% 40%, rgba(59, 130, 246, 0.28) 0%, transparent 50%), radial-gradient(circle at 70% 60%, rgba(29, 78, 216, 0.20) 0%, transparent 52%)", chipClass: "bg-yellow-400 text-white", bannerClass: "bg-yellow-400 text-white", iconClass: "text-yellow-100", icon: CloudRain }
+      ? { overlayClass: "bg-blue-500/14", blurClass: "backdrop-blur-[0.5px]", gradient: "radial-gradient(circle at 30% 40%, rgba(59, 130, 246, 0.28) 0%, transparent 50%), radial-gradient(circle at 70% 60%, rgba(29, 78, 216, 0.20) 0%, transparent 52%)", chipClass: "bg-yellow-400 text-gray-900", bannerClass: "bg-yellow-400 text-gray-900", iconClass: "text-yellow-100", icon: CloudRain }
       : { overlayClass: "bg-emerald-400/3", blurClass: "backdrop-blur-0", gradient: "radial-gradient(circle at 30% 35%, rgba(16, 185, 129, 0.08) 0%, transparent 50%), radial-gradient(circle at 75% 60%, rgba(52, 211, 153, 0.06) 0%, transparent 52%)", chipClass: "bg-emerald-500 text-white", bannerClass: "bg-emerald-500 text-white", iconClass: "text-emerald-100", icon: Cloud };
   const WeatherIndicatorIcon = weatherStyle.icon;
 
-  // --- Metrics ---
-  const coverageEfficiency = Math.max(0, Math.min(100, dashboardSnapshot.metrics.coverageEfficiency));
-  const avgResponseTimeMinutes = dashboardSnapshot.metrics.avgResponseTimeMinutes;
-  const resourceUtilization = Math.max(0, Math.min(100, dashboardSnapshot.metrics.resourceUtilization));
-  const weatherCorrelation = dashboardSnapshot.metrics.weatherCorrelation;
-  const coverageCircumference = 2 * Math.PI * 16;
-  const responseDeltaMinutes = Number((15 - avgResponseTimeMinutes).toFixed(1));
-  const weatherImpactText = weatherCorrelation >= 1.7 ? "Severe impact today" : weatherCorrelation >= 1.3 ? "Moderate impact today" : "Low impact today";
-
-  // --- Quick optimize derived ---
-  const selectedShiftKey = selectedShift.toLowerCase();
-  const shiftPressure = selectedShiftKey === "morning" ? 0.92 : 1.08;
-  const incidentImpact = selectedIncident?.type === "critical" ? 1.4 : selectedIncident?.type === "major" ? 1.15 : 1.0;
-  const impactRadiusKm = Number((Math.max(0.8, Math.min(4.2, selectedIncident ? incidentImpact * shiftPressure * 1.4 : 1.2))).toFixed(1));
-  const estimatedClearMinutes = Math.max(15, Math.round(avgResponseTimeMinutes * impactRadiusKm * weatherCorrelation * 0.6));
-  const networkHealthLabel = coverageEfficiency >= 80 && resourceUtilization < 85 ? "HEALTHY" : coverageEfficiency >= 65 ? "MARGINAL" : "CRITICAL";
-  const networkHealthClass = networkHealthLabel === "HEALTHY" ? "text-green-600" : networkHealthLabel === "MARGINAL" ? "text-orange-600" : "text-red-600";
-  const cityFlowValue = Math.max(0, Math.min(100, Math.round(coverageEfficiency - (selectedShiftKey === "afternoon" ? 6 : 2))));
-  const cityFlowDelta = Math.round(cityFlowValue - coverageEfficiency);
-  const delayDeltaMinutes = Math.round(avgResponseTimeMinutes - 15);
-  const incidentHeadline = selectedIncident?.text?.split(" - ")[0] ?? "No active incident";
-  const incidentLocation = selectedIncident?.text?.split(" - ")[1] ?? "Monitor dashboard telemetry for updates";
+  const incidentHeadline = selectedIncident?.text ?? "No active incident";
+  const incidentLocation = "Incident severity";
 
   // --- Map marker click handler ---
   const onMarkerClick = (bottleneck: { id: string }) => {
@@ -162,16 +133,12 @@ export function Dashboard() {
 
   // --- Incident remove handler ---
   const onRemoveIncident = async (id: number) => {
-    // Remove from local state immediately
-    setDashboardSnapshot((prev) => ({
-      ...prev,
-      incidents: prev.incidents.filter((inc) => inc.id !== id),
-    }));
-    // Try to resolve on backend (silently fail if it's a local-only incident)
     try {
       await resolveIncident(id);
-    } catch {
-      // Incident may not exist on backend (local-only), ignore
+      await reloadDashboard();
+    } catch (error) {
+      data.setBottleneckActionError(error instanceof Error ? error.message : "Unable to resolve incident.");
+      throw error;
     }
   };
 
@@ -202,11 +169,20 @@ export function Dashboard() {
     mapRef: map.mapRef,
     selectedView,
     bottlenecks: filteredBottlenecks,
-    deployments,
+    deployments: deployments.filter(row => row.shift === selectedShift.toLowerCase() && row.status === "assigned"),
   });
 
   return (
     <div className="flex h-full flex-col">
+      <div className="flex flex-wrap items-center gap-3 border-b bg-white p-3 text-sm">
+        <strong>{operationalDate()} · Asia/Manila</strong>
+        <label>Operational shift <select value={selectedShift} onChange={e=>setSelectedShift(e.target.value)} className="rounded border p-1"><option>Morning</option><option>Afternoon</option></select></label>
+        <span>Unfilled posts: {dashboardSnapshot.metrics.shortages ?? "—"}</span>
+        <span>Active incidents: {dashboardSnapshot.incidents.length}</span>
+        <span role="status">{data.connectionState} · Last refresh: {data.lastRefresh ? new Date(data.lastRefresh).toLocaleTimeString("en-PH", {timeZone:"Asia/Manila"}) : "Not loaded"}</span>
+        {data.loadError && <span role="alert" className="text-red-700">{data.loadError}</span>}
+        <button onClick={()=>{void reloadDashboard().catch(()=>{});}} className="rounded border px-2 py-1">Refresh</button>
+      </div>
       {/* KPI Cards */}
       <KPICards
         metrics={dashboardSnapshot.metrics}
@@ -226,9 +202,9 @@ export function Dashboard() {
               <span className="ml-auto inline-flex items-center whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-600">{bottlenecks.length} TOTAL</span>
               <span className="inline-flex items-center whitespace-nowrap rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-600">{criticalBottleneckCount} CRITICAL</span>
             </div>
-            <input type="text" placeholder="Filter by name or ID..." value={filterTerm} onChange={(e) => setFilterTerm(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400" />
+            <input type="text" aria-label="Filter bottlenecks by name or ID" placeholder="Filter by name or ID..." value={filterTerm} onChange={(e) => setFilterTerm(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400" />
             <div className="mt-4 border-t border-gray-100 pt-3">
-              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Congestion Layer Key (Relative)</div>
+              <div className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500">Congestion severity (fixed thresholds)</div>
               <div className="flex flex-wrap items-center gap-3 text-[11px] text-gray-600">
                 <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Free (&lt;{Math.round(severityThresholds.p25 * 100)}%)</div>
                 <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500" />Moderate ({Math.round(severityThresholds.p25 * 100)}-{Math.round(severityThresholds.p50 * 100)}%)</div>
@@ -246,7 +222,7 @@ export function Dashboard() {
               const hasIncident = hasIncidentForBottleneck(item.id, item.name);
               const selected = ba.selectedBottleneckId === item.id;
               return (
-                <div key={item.id} data-selected={selected ? "true" : undefined} className={`group flex items-center gap-3 border-b border-gray-100 px-3 py-2.5 transition-all cursor-pointer ${selected ? "bg-amber-50 border-l-4 border-l-amber-500" : "hover:bg-gray-50 border-l-4 border-l-transparent"}`} onClick={() => { ba.setSelectedBottleneckId(item.id); map.mapRef.current?.flyTo({ center: [item.longitude, item.latitude], zoom: 15, duration: 800 }); }}>
+                <div key={item.id} data-selected={selected ? "true" : undefined} className={`group flex items-center gap-3 border-b border-gray-100 px-3 py-2.5 transition-all cursor-pointer ${selected ? "bg-amber-50 border-l-4 border-l-amber-500" : "hover:bg-gray-50 border-l-4 border-l-transparent"}`} role="button" tabIndex={0} onKeyDown={e => { if (e.target === e.currentTarget && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); ba.setSelectedBottleneckId(item.id); } }} onClick={() => { ba.setSelectedBottleneckId(item.id); map.mapRef.current?.flyTo({ center: [item.longitude, item.latitude], zoom: 15, duration: 800 }); }}>
                   <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${congestionTone[severity].dot}`} />
                   <div className="min-w-0 flex-1">
                     <div className="mb-0.5 flex items-center gap-1.5">
@@ -258,8 +234,8 @@ export function Dashboard() {
                   <div className="ml-2 flex shrink-0 flex-col items-end gap-1">
                     <span className={`text-sm font-bold ${congestionTone[severity].text}`}>{tsiPercent}%</span>
                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      <ConfirmDialog title="Remove Bottleneck" description={`Are you sure you want to remove ${item.id} (${item.name})?`} confirmText="Remove" isDangerous onConfirm={() => ba.onDeleteBottleneck(item.id)} trigger={<button disabled={data.deletingBottleneckId === item.id} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50" onClick={(e) => e.stopPropagation()}><Trash2 className="h-3.5 w-3.5" /></button>} />
-                      <button onClick={(e) => { e.stopPropagation(); ba.startEditingBottleneck(item.id); }} className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
+                      <ConfirmDialog title="Remove Bottleneck" description={`Are you sure you want to remove ${item.id} (${item.name})?`} confirmText="Remove" isDangerous onConfirm={() => ba.onDeleteBottleneck(item.id)} trigger={<button aria-label="Remove bottleneck" disabled={!canManage || data.deletingBottleneckId === item.id} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50" onClick={(e) => e.stopPropagation()}><Trash2 className="h-3.5 w-3.5" /></button>} />
+                      <button disabled={!canManage} aria-label="Edit bottleneck" onClick={(e) => { e.stopPropagation(); ba.startEditingBottleneck(item.id); }} className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
                 </div>
@@ -272,48 +248,31 @@ export function Dashboard() {
         <div className="relative flex-1 bg-gray-100">
           <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-3">
             <div className="flex gap-1 rounded-full bg-white p-1 shadow-md">
-              <button onClick={() => { setSelectedView("Congestion"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Congestion" ? "bg-yellow-400 text-white" : "text-gray-600 hover:bg-gray-100"}`}>Congestion</button>
-              <button onClick={() => { setSelectedView("Weather"); setShowWeatherOverlay(true); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Weather" ? "bg-yellow-400 text-white" : "text-gray-600 hover:bg-gray-100"}`}>Weather</button>
-              <button onClick={() => { setSelectedView("Assignments"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Assignments" ? "bg-yellow-400 text-white" : "text-gray-600 hover:bg-gray-100"}`}>Assignments</button>
+              <button onClick={() => { setSelectedView("Congestion"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Congestion" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Congestion</button>
+              <button onClick={() => { setSelectedView("Weather"); setShowWeatherOverlay(true); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Weather" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Weather</button>
+              <button onClick={() => { setSelectedView("Assignments"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Assignments" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Assignments</button>
             </div>
             <div className="flex items-center rounded-full bg-white px-4 py-1.5 text-sm font-medium shadow-md"><MapPin className="mr-1 h-4 w-4 text-pink-500" />{dashboardSnapshot.cityLabel}</div>
             <div className="relative">
               <button onClick={() => ba.setShowAddMenu(!ba.showAddMenu)} className="flex items-center gap-1 rounded-full bg-orange-500 px-4 py-1.5 text-sm font-medium text-white shadow-md hover:bg-orange-600"><Plus className="h-4 w-4" />Add Marker<ChevronRight className="h-4 w-4 rotate-90" /></button>
               {ba.showAddMenu && (
                 <div className="absolute right-0 top-full mt-2 w-56 rounded-xl bg-white p-2 shadow-xl">
-                  <button onClick={() => { ba.setAddMode("bottleneck"); ba.setShowAddMenu(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-orange-400" />Bottleneck Node</button>
-                  <button onClick={() => { ba.setAddMode("incident"); ba.setShowAddMenu(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-red-500" />Incident Marker</button>
-                  <button onClick={() => { ba.setAddMode("poi"); ba.setShowAddMenu(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-blue-500" />Point of Interest</button>
+                  <button disabled={!canManage} onClick={() => { ba.setPendingPoint(null); ba.setAddMode("bottleneck"); ba.setEditPickFromMap(false); ba.setShowAddMenu(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-orange-400" />Bottleneck Node</button>
+                  <button onClick={() => { ba.setPendingPoint(null); ba.setAddMode("incident"); ba.setEditPickFromMap(false); ba.setShowAddMenu(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-red-500" />Incident Marker</button>
+                  <button onClick={() => { ba.setPendingPoint(null); ba.setAddMode("poi"); ba.setEditPickFromMap(false); ba.setShowAddMenu(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-blue-500" />Point of Interest</button>
                 </div>
               )}
             </div>
           </div>
 
-          {ba.addMode && <div className="absolute left-1/2 top-20 z-20 -translate-x-1/2 rounded-full bg-orange-500 px-6 py-2 text-sm font-bold text-white shadow-lg animate-pulse">Click map to place {ba.addMode}</div>}
+          {ba.addMode && <div className="absolute left-1/2 top-20 z-20 -translate-x-1/2 rounded-full bg-orange-500 px-6 py-2 text-sm font-bold text-white shadow-lg animate-pulse">Click map to place {ba.addMode} <button aria-label="Cancel marker placement" onClick={()=>{ba.setAddMode(null);ba.setPendingPoint(null);}}>×</button></div>}
 
-          {ba.addMode === "bottleneck" && ba.pendingPoint && (
-            <form
-              onSubmit={(event) => { event.preventDefault(); void ba.onCreateBottleneck(); }}
-              className="absolute right-4 top-20 z-30 w-72 space-y-3 rounded-xl bg-white p-4 shadow-xl"
-            >
-              <h3 className="font-semibold text-gray-900">Add bottleneck</h3>
-              <p className="text-xs text-gray-600">Location: {ba.pendingPoint.latitude}, {ba.pendingPoint.longitude}</p>
-              <input aria-label="Bottleneck name" required placeholder="Name" value={ba.newBottleneckName} onChange={(event) => ba.setNewBottleneckName(event.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
-              <input aria-label="Bottleneck ID" placeholder="ID (optional)" value={ba.newBottleneckId} onChange={(event) => ba.setNewBottleneckId(event.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
-              <input aria-label="District" placeholder="District" value={ba.newBottleneckDistrict} onChange={(event) => ba.setNewBottleneckDistrict(event.target.value)} className="w-full rounded border px-3 py-2 text-sm" />
-              <select aria-label="Bottleneck type" value={ba.newBottleneckType} onChange={(event) => ba.setNewBottleneckType(event.target.value)} className="w-full rounded border px-3 py-2 text-sm">
-                <option value="intersection">Intersection</option><option value="bridge">Bridge</option><option value="school_zone">School zone</option><option value="market">Market</option><option value="terminal">Terminal</option><option value="other">Other</option>
-              </select>
-              <label className="block text-xs text-gray-600">Road priority weight
-                <input type="number" min="0.01" step="0.01" required value={ba.newBottleneckWeight} onChange={(event) => ba.setNewBottleneckWeight(event.target.value)} className="mt-1 w-full rounded border px-3 py-2 text-sm" />
-              </label>
-              {data.bottleneckActionError && <p role="alert" className="text-sm text-red-600">{data.bottleneckActionError}</p>}
-              <div className="flex gap-2">
-                <button type="submit" disabled={data.savingBottleneck} className="rounded bg-orange-500 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">{data.savingBottleneck ? "Saving…" : "Create"}</button>
-                <button type="button" onClick={() => { ba.setPendingPoint(null); ba.setAddMode(null); }} className="rounded border px-3 py-2 text-sm">Cancel</button>
-              </div>
-            </form>
-          )}
+          {ba.addMode && ba.pendingPoint && <MarkerCreationForm
+            key={ba.addMode} kind={ba.addMode} point={ba.pendingPoint}
+            onSaved={async () => { await reloadDashboard(); ba.setPendingPoint(null); ba.setAddMode(null); data.setBottleneckActionNotice("Marker saved."); }}
+            onCancel={() => { ba.setPendingPoint(null); ba.setAddMode(null); }}
+          />}
+
 
           <div className="relative h-full w-full overflow-hidden bg-gray-100">
             <div ref={map.mapContainerRef} className="h-full w-full" />
@@ -336,6 +295,12 @@ export function Dashboard() {
 
           <IncidentModal showIncidentModal={showIncidentModal} onClose={() => setShowIncidentModal(false)} selectedIncident={selectedIncident} incidentHeadline={incidentHeadline} incidentLocation={incidentLocation} />
           <MapControls map={map.mapRef.current} />
+          {pois.length > 0 && <div aria-label="Point of interest marker legend" className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-5rem)] rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur-sm">
+            <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-600">Points of interest</div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {poiCategories.map(item => <span key={item.value} className="flex items-center gap-1 text-[11px] font-medium text-slate-800"><PoiSymbol category={item.value} className="h-5 w-4 shrink-0" />{item.label}</span>)}
+            </div>
+          </div>}
         </div>
 
         {/* Right Sidebar */}
@@ -346,17 +311,16 @@ export function Dashboard() {
               onClose={() => ba.setSelectedBottleneckId(null)}
               onDelete={ba.onDeleteBottleneck}
               deletingId={data.deletingBottleneckId}
+              canManage={canManage}
             />
           )}
           <IncidentTicker incidents={incidents} onRemoveIncident={onRemoveIncident} />
-          <QuickOptimizeCard
+          {canManage && <QuickOptimizeCard
             selectedShift={selectedShift} setSelectedShift={setSelectedShift}
             WeatherIndicatorIcon={WeatherIndicatorIcon} weatherStyle={weatherStyle} weatherLabel={weatherLabel}
-            impactRadiusKm={impactRadiusKm} estimatedClearMinutes={estimatedClearMinutes}
-            networkHealthLabel={networkHealthLabel} networkHealthClass={networkHealthClass}
             selectedIncident={selectedIncident}
-          />
-          <SystemStats cityFlowValue={cityFlowValue} cityFlowDelta={cityFlowDelta} avgResponseTimeMinutes={avgResponseTimeMinutes} delayDeltaMinutes={delayDeltaMinutes} />
+          />}
+
         </div>
       </div>
     </div>

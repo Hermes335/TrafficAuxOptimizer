@@ -28,6 +28,11 @@ class Command(BaseCommand):
                 'is_superuser': role == 'administrator',
             }
         )
+        from django.contrib.auth.models import Group
+        user.groups.remove(*Group.objects.filter(name__in=['supervisor', 'dispatcher']))
+        user.groups.add(Group.objects.get_or_create(name=role)[0])
+        user.is_staff = role == 'administrator'
+        user.is_superuser = role == 'administrator'
         user.set_password(password)
         user.save()
 

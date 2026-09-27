@@ -3,18 +3,18 @@ import { useNavigate } from "react-router";
 import { useAuth } from "../contexts/AuthContext";
 import { LoadingState } from "../components/LoadingState";
 import { Eye, EyeOff, Shield, AlertTriangle, LogIn, MapPin, CheckCircle2 } from "lucide-react";
-import { fetchDashboardKpis, fetchDashboardSnapshot, type DashboardKpis } from "../services/backend";
+import { fetchDashboardKpis, fetchDashboardSnapshot } from "../services/backend";
 
 type LoginStats = {
-  deployedOfficers: number;
-  monitoredIntersections: number;
-  avgResponseMinutes: number;
+  deployedOfficers: number | null;
+  monitoredIntersections: number | null;
+  avgResponseMinutes: number | null;
 };
 
 const fallbackStats: LoginStats = {
-  deployedOfficers: 124,
-  monitoredIntersections: 38,
-  avgResponseMinutes: 4.2,
+  deployedOfficers: null,
+  monitoredIntersections: null,
+  avgResponseMinutes: null,
 };
 
 export function Login() {
@@ -196,7 +196,7 @@ export function Login() {
             <div className="mt-auto max-w-md pb-7">
               <div className="mb-5 inline-flex items-center rounded-md border border-yellow-500/25 bg-yellow-500/10 px-3 py-1.5 text-xs font-medium text-yellow-300">
                 <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" />
-                System Online - All Zones Active
+                Operational decision support
               </div>
 
               <h1 className="leading-[0.95] text-white">
@@ -216,17 +216,17 @@ export function Login() {
 
               <div className="mt-9 grid grid-cols-3 gap-3">
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">{stats.deployedOfficers}</div>
+                  <div className="text-4xl font-black text-yellow-400">{stats.deployedOfficers ?? "—"}</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Deployed</div>
                   <div className="text-sm text-slate-300">Active Officers</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">{stats.monitoredIntersections}</div>
+                  <div className="text-4xl font-black text-yellow-400">{stats.monitoredIntersections ?? "—"}</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Monitored</div>
                   <div className="text-sm text-slate-300">Intersections</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">{stats.avgResponseMinutes.toFixed(1)}</div>
+                  <div className="text-4xl font-black text-yellow-400">{stats.avgResponseMinutes?.toFixed(1) ?? "—"}</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Minutes</div>
                   <div className="text-sm text-slate-300">Avg Response</div>
                 </div>
@@ -339,9 +339,8 @@ export function Login() {
             </p>
 
             <div className="mt-16 flex items-center justify-between text-[10px] uppercase tracking-[0.1em] text-slate-400">
-              <span>256-bit Encrypted</span>
-              <span>ISO 27001 Compliant</span>
-              <span>Build 2024.12</span>
+              <span>Asia/Manila operations</span>
+              <span>Contact your administrator for access</span>
             </div>
           </div>
         </section>

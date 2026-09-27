@@ -1,0 +1,5 @@
+Date,Time,Location,Manual_Officers,Actual_Officers_Present,Car_count,Weather,Incident,Queue_Condition,Notes
+2026-09-25,17:15,Prime State,4,4,354,clear,0,heavy,"Preparation only: B-TEST-VERIFY-2; 4; confirm assignment and field readings before logging an observation. Motorcycles are counted"
+2026-09-25,17:30,Prime State,4,4,352,clear,0,heavy,""
+2026-09-25,17:45,Prime State,4,4,310,clear,0,moderate,""
+2026-09-25,18:00,Prime State,4,4,310,clear,0,moderate,""

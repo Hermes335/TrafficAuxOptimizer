@@ -19,6 +19,13 @@ The comparison measures:
 
 The first field activity uses **Atrium Rotonda** as a data-collection pilot. Manual ICTTMO deployment remains the operational decision. The application runs in shadow mode: its recommendation is recorded for comparison but is not published or used to redirect officers.
 
+For the **2026-09-25 Prime State** session (`B-TEST-VERIFY-2`), use
+`field_test/shadow_pilot_observations_2026-09-25.csv` and
+`field_test/shadow_pilot_recommendations_2026-09-25.csv`. The planned staffing
+is 2–3 officers, pending supervisor confirmation. This is a shadow session:
+collect actual conditions and a fresh afternoon recommendation without
+publishing a deployment.
+
 ### Pilot files
 
 - `field_test/shadow_pilot_observations.csv` — actual field conditions and manual deployment observations

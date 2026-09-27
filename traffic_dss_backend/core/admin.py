@@ -7,7 +7,6 @@ from .models import (
 	Incident,
 	Officer,
 	OptimizationRun,
-	Scenario,
 	TrafficData,
 	WeatherData,
 )
@@ -19,7 +18,6 @@ admin.site.register(Deployment)
 admin.site.register(OptimizationRun)
 admin.site.register(TrafficData)
 admin.site.register(WeatherData)
-admin.site.register(Scenario)
 admin.site.register(AuditLog)
 
 # Register your models here.

@@ -1,3 +1,4 @@
+import { clearSession, sessionChanged } from "./session";
 export type BottleneckStatus = "normal" | "warning" | "critical";
 export type IncidentType = "critical" | "major" | "minor";
 
@@ -14,8 +15,10 @@ export interface Bottleneck {
   latitude: number;
   longitude: number;
   tsi?: number;
+  district?: string;
+  bottleneck_type?: string;
   road_priority_weight?: number;
-  weather_impact_factor?: number;
+  weather_impact_factor?: number | null;
   deployed_officers?: number;
   required_officers?: number;
   assigned_officers?: BottleneckOfficer[];
@@ -36,18 +39,26 @@ export interface DashboardSnapshot {
   bottlenecks: Bottleneck[];
   incidents: Incident[];
   metrics: {
-    coverageEfficiency: number;
-    avgResponseTimeMinutes: number;
-    resourceUtilization: number;
-    weatherCorrelation: number;
+    coverageEfficiency: number | null;
+    avgResponseTimeMinutes: number | null;
+    resourceUtilization: number | null;
+    weatherImpactFactor: number | null;
+    shortages: number | null;
+    requiredStaffing: number | null;
+    assignedStaffing: number | null;
+    asOf: string | null;
   };
 }
 
 export interface DashboardKpis {
-  coverage_efficiency: number;
-  avg_response_time: number;
-  resource_utilization: number;
-  weather_correlation: number;
+  coverage_efficiency: number | null;
+  avg_response_time: number | null;
+  resource_utilization: number | null;
+  weather_impact_factor: number | null;
+  shortages: number;
+  required_staffing: number;
+  assigned_staffing: number;
+  as_of: string;
   deployed_officers: number;
   active_officers: number;
 }
@@ -115,30 +126,9 @@ function getWebSocketBaseUrl() {
 }
 
 const fallbackDashboardSnapshot: DashboardSnapshot = {
-  cityLabel: "Iloilo City, Philippines",
-  bottlenecks: [
-    { id: "B-001", name: "University of Iloilo - Main", status: "normal", latitude: 10.6979, longitude: 122.5626 },
-    { id: "B-003", name: "Jaro Plaza Intersection", status: "normal", latitude: 10.7169, longitude: 122.5448 },
-    { id: "B-012", name: "General Luna St. Bridge", status: "critical", badge: "ACTIVE INCIDENT", latitude: 10.7008, longitude: 122.5716 },
-    { id: "B-018", name: "SM City Iloilo Diversion", status: "critical", latitude: 10.7243, longitude: 122.5451 },
-    { id: "B-020", name: "Molo Church Perimeter", status: "normal", latitude: 10.6909, longitude: 122.5356 },
-    { id: "B-022", name: "Iloilo Terminal Market", status: "normal", latitude: 10.6943, longitude: 122.5688 },
-    { id: "B-025", name: "Location Area 1", status: "normal", latitude: 10.707, longitude: 122.5532 },
-    { id: "B-026", name: "Location Area 2", status: "warning", latitude: 10.7128, longitude: 122.5751 },
-    { id: "B-027", name: "Location Area 3", status: "normal", latitude: 10.6995, longitude: 122.5484 },
-    { id: "B-028", name: "Location Area 4", status: "warning", latitude: 10.7048, longitude: 122.5609 },
-  ],
-  incidents: [
-    { id: 1, text: "Critical: Vehicle Collision - B-012 General Luna Bridge", type: "critical" },
-    { id: 2, text: "Major: Road Closure - B-018 SM City Diversion", type: "major" },
-    { id: 3, text: "Minor: Construction Work - B-005 Molo District", type: "minor" },
-  ],
-  metrics: {
-    coverageEfficiency: 85,
-    avgResponseTimeMinutes: 12,
-    resourceUtilization: 78,
-    weatherCorrelation: 0.82,
-  },
+  cityLabel: "Iloilo City, Philippines", bottlenecks: [], incidents: [],
+  metrics: { coverageEfficiency: null, avgResponseTimeMinutes: null, resourceUtilization: null,
+    weatherImpactFactor: null, shortages: null, requiredStaffing: null, assignedStaffing: null, asOf: null },
 };
 
 const DEFAULT_TIMEOUT_MS = 15000;
@@ -153,29 +143,37 @@ export function getApiBaseUrl() {
   return "http://127.0.0.1:8000";
 }
 
+let refreshPromise: Promise<string | null> | null = null;
 async function tryRefreshToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
   const refreshToken = localStorage.getItem("refresh_token");
-  if (!refreshToken) return null;
-
-  try {
-    const response = await fetch(`${getApiBaseUrl()}/api/auth/refresh/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh: refreshToken }),
-    });
-    if (!response.ok) return null;
-    const data = await response.json();
-    if (data.access) {
-      localStorage.setItem("auth_token", data.access);
-      if (data.refresh) {
-        localStorage.setItem("refresh_token", data.refresh);
+  if (!refreshToken) { clearSession(); return null; }
+  refreshPromise = (async () => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => controller.abort(), 10000);
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/auth/refresh/`, {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({refresh: refreshToken}), signal: controller.signal,
+      });
+      // A login/logout in another operation makes this response obsolete.
+      if (localStorage.getItem("refresh_token") !== refreshToken) return localStorage.getItem("auth_token");
+      if (response.status === 401 || response.status === 400) {
+        clearSession();
+        return null;
       }
+      if (!response.ok) throw new Error("Session refresh is temporarily unavailable. Please retry.");
+      const data = await response.json();
+      if (localStorage.getItem("refresh_token") !== refreshToken) return localStorage.getItem("auth_token");
+      if (!data.access || !data.refresh) throw new Error("Invalid session refresh response.");
+      localStorage.setItem("auth_token", data.access);
+      localStorage.setItem("refresh_token", data.refresh);
+      sessionChanged();
       return data.access;
-    }
-    return null;
-  } catch {
-    return null;
-  }
+    } finally { window.clearTimeout(timer); }
+  })();
+  try { return await refreshPromise; }
+  finally { refreshPromise = null; }
 }
 
 async function fetchWithTimeout(
@@ -204,7 +202,8 @@ async function fetchWithTimeout(
 
     // If 401, try refreshing the token and retry once
     if (response.status === 401) {
-      const newToken = await tryRefreshToken();
+      const currentToken = localStorage.getItem("auth_token");
+      const newToken = currentToken && currentToken !== token ? currentToken : await tryRefreshToken();
       if (newToken) {
         (headers as Record<string, string>)["Authorization"] = `Bearer ${newToken}`;
         const retryResponse = await fetch(url, {
@@ -212,12 +211,10 @@ async function fetchWithTimeout(
           headers,
           signal: controller.signal,
         });
+        if (retryResponse.status === 401 && localStorage.getItem("auth_token") === newToken) clearSession();
         return retryResponse;
       }
-      // Refresh failed - clear auth and redirect to login
-      localStorage.removeItem("auth_token");
-      localStorage.removeItem("refresh_token");
-      window.location.href = "/login";
+      // Session expiry is propagated to AuthContext by the shared session event.
     }
 
     return response;
@@ -231,8 +228,26 @@ async function fetchWithTimeout(
   }
 }
 
-function extractListResults<T>(payload: T[] | { results?: T[] }): T[] {
-  return Array.isArray(payload) ? payload : payload.results ?? [];
+export interface ApiPage<T> { count: number; next: string | null; results: T[] }
+export async function fetchPage<T>(url: string): Promise<ApiPage<T>> {
+  const response = await fetchWithTimeout(url);
+  if (!response.ok) throw new Error(await extractApiError(response, `Failed to load records: ${response.status}`));
+  const data = await response.json();
+  return Array.isArray(data) ? {count: data.length, next: null, results: data} : data;
+}
+export async function fetchAllPages<T>(url: string): Promise<T[]> {
+  const rows: T[] = [];
+  const visited = new Set<string>();
+  let next: string | null = url;
+  while (next) {
+    const resolved = new URL(next, getApiBaseUrl()).toString();
+    if (new URL(resolved).origin !== new URL(getApiBaseUrl()).origin || visited.has(resolved)) throw new Error("Invalid pagination link.");
+    visited.add(resolved);
+    const page = await fetchPage<T>(resolved);
+    rows.push(...page.results);
+    next = page.next;
+  }
+  return rows;
 }
 
 export function getFallbackDashboardSnapshot() {
@@ -250,7 +265,8 @@ export function buildWebSocketUrl(path: string, token?: string) {
 function createWebSocketSubscription<T>(
   path: string,
   onEvent: (data: T) => void,
-  token?: string
+  token?: string,
+  onConnection?: (state: ConnectionState) => void,
 ): () => void {
   let socket: WebSocket | null = null;
   let shouldReconnect = true;
@@ -258,7 +274,9 @@ function createWebSocketSubscription<T>(
   let reconnectTimer: number | undefined;
 
   const connect = () => {
-    socket = new WebSocket(buildWebSocketUrl(path, token));
+    onConnection?.("connecting");
+    socket = new WebSocket(buildWebSocketUrl(path, localStorage.getItem("auth_token") ?? token));
+    socket.onopen = () => { reconnectDelayMs = 500; onConnection?.("live"); };
 
     socket.onmessage = (event) => {
       try {
@@ -269,6 +287,7 @@ function createWebSocketSubscription<T>(
     };
 
     socket.onclose = () => {
+      onConnection?.("disconnected");
       if (!shouldReconnect) {
         return;
       }
@@ -294,82 +313,31 @@ function createWebSocketSubscription<T>(
   };
 }
 
-export function subscribeToDashboardStream(onEvent: LiveCallback, token?: string) {
-  return createWebSocketSubscription<LiveDashboardEvent>("/ws/dashboard/", onEvent, token);
+export type ConnectionState = "connecting" | "live" | "disconnected";
+export function subscribeToDashboardStream(onEvent: LiveCallback, token?: string, onConnection?: (state: ConnectionState) => void) {
+  return createWebSocketSubscription<LiveDashboardEvent>("/ws/dashboard/", onEvent, token, onConnection);
 }
 
 export function subscribeToOptimizationStream(runId: string, onEvent: OptimizationCallback, token?: string) {
   return createWebSocketSubscription<OptimizationStatus>(`/ws/optimization/${runId}/`, onEvent, token);
 }
 
-export async function fetchDashboardSnapshot(): Promise<DashboardSnapshot> {
+export async function fetchDashboardSnapshot(shift = "afternoon"): Promise<DashboardSnapshot> {
   const base = getApiBaseUrl();
-  const [kpiRes, bottleneckRes, incidentRes] = await Promise.all([
-    fetchWithTimeout(`${base}/api/dashboard/kpis/`),
-    fetchWithTimeout(`${base}/api/dashboard/bottlenecks/`),
-    fetchWithTimeout(`${base}/api/dashboard/incidents/active/`),
+  const [kpiRes, bottlenecks, incidents] = await Promise.all([
+    fetchWithTimeout(`${base}/api/dashboard/kpis/?shift=${shift}`),
+    fetchAllPages<Bottleneck>(`${base}/api/dashboard/bottlenecks/?shift=${shift}`),
+    fetchAllPages<Incident>(`${base}/api/dashboard/incidents/active/`),
   ]);
-
-  if (!kpiRes.ok || !bottleneckRes.ok || !incidentRes.ok) {
-    throw new Error("Failed to load dashboard data");
-  }
-
-  const kpis = (await kpiRes.json()) as {
-    coverage_efficiency: number;
-    avg_response_time: number;
-    resource_utilization: number;
-    weather_correlation: number;
-  };
-  const bottleneckPayload = (await bottleneckRes.json()) as Array<{
-    id: string;
-    name: string;
-    status: BottleneckStatus;
-    latitude: number;
-    longitude: number;
-    tsi?: number;
-    road_priority_weight?: number;
-    weather_impact_factor?: number;
-    deployed_officers?: number;
-    required_officers?: number;
-    assigned_officers?: Array<{ name: string; badge_number: string }>;
-  }> | { results?: Array<{
-    id: string;
-    name: string;
-    status: BottleneckStatus;
-    latitude: number;
-    longitude: number;
-    tsi?: number;
-    road_priority_weight?: number;
-    weather_impact_factor?: number;
-    deployed_officers?: number;
-    required_officers?: number;
-    assigned_officers?: Array<{ name: string; badge_number: string }>;
-  }> };
-  const bottlenecks = extractListResults(bottleneckPayload);
-  const incidents = (await incidentRes.json()) as Incident[];
-
-  const projected = bottlenecks.map((item, index) => ({
-    id: item.id,
-    name: item.name,
-    status: item.status,
-    latitude: item.latitude,
-    longitude: item.longitude,
-    tsi: item.tsi,
-    weather_impact_factor: item.weather_impact_factor,
-    deployed_officers: item.deployed_officers,
-    required_officers: item.required_officers,
-    assigned_officers: item.assigned_officers,
-  }));
-
+  if (!kpiRes.ok) throw new Error("Failed to load dashboard metrics.");
+  const kpis = await kpiRes.json() as DashboardKpis;
   return {
-    cityLabel: "Iloilo City, Philippines",
-    bottlenecks: projected,
-    incidents,
+    cityLabel: "Iloilo City, Philippines", bottlenecks, incidents,
     metrics: {
-      coverageEfficiency: kpis.coverage_efficiency,
-      avgResponseTimeMinutes: kpis.avg_response_time,
-      resourceUtilization: kpis.resource_utilization,
-      weatherCorrelation: kpis.weather_correlation,
+      coverageEfficiency: kpis.coverage_efficiency, avgResponseTimeMinutes: kpis.avg_response_time,
+      resourceUtilization: kpis.resource_utilization, weatherImpactFactor: kpis.weather_impact_factor,
+      shortages: kpis.shortages, requiredStaffing: kpis.required_staffing,
+      assignedStaffing: kpis.assigned_staffing, asOf: kpis.as_of,
     },
   };
 }
@@ -427,7 +395,7 @@ export interface OptimizationConfigRequest {
 export interface OptimizationConfigResponse {
   parameters: Required<OptimizationConfigRequest>;
   valid: boolean;
-  errors?: Record<string, string>;
+  errors?: Record<string, string | string[]>;
 }
 
 export async function fetchOptimizationConfig(
@@ -441,7 +409,7 @@ export async function fetchOptimizationConfig(
     body: JSON.stringify(request),
   });
 
-  if (!response.ok) {
+  if (!response.ok && response.status !== 400) {
     const errorBody = await response.text().catch(() => "");
     throw new Error(`Failed to fetch optimization config: ${response.status} ${errorBody}`);
   }
@@ -459,7 +427,7 @@ export async function runOptimization(request: OptimizationRunRequest): Promise<
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to start optimization run: ${response.status}`);
+    throw new Error(await extractApiError(response, `Failed to start optimization run: ${response.status}`));
   }
 
   return response.json() as Promise<OptimizationRunResponse>;
@@ -500,6 +468,7 @@ export interface OptimizationResults {
     resource_utilization?: number;
     road_priority_coverage?: number;
     constraints_violated?: boolean;
+    staffing_shortages?: Record<string, number>;
     generated_at?: string;
     assignments?: Array<{
       officer_id?: number;
@@ -511,6 +480,11 @@ export interface OptimizationResults {
   pareto_curve_data?: ParetoPoint[];
   converged_early?: boolean;
   synthetic_data_used?: string[] | null;
+  input_snapshot?: {
+    captured_at: string;
+    bottlenecks: Array<{id: string; tsi: number; road_priority_weight: number; provenance: {source: string; data_status: string; is_stale: boolean; is_synthetic: boolean; observed_at: string | null}}>;
+    weather: {source: string; data_status: string; is_stale: boolean; is_synthetic: boolean; assumption?: string};
+  };
 }
 
 export async function fetchOptimizationResults(runId: string): Promise<OptimizationResults> {
@@ -532,12 +506,8 @@ export interface OptimizationHistoryItem {
   created_by: number;
 }
 
-export async function fetchOptimizationHistory(): Promise<OptimizationHistoryItem[]> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/history/`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch optimization history: ${response.status}`);
-  }
-  return response.json() as Promise<OptimizationHistoryItem[]>;
+export function fetchOptimizationHistory(page = 1, status?: string): Promise<ApiPage<OptimizationHistoryItem>> {
+  return fetchPage<OptimizationHistoryItem>(`${getApiBaseUrl()}/api/optimization/history/?page=${page}&page_size=10${status ? "&status=" + status : ""}`);
 }
 
 export interface DeploymentScheduleItem {
@@ -560,6 +530,7 @@ export interface PublishOptimizationDeploymentsRequest {
   assignment_type?: "static" | "mobile" | "response";
   status?: string;
   replace_existing?: boolean;
+  operational_date?: string;
 }
 
 export interface PublishOptimizationDeploymentsResponse {
@@ -571,17 +542,14 @@ export interface PublishOptimizationDeploymentsResponse {
   end_time: string;
 }
 
-export async function fetchDeploymentSchedule(): Promise<DeploymentScheduleItem[]> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/schedule/`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch deployment schedule: ${response.status}`);
-  }
-  return extractListResults(await response.json() as DeploymentScheduleItem[] | { results?: DeploymentScheduleItem[] });
+export async function fetchDeploymentSchedule(date?: string): Promise<DeploymentScheduleItem[]> {
+  return fetchAllPages<DeploymentScheduleItem>(`${getApiBaseUrl()}/api/deployments/schedule/${date ? "?date=" + encodeURIComponent(date) : ""}`);
 }
 
-export async function clearDeploymentSchedule(shift?: string): Promise<{ cleared: number }> {
+export async function clearDeploymentSchedule(shift?: string, date?: string): Promise<{ cleared: number }> {
   const url = new URL(`${getApiBaseUrl()}/api/deployments/schedule/`);
   if (shift) url.searchParams.set("shift", shift);
+  if (date) url.searchParams.set("date", date);
   const response = await fetchWithTimeout(url.toString(), {
     method: "DELETE",
   });
@@ -669,10 +637,9 @@ export interface DashboardOfficerPayload {
 
 async function extractApiError(response: Response, fallback: string) {
   try {
-    const payload = (await response.json()) as { detail?: string };
-    if (payload?.detail) {
-      return payload.detail;
-    }
+    const payload = await response.json();
+    if (typeof payload?.detail === "string") return payload.detail;
+    if (payload && typeof payload === "object") return Object.entries(payload).map(([field, errors]) => `${field}: ${Array.isArray(errors) ? errors.join(", ") : JSON.stringify(errors)}`).join("; ");
   } catch {
     // Keep fallback when the backend does not return JSON detail.
   }
@@ -680,12 +647,7 @@ async function extractApiError(response: Response, fallback: string) {
 }
 
 export async function fetchBottlenecks(): Promise<BottleneckOption[]> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/bottlenecks/`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch bottlenecks: ${response.status}`);
-  }
-  const rows = extractListResults(await response.json() as Array<{ id: string; name: string }> | { results?: Array<{ id: string; name: string }> });
-  return rows.map((row) => ({ id: row.id, name: row.name }));
+  return fetchAllPages<BottleneckOption>(`${getApiBaseUrl()}/api/dashboard/bottlenecks/`);
 }
 
 export async function createDashboardBottleneck(payload: DashboardBottleneckPayload): Promise<Bottleneck> {
@@ -735,11 +697,7 @@ export async function updateDashboardBottleneck(
 }
 
 export async function fetchDashboardOfficers(): Promise<DashboardOfficerRecord[]> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/officers/`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch officers: ${response.status}`);
-  }
-  return extractListResults(await response.json() as DashboardOfficerRecord[] | { results?: DashboardOfficerRecord[] });
+  return fetchAllPages<DashboardOfficerRecord>(`${getApiBaseUrl()}/api/dashboard/officers/`);
 }
 
 export async function createDashboardOfficer(payload: DashboardOfficerPayload): Promise<void> {
@@ -844,30 +802,9 @@ export async function fetchIncident(incidentId: number): Promise<{
   longitude: number | null;
   status: string;
 }> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/incidents/`);
-  if (!response.ok) throw new Error(`Failed to fetch incidents: ${response.status}`);
-  const incidents = extractListResults(await response.json() as Array<{
-    id: number;
-    incident_type: string;
-    severity: string;
-    description: string;
-    bottleneck: string | null;
-    latitude: number | null;
-    longitude: number | null;
-    status: string;
-  }> | { results?: Array<{
-    id: number;
-    incident_type: string;
-    severity: string;
-    description: string;
-    bottleneck: string | null;
-    latitude: number | null;
-    longitude: number | null;
-    status: string;
-  }> });
-  const incident = incidents.find((i) => i.id === incidentId);
-  if (!incident) throw new Error(`Incident ${incidentId} not found`);
-  return incident;
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/incidents/${incidentId}/`);
+  if (!response.ok) throw new Error(await extractApiError(response, `Incident ${incidentId} could not be loaded.`));
+  return response.json();
 }
 
 export async function updateIncident(
@@ -901,9 +838,7 @@ export interface POI {
 }
 
 export async function fetchPOIs(): Promise<POI[]> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/pois/`);
-  if (!response.ok) throw new Error(`Failed to fetch POIs: ${response.status}`);
-  return extractListResults(await response.json() as POI[] | { results?: POI[] });
+  return fetchAllPages<POI>(`${getApiBaseUrl()}/api/dashboard/pois/`);
 }
 
 export async function createPOI(data: {
@@ -918,7 +853,7 @@ export async function createPOI(data: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  if (!response.ok) throw new Error(`Failed to create POI: ${response.status}`);
+  if (!response.ok) throw new Error(await extractApiError(response, `Failed to create POI: ${response.status}`));
   return response.json() as Promise<POI>;
 }
 
@@ -939,61 +874,7 @@ export async function deletePOI(poiId: string): Promise<void> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/pois/${poiId}/`, {
     method: "DELETE",
   });
-  if (!response.ok) throw new Error(`Failed to delete POI: ${response.status}`);
-}
-
-export interface ScenarioRecord {
-  id: number;
-  name: string;
-  description: string;
-  preset_parameters: Record<string, unknown>;
-  is_default: boolean;
-}
-
-export async function fetchScenarios(): Promise<ScenarioRecord[]> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/scenarios/`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch scenarios: ${response.status}`);
-  }
-  return extractListResults(await response.json() as ScenarioRecord[] | { results?: ScenarioRecord[] });
-}
-
-export async function createScenario(payload: {
-  name: string;
-  description: string;
-  preset_parameters: Record<string, unknown>;
-  is_default?: boolean;
-}): Promise<ScenarioRecord> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/scenarios/`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) {
-    throw new Error(`Failed to create scenario: ${response.status}`);
-  }
-  return response.json() as Promise<ScenarioRecord>;
-}
-
-export interface AnalyticsTrendPoint {
-  timestamp: string;
-  traffic_severity_index: number;
-  avg_speed: number;
-}
-
-export async function fetchAnalyticsTrends(): Promise<{ trends: AnalyticsTrendPoint[]; metadata: ExternalDataProvenance }> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/analytics/trends/`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch analytics trends: ${response.status}`);
-  }
-
-  const payload = (await response.json()) as { trends?: AnalyticsTrendPoint[]; metadata?: ExternalDataProvenance };
-  return {
-    trends: Array.isArray(payload.trends) ? payload.trends : [],
-    metadata: payload.metadata ?? { source: "unknown", data_status: "unknown", available: false, is_synthetic: false, is_stale: false, observed_at: null, fetched_at: null },
-  };
+  if (!response.ok) throw new Error(await extractApiError(response, `Failed to delete POI: ${response.status}`));
 }
 
 export interface AuditLogRecord {
@@ -1005,12 +886,8 @@ export interface AuditLogRecord {
   timestamp: string;
 }
 
-export async function fetchAuditLogs(): Promise<AuditLogRecord[]> {
-  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/admin/audit-logs/`);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch audit logs: ${response.status}`);
-  }
-  return response.json() as Promise<AuditLogRecord[]>;
+export function fetchAuditLogs(page = 1): Promise<ApiPage<AuditLogRecord>> {
+  return fetchPage<AuditLogRecord>(`${getApiBaseUrl()}/api/admin/audit-logs/?page=${page}&page_size=25`);
 }
 
 export interface AdminSystemHealthSnapshot {
@@ -1054,4 +931,34 @@ export async function fetchSystemHealthSnapshot(): Promise<SystemHealthSnapshot>
     adminHealth: adminPayload,
     adminForbidden: false,
   };
+}
+
+export async function createMapIncident(payload: {latitude:number; longitude:number; incident_type:string; severity:string; description:string}) {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/incidents/`, {
+    method: "POST", headers: {"Content-Type":"application/json"}, body:JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await extractApiError(response, "Incident could not be saved."));
+  return response.json() as Promise<{id:number}>;
+}
+
+export interface PublicationPreview extends PublishOptimizationDeploymentsResponse {
+  operational_date: string;
+  staff_added: number[];
+  staff_removed: number[];
+  replaced: number;
+  conflicts: string[];
+}
+export async function previewPublication(payload: PublishOptimizationDeploymentsRequest): Promise<PublicationPreview> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/preview-optimization/`, {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+  });
+  if (response.status === 404) {
+    throw new Error("Schedule preview is unavailable on the running backend (HTTP 404). Restart Django with the updated code.");
+  }
+  if (!response.ok) throw new Error(await extractApiError(response, `Publication preview failed (HTTP ${response.status}).`));
+  return response.json();
+}
+export function fetchOfficersPage(page: number, search: string, status: string, shift: string) {
+  const query = new URLSearchParams({page: String(page), page_size: "25", search, status, shift});
+  return fetchPage<DashboardOfficerRecord>(`${getApiBaseUrl()}/api/dashboard/officers/?${query}`);
 }

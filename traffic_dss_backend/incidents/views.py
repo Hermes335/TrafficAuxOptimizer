@@ -1,3 +1,4 @@
+from django.db import transaction
 from io import BytesIO
 from pathlib import Path
 
@@ -81,6 +82,8 @@ class IncidentReportView(APIView):
 
 		incident = Incident.objects.create(
 			bottleneck=bottleneck,
+			latitude=bottleneck.latitude,
+			longitude=bottleneck.longitude,
 			incident_type=incident_type,
 			severity=severity,
 			description=request.data.get("description", ""),
@@ -137,8 +140,9 @@ class IncidentListView(APIView):
 class IncidentUpdateView(APIView):
 	permission_classes = [permissions.IsAuthenticated]
 
+	@transaction.atomic
 	def put(self, request, incident_id: int):
-		incident = Incident.objects.filter(pk=incident_id, is_deleted=False).first()
+		incident = Incident.objects.select_for_update().filter(pk=incident_id, is_deleted=False).first()
 		if not incident:
 			return Response({"detail": "Incident not found."}, status=status.HTTP_404_NOT_FOUND)
 
@@ -161,7 +165,7 @@ class IncidentUpdateView(APIView):
 
 		incident.save()
 		write_audit_log(request.user, "update", "incident", {"incident_id": incident.id})
-		broadcast(
+		transaction.on_commit(lambda: broadcast(
 			"dashboard_live",
 			"dashboard_event",
 			{
@@ -171,26 +175,26 @@ class IncidentUpdateView(APIView):
 				"incident_type": incident.incident_type,
 				"timestamp": incident.updated_at.isoformat(),
 			},
-		)
+		))
 		return Response(IncidentSerializer(incident).data)
 
 
 class IncidentResolveView(APIView):
 	permission_classes = [permissions.IsAuthenticated]
 
+	@transaction.atomic
 	def put(self, request, incident_id: int):
-		incident = Incident.objects.filter(pk=incident_id, is_deleted=False).first()
+		incident = Incident.objects.select_for_update().filter(pk=incident_id, is_deleted=False).first()
 		if not incident:
 			return Response({"detail": "Incident not found."}, status=status.HTTP_404_NOT_FOUND)
 
-		actor = request.user if getattr(request, "user", None) and request.user.is_authenticated else get_user_model().objects.order_by("id").first()
-		if actor is None:
-			actor = get_user_model().objects.create_user(username="desktop-runner")
+		actor = request.user
 
 		incident.status = "resolved"
-		incident.save(update_fields=["status", "updated_at"])
+		incident.resolved_time = timezone.now()
+		incident.save(update_fields=["status", "resolved_time", "updated_at"])
 		write_audit_log(actor, "update", "incident", {"incident_id": incident.id, "status": "resolved"})
-		broadcast(
+		transaction.on_commit(lambda: broadcast(
 			"dashboard_live",
 			"dashboard_event",
 			{
@@ -199,8 +203,8 @@ class IncidentResolveView(APIView):
 				"bottleneck_id": incident.bottleneck_id,
 				"timestamp": incident.updated_at.isoformat(),
 			},
-		)
-		broadcast(
+		))
+		transaction.on_commit(lambda: broadcast(
 			"incidents_live",
 			"incident_event",
 			{
@@ -209,7 +213,7 @@ class IncidentResolveView(APIView):
 				"bottleneck_id": incident.bottleneck_id,
 				"timestamp": incident.updated_at.isoformat(),
 			},
-		)
+		))
 		return Response(IncidentSerializer(incident).data)
 
 

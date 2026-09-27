@@ -1,5 +1,7 @@
+import { PublishScheduleButton } from "../components/PublishScheduleButton";
+import { operationalTime, operationalShift } from "../services/operationalTime";
 import { useEffect, useMemo, useState } from "react";
-import { Clock, Target, Zap, TrendingUp, Users, AlertTriangle, ChevronLeft, RefreshCw } from "lucide-react";
+import { Clock, Target, Zap, TrendingUp, Users, RefreshCw } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import {
   fetchOptimizationConfig,
@@ -7,7 +9,6 @@ import {
   fetchDashboardSnapshot,
   fetchCurrentWeather,
   fetchPOIs,
-  publishDeploymentsFromOptimization,
   type OptimizationHistoryItem,
   type OptimizationConfigResponse,
   type POI,
@@ -20,7 +21,7 @@ const DEFAULT_PARAMS = {
   generationLimit: 300,
   crossoverRate: 80,
   mutationRate: 10,
-  elitismRate: 10,
+  elitismCount: 10,
   tsiWeight: 35,
   wifWeight: 25,
   rpwWeight: 25,
@@ -29,25 +30,24 @@ const DEFAULT_PARAMS = {
 
 export function Optimization() {
   const navigate = useNavigate();
-  const [selectedShift, setSelectedShift] = useState<"morning" | "afternoon">("afternoon");
+  const [selectedShift, setSelectedShift] = useState<"morning" | "afternoon">(() => new URLSearchParams(window.location.search).get("shift") === "morning" ? "morning" : operationalShift());
   const [populationSize, setPopulationSize] = useState(DEFAULT_PARAMS.populationSize);
   const [generationLimit, setGenerationLimit] = useState(DEFAULT_PARAMS.generationLimit);
   const [crossoverRate, setCrossoverRate] = useState(DEFAULT_PARAMS.crossoverRate);
   const [mutationRate, setMutationRate] = useState(DEFAULT_PARAMS.mutationRate);
-  const [elitismRate, setElitismRate] = useState(DEFAULT_PARAMS.elitismRate);
+  const [elitismCount, setElitismCount] = useState(DEFAULT_PARAMS.elitismCount);
   const [tsiWeight, setTsiWeight] = useState(DEFAULT_PARAMS.tsiWeight);
   const [wifWeight, setWifWeight] = useState(DEFAULT_PARAMS.wifWeight);
   const [rpwWeight, setRpwWeight] = useState(DEFAULT_PARAMS.rpwWeight);
   const [resourceUtilizationWeight, setResourceUtilizationWeight] = useState(DEFAULT_PARAMS.resourceUtilizationWeight);
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyCount, setHistoryCount] = useState(0);
   const [history, setHistory] = useState<OptimizationHistoryItem[]>([]);
   const [validation, setValidation] = useState<OptimizationConfigResponse | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(true);
   const [validationLoading, setValidationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [publishingRunId, setPublishingRunId] = useState<string | null>(null);
-  const [publishError, setPublishError] = useState<string | null>(null);
-  const [publishNotice, setPublishNotice] = useState<string | null>(null);
   const [autoSuggestion, setAutoSuggestion] = useState<AutoWeightSuggestion | null>(null);
   const [loadingAutoSuggestion, setLoadingAutoSuggestion] = useState(false);
   const [activePois, setActivePois] = useState<POI[]>([]);
@@ -57,11 +57,12 @@ export function Optimization() {
   useEffect(() => {
     let active = true;
     setLoadingAutoSuggestion(true);
-    Promise.all([fetchDashboardSnapshot(), fetchCurrentWeather(), fetchPOIs()])
+    Promise.all([fetchDashboardSnapshot(selectedShift), fetchCurrentWeather(), fetchPOIs()])
       .then(([snapshot, weather, pois]) => {
         if (!active) return;
         setActivePois(pois);
         setActiveIncidents(snapshot.incidents);
+        if (weather.weather_impact_factor == null || snapshot.metrics.resourceUtilization == null) return;
         const suggestion = computeAutoWeights(
           snapshot.bottlenecks,
           weather.weather_impact_factor ?? 1,
@@ -94,7 +95,7 @@ export function Optimization() {
       generations: generationLimit,
       mutation_rate: Number((mutationRate / 100).toFixed(2)),
       crossover_rate: Number((crossoverRate / 100).toFixed(2)),
-      elitism_count: Math.max(1, Math.round((elitismRate / 100) * populationSize)),
+      elitism_count: elitismCount,
       tsi_weight: Number((tsiWeight / 100).toFixed(2)),
       wif_weight: Number((wifWeight / 100).toFixed(2)),
       rpw_weight: Number((rpwWeight / 100).toFixed(2)),
@@ -105,7 +106,7 @@ export function Optimization() {
       generationLimit,
       mutationRate,
       crossoverRate,
-      elitismRate,
+      elitismCount,
       tsiWeight,
       wifWeight,
       rpwWeight,
@@ -116,12 +117,13 @@ export function Optimization() {
   useEffect(() => {
     let active = true;
 
-    fetchOptimizationHistory()
-      .then((rows) => {
+    setLoadingHistory(true);
+    fetchOptimizationHistory(historyPage)
+      .then((page) => {
         if (!active) {
           return;
         }
-        setHistory(rows);
+        setHistory(page.results); setHistoryCount(page.count);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -140,12 +142,13 @@ export function Optimization() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [historyPage]);
 
   useEffect(() => {
     let active = true;
+    setValidation(null);
+    setValidationLoading(true);
     const timer = setTimeout(() => {
-      setValidationLoading(true);
       fetchOptimizationConfig(params)
         .then((result) => {
           if (!active) return;
@@ -153,7 +156,7 @@ export function Optimization() {
         })
         .catch(() => {
           if (!active) return;
-          setValidation(null);
+          setValidation({valid: false, parameters: params, errors: {validation: "Unable to validate parameters. Check the backend connection."}});
         })
         .finally(() => {
           if (active) setValidationLoading(false);
@@ -170,22 +173,22 @@ export function Optimization() {
     setSelectedPreset(preset);
     switch (preset) {
       case "normal":
-        setMutationRate(10); setCrossoverRate(80); setElitismRate(10);
+        setMutationRate(10); setCrossoverRate(80); setElitismCount(10);
         setPopulationSize(200); setGenerationLimit(300);
         setTsiWeight(35); setWifWeight(25); setRpwWeight(25); setResourceUtilizationWeight(15);
         break;
       case "typhoon":
-        setMutationRate(8); setCrossoverRate(78); setElitismRate(12);
+        setMutationRate(8); setCrossoverRate(78); setElitismCount(12);
         setPopulationSize(240); setGenerationLimit(350);
         setTsiWeight(30); setWifWeight(50); setRpwWeight(15); setResourceUtilizationWeight(5);
         break;
       case "special_event":
-        setMutationRate(12); setCrossoverRate(85); setElitismRate(15);
+        setMutationRate(12); setCrossoverRate(85); setElitismCount(15);
         setPopulationSize(180); setGenerationLimit(250);
         setTsiWeight(50); setWifWeight(15); setRpwWeight(25); setResourceUtilizationWeight(10);
         break;
       case "balanced":
-        setMutationRate(10); setCrossoverRate(80); setElitismRate(10);
+        setMutationRate(10); setCrossoverRate(80); setElitismCount(10);
         setPopulationSize(200); setGenerationLimit(300);
         setTsiWeight(25); setWifWeight(25); setRpwWeight(25); setResourceUtilizationWeight(25);
         break;
@@ -197,7 +200,7 @@ export function Optimization() {
     const completed = history.filter((item) => item.status === "completed");
     return completed[0] ?? null;
   }, [history]);
-  const currentValidation = validation?.valid ?? false;
+  const currentValidation = !validationLoading && validation?.valid === true && Object.entries(params).every(([key, value]) => validation.parameters[key as keyof typeof params] === value);
   const validationErrors = validation?.errors ?? {};
 
   // Check if all weights are zero (edge case)
@@ -205,30 +208,6 @@ export function Optimization() {
   const weightsValidation = allWeightsZero ? "At least one objective weight must be > 0" : null;
   const weightTotal = tsiWeight + wifWeight + rpwWeight + resourceUtilizationWeight;
   const weightsValid = weightTotal > 0;
-
-  const onPublishCompletedRun = async (runId: string) => {
-    setPublishError(null);
-    setPublishNotice(null);
-    setPublishingRunId(runId);
-    try {
-      const result = await publishDeploymentsFromOptimization({
-        run_id: runId,
-        replace_existing: true,
-      });
-      setPublishNotice(`Published ${result.created} deployments from ${runId}.`);
-      if (result.skipped.length > 0) {
-        setPublishError(`${result.skipped.length} assignments were skipped due to missing officer or bottleneck.`);
-      }
-    } catch (publishActionError: unknown) {
-      const message =
-        publishActionError instanceof Error
-          ? publishActionError.message
-          : "Failed to publish completed optimization run";
-      setPublishError(message);
-    } finally {
-      setPublishingRunId(null);
-    }
-  };
 
   return (
     <div className="flex h-full">
@@ -280,6 +259,7 @@ export function Optimization() {
                 type="range"
                 min="50"
                 max="500"
+                aria-label="Population size"
                 value={populationSize}
                 onChange={(e) => setPopulationSize(Number(e.target.value))}
                 className="w-full accent-yellow-400"
@@ -296,6 +276,7 @@ export function Optimization() {
                 type="range"
                 min="50"
                 max="1000"
+                aria-label="Generation limit"
                 value={generationLimit}
                 onChange={(e) => setGenerationLimit(Number(e.target.value))}
                 className="w-full accent-yellow-400"
@@ -312,6 +293,7 @@ export function Optimization() {
                 type="range"
                 min="50"
                 max="95"
+                aria-label="Crossover rate"
                 value={crossoverRate}
                 onChange={(e) => setCrossoverRate(Number(e.target.value))}
                 className="w-full accent-yellow-400"
@@ -328,6 +310,7 @@ export function Optimization() {
                 type="range"
                 min="1"
                 max="30"
+                aria-label="Mutation rate"
                 value={mutationRate}
                 onChange={(e) => setMutationRate(Number(e.target.value))}
                 className="w-full accent-yellow-400"
@@ -336,16 +319,17 @@ export function Optimization() {
 
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm font-medium">Elitism Rate</label>
-                <span className="text-yellow-500">{elitismRate}%</span>
+                <label className="text-sm font-medium">Elitism Count</label>
+                <span className="text-yellow-500">{elitismCount} individuals</span>
               </div>
               <div className="text-xs text-gray-500">BEST INDIVIDUALS PRESERVED</div>
               <input
                 type="range"
-                min="0"
+                min="1"
                 max="20"
-                value={elitismRate}
-                onChange={(e) => setElitismRate(Number(e.target.value))}
+                aria-label="Elitism count"
+                value={elitismCount}
+                onChange={(e) => setElitismCount(Number(e.target.value))}
                 className="w-full accent-yellow-400"
               />
             </div>
@@ -417,6 +401,7 @@ export function Optimization() {
                 type="range"
                 min="0"
                 max="100"
+                aria-label="Traffic severity weight"
                 value={tsiWeight}
                 onChange={(e) => setTsiWeight(Number(e.target.value))}
                 className="w-full accent-yellow-400"
@@ -433,6 +418,7 @@ export function Optimization() {
                 type="range"
                 min="0"
                 max="100"
+                aria-label="Weather impact weight"
                 value={wifWeight}
                 onChange={(e) => setWifWeight(Number(e.target.value))}
                 className="w-full accent-yellow-400"
@@ -449,6 +435,7 @@ export function Optimization() {
                 type="range"
                 min="0"
                 max="100"
+                aria-label="Road priority weight"
                 value={rpwWeight}
                 onChange={(e) => setRpwWeight(Number(e.target.value))}
                 className="w-full accent-yellow-400"
@@ -465,6 +452,7 @@ export function Optimization() {
                 type="range"
                 min="0"
                 max="100"
+                aria-label="Resource utilization weight"
                 value={resourceUtilizationWeight}
                 onChange={(e) => setResourceUtilizationWeight(Number(e.target.value))}
                 className="w-full accent-yellow-400"
@@ -553,7 +541,7 @@ export function Optimization() {
               setGenerationLimit(DEFAULT_PARAMS.generationLimit);
               setCrossoverRate(DEFAULT_PARAMS.crossoverRate);
               setMutationRate(DEFAULT_PARAMS.mutationRate);
-              setElitismRate(DEFAULT_PARAMS.elitismRate);
+              setElitismCount(DEFAULT_PARAMS.elitismCount);
               setTsiWeight(DEFAULT_PARAMS.tsiWeight);
               setWifWeight(DEFAULT_PARAMS.wifWeight);
               setRpwWeight(DEFAULT_PARAMS.rpwWeight);
@@ -563,19 +551,11 @@ export function Optimization() {
           >
             Reset Defaults
           </button>
-          <Link
-            to={weightsValid ? `/optimization-running?shift=${selectedShift}&population_size=${populationSize}&generations=${generationLimit}&mutation_rate=${(mutationRate / 100).toFixed(2)}&crossover_rate=${(crossoverRate / 100).toFixed(2)}&elitism_count=${Math.max(1, Math.round((elitismRate / 100) * populationSize))}&tsi_weight=${(tsiWeight / 100).toFixed(2)}&wif_weight=${(wifWeight / 100).toFixed(2)}&rpw_weight=${(rpwWeight / 100).toFixed(2)}&resource_utilization_weight=${(resourceUtilizationWeight / 100).toFixed(2)}` : "#"}
-            aria-disabled={!weightsValid}
-            tabIndex={weightsValid ? 0 : -1}
-            onClick={(e) => {
-              if (!weightsValid) {
-                e.preventDefault();
-              }
-            }}
-            className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 font-medium text-white transition-colors ${weightsValid ? "bg-yellow-400 hover:bg-yellow-500" : "cursor-not-allowed bg-gray-300 text-gray-600"}`}
-          >
-            Run Algorithm
-          </Link>
+          <button
+            disabled={!weightsValid || !currentValidation}
+            onClick={() => navigate("/optimization-running?" + new URLSearchParams({shift: selectedShift, ...Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v)]))}))}
+            className="flex-1 rounded-lg bg-yellow-400 px-4 py-2.5 font-medium text-gray-900 disabled:bg-gray-200 disabled:text-gray-500"
+          >Run Algorithm</button>
         </div>
       </div>
 
@@ -603,12 +583,12 @@ export function Optimization() {
               <div className="text-xs text-gray-600">Backend validation applied</div>
             </div>
             <div className="rounded-lg border bg-white p-3">
-              <div className="mb-1 text-xs text-gray-600">RECENT COMPLETED</div>
+              <div className="mb-1 text-xs text-gray-600">COMPLETED ON PAGE</div>
               <div className="mb-1 text-2xl font-bold">{recentCompleted.length}</div>
               <div className="text-xs text-gray-600">Runs in history window</div>
             </div>
             <div className="rounded-lg border bg-white p-3">
-              <div className="mb-1 text-xs text-gray-600">BEST SCORE</div>
+              <div className="mb-1 text-xs text-gray-600">LATEST SCORE ON PAGE</div>
               <div className="mb-1 text-2xl font-bold">
                 {bestRun ? Number(((bestRun.result_data as { top_solutions?: Array<{ fitness?: number }> })?.top_solutions?.[0]?.fitness ?? 0).toFixed(4)) : 0}
               </div>
@@ -622,9 +602,12 @@ export function Optimization() {
               Recent Optimization Runs
             </div>
 
-            {publishNotice && <p className="mb-2 text-sm text-green-700">{publishNotice}</p>}
-            {publishError && <p className="mb-2 text-sm text-red-600">{publishError}</p>}
 
+            <div className="mb-3 flex items-center gap-3 text-sm">
+              <button disabled={historyPage === 1 || loadingHistory} onClick={() => setHistoryPage(p => p - 1)}>Previous runs</button>
+              <span>Page {historyPage} of {Math.max(1, Math.ceil(historyCount / 10))}</span>
+              <button disabled={historyPage * 10 >= historyCount || loadingHistory} onClick={() => setHistoryPage(p => p + 1)}>Older runs</button>
+            </div>
             {loadingHistory && <p className="text-sm text-gray-500">Loading run history...</p>}
             {!loadingHistory && error && <p className="text-sm text-red-600">{error}</p>}
             {!loadingHistory && !error && history.length === 0 && (
@@ -653,8 +636,8 @@ export function Optimization() {
                         : null;
                       const trend = bestFitness && prevFitness ? bestFitness - prevFitness : null;
                       return (
-                        <tr key={run.id} className="border-b last:border-b-0 cursor-pointer hover:bg-gray-50" onClick={() => { if (run.status === "completed") navigate(`/optimization-engine?run_id=${encodeURIComponent(run.run_id)}`); }}>
-                          <td className="px-3 py-2 font-medium text-gray-900">{run.run_id}</td>
+                        <tr key={run.id} className="border-b last:border-b-0 cursor-pointer hover:bg-gray-50">
+                          <td className="px-3 py-2 font-medium text-gray-900"><Link to={`/optimization-engine?run_id=${encodeURIComponent(run.run_id)}`} className="underline">{run.run_id}</Link></td>
                           <td className="px-3 py-2">
                             <span className={`rounded px-2 py-0.5 text-xs font-medium ${
                               run.status === "completed" ? "bg-green-100 text-green-800" :
@@ -669,7 +652,7 @@ export function Optimization() {
                           <td className="px-3 py-2 text-gray-700">
                             <div className="flex items-center gap-1">
                               <Clock className="h-3.5 w-3.5 text-gray-400" />
-                              {new Date(run.timestamp).toLocaleString()}
+                              {operationalTime(run.timestamp)}
                             </div>
                           </td>
                           <td className="px-3 py-2 text-gray-700">
@@ -685,13 +668,7 @@ export function Optimization() {
                           <td className="px-3 py-2 text-gray-700">{generationCount}</td>
                           <td className="px-3 py-2">
                             {run.status === "completed" ? (
-                              <button
-                                onClick={() => onPublishCompletedRun(run.run_id)}
-                                disabled={publishingRunId === run.run_id}
-                                className="rounded bg-yellow-400 px-2.5 py-1 text-xs font-medium text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
-                              >
-                                {publishingRunId === run.run_id ? "Publishing..." : "Publish"}
-                              </button>
+                              <PublishScheduleButton runId={run.run_id} />
                             ) : (
                               <span className="text-xs text-gray-400">-</span>
                             )}
@@ -713,15 +690,15 @@ export function Optimization() {
             <div className="space-y-2 text-xs">
               <div className="flex justify-between"><span className="text-gray-500">Population Size</span><span className="font-medium">{params.population_size}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Generations</span><span className="font-medium">{params.generations}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Crossover Rate</span><span className="font-medium">{params.crossover_rate}%</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Mutation Rate</span><span className="font-medium">{params.mutation_rate}%</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Elitism</span><span className="font-medium">{elitismRate}%</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Crossover Rate</span><span className="font-medium">{crossoverRate}%</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Mutation Rate</span><span className="font-medium">{mutationRate}%</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Elitism</span><span className="font-medium">{elitismCount} individuals</span></div>
               <div className="border-t pt-2 mt-2">
                 <div className="mb-1 text-gray-500 font-semibold">Objective Weights</div>
-                <div className="flex justify-between"><span className="text-gray-500">TSI Weight</span><span className="font-medium">{params.tsi_weight}%</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">WIF Weight</span><span className="font-medium">{params.wif_weight}%</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">RPW Weight</span><span className="font-medium">{params.rpw_weight}%</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Utilization Weight</span><span className="font-medium">{params.resource_utilization_weight}%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">TSI Weight</span><span className="font-medium">{tsiWeight}%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">WIF Weight</span><span className="font-medium">{wifWeight}%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">RPW Weight</span><span className="font-medium">{rpwWeight}%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Utilization Weight</span><span className="font-medium">{resourceUtilizationWeight}%</span></div>
               </div>
             </div>
           </div>

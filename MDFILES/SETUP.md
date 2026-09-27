@@ -167,7 +167,9 @@ This starts all services concurrently:
 | Celery Worker | `dev:worker` | Executes background tasks |
 | Celery Beat | `dev:beat` | Triggers periodic tasks (traffic/weather fetch) |
 | Vite Frontend | `dev:renderer` | http://127.0.0.1:8080 |
-| Electron Desktop | `dev:desktop:local` | http://127.0.0.1:3001 |
+| Electron Desktop | `dev:desktop:local` | Loads http://127.0.0.1:8080 |
+
+The launch scripts choose `.venv/Scripts/python.exe` on Windows and `.venv/bin/python` on Linux/macOS. Set `TRAFFIC_PYTHON` to use a different interpreter. Press Ctrl+C in the launch terminal to stop the group; `stop:local` is a Windows-only fallback. The desktop loads the renderer on port 8080 and Django listens on port 8000.
 
 ### Individual Services
 
@@ -194,7 +196,8 @@ Celery beat schedules periodic tasks. Celery worker executes them.
 |------|----------|----------|
 | `fetch_traffic_data` | Every 5 min | Fetch TSI from TomTom (parallel HTTP, updates bottleneck.tsi) |
 | `fetch_weather_data` | Every 15 min | Fetch WIF from PAGASA/Open-Meteo |
-| `incident_lifecycle` | Every 5 min | Auto-resolve stale incidents (4h) |
+| `incident_lifecycle` | Every 5 min | Resolve inactive collision/other incidents after 4h since last activity; preserve closures, construction and flooding |
+| `deployment_lifecycle` | Every minute | Complete expired deployments and reconcile current officer status |
 | `incident_archive` | Daily | Archive resolved incidents (24h) |
 | `compute_heatmap_tsi` | Every 5/15 min | Update heatmap TSI (peak/off-peak) |
 | `cleanup_old_data` | Daily | Soft-delete data older than 90 days |
@@ -235,20 +238,20 @@ Celery beat schedules periodic tasks. Celery worker executes them.
 | `/api/dashboard/officers/` | GET | Public |
 | `/api/dashboard/incidents/active/` | GET | Public |
 
-### Dashboard (Authenticated Write)
+### Dashboard (Supervisor or Administrator Write)
 | Endpoint | Method | Auth |
 |----------|--------|------|
-| `/api/dashboard/bottlenecks/manage/` | POST | Required |
-| `/api/dashboard/bottlenecks/manage/<id>/` | PUT/DELETE | Required |
-| `/api/dashboard/officers/manage/` | POST | Required |
-| `/api/dashboard/officers/manage/<id>/` | PUT/DELETE | Required |
+| `/api/dashboard/bottlenecks/manage/` | POST | Supervisor or administrator |
+| `/api/dashboard/bottlenecks/manage/<id>/` | PUT/DELETE | Supervisor or administrator |
+| `/api/dashboard/officers/manage/` | POST | Supervisor or administrator |
+| `/api/dashboard/officers/manage/<id>/` | PUT/DELETE | Supervisor or administrator |
 
 ### Optimization
 | Endpoint | Method | Auth |
 |----------|--------|------|
-| `/api/optimization/configure/` | POST | Required |
-| `/api/optimization/start/` | POST | Required |
-| `/api/optimization/cancel/<run_id>/` | POST | Required |
+| `/api/optimization/configure/` | POST | Supervisor or administrator |
+| `/api/optimization/start/` | POST | Supervisor or administrator |
+| `/api/optimization/cancel/<run_id>/` | POST | Supervisor or administrator |
 | `/api/optimization/status/<run_id>/` | GET | Public |
 | `/api/optimization/results/<run_id>/` | GET | Public |
 | `/api/optimization/history/` | GET | Public |
@@ -257,9 +260,10 @@ Celery beat schedules periodic tasks. Celery worker executes them.
 | Endpoint | Method | Auth |
 |----------|--------|------|
 | `/api/deployments/schedule/` | GET | Required |
-| `/api/deployments/schedule/` | DELETE | Required (`?shift=morning` or `?shift=afternoon` or no param for all) |
-| `/api/deployments/assign/` | POST | Required |
-| `/api/deployments/publish-optimization/` | POST | Required |
+| `/api/deployments/schedule/` | DELETE | Supervisor or administrator; `?date=YYYY-MM-DD&shift=morning` (defaults to Manila today; no shift means both shifts) |
+| `/api/deployments/assign/` | POST | Supervisor or administrator |
+| `/api/deployments/preview-optimization/` | POST | Supervisor or administrator |
+| `/api/deployments/publish-optimization/` | POST | Supervisor or administrator |
 
 ### Incidents
 | Endpoint | Method | Auth |
@@ -288,7 +292,7 @@ Celery beat schedules periodic tasks. Celery worker executes them.
 | Optimization | http://127.0.0.1:8080/optimization |
 | Optimization Running | http://127.0.0.1:8080/optimization-running |
 | Optimization Results | http://127.0.0.1:8080/optimization-engine |
-| Gantt Chart | http://127.0.0.1:8080/gantt-chart |
+| Deployment Board | http://127.0.0.1:8080/gantt-chart |
 | API Docs (Swagger) | http://127.0.0.1:8000/api/docs/ |
 | Django Admin | http://127.0.0.1:8000/admin |
 
@@ -299,11 +303,11 @@ Celery beat schedules periodic tasks. Celery worker executes them.
 | Action | Officer Status |
 |--------|---------------|
 | Officer created | `available` |
-| Deployment published | `deployed` |
+| Deployment published | `deployed` only while its window is current; future assignments remain available |
 | Schedule cleared | `available` (if no remaining deployments) |
-| Deployment replaced | Old officers → `available`, new officers → `deployed` |
+| Deployment replaced | Recalculate deployed/available from current, non-cancelled windows |
 
-**Resource Utilization KPI** = deployed / (available + deployed) × 100%
+**Scheduled roster KPI** = distinct officers scheduled for the selected date/shift / eligible officers for that shift × 100%. Staffing coverage integrates fulfilled required posts over the full shift.
 
 ---
 
@@ -318,9 +322,9 @@ Optimization → run_optimization task → NSGA-II engine → Pareto front
                                                     ↓
 Results → OptimizationEngine page → top solutions + Pareto chart
                                                     ↓
-Publish → DeploymentPublishOptimizationView → officer.status = "deployed"
+Preview → shared schedule service → confirm → atomic publish → reconcile current officer status
                                                     ↓
-Gantt Chart ← fetchDeploymentSchedule ← Deployment table
+Deployment Board ← fetchDeploymentSchedule ← Deployment table
 ```
 
 **Incidents in Optimization:**
@@ -373,3 +377,13 @@ Login is rate-limited to 10 attempts per minute. Wait 1 minute or clear cache:
 ```bash
 python -c "import os,django;os.environ.setdefault('DJANGO_SETTINGS_MODULE','config.settings');django.setup();from django.core.cache import cache;cache.clear()"
 ```
+
+## September 2026 upgrade
+
+Run `python manage.py migrate` before using the updated schedule APIs. Migration 0009 drops the removed comparison table and removes the old officer/shift uniqueness rule. Back up any old comparison data you wish to retain before applying it.
+
+Roles are stored through Django groups: assign existing supervisors to the `supervisor` group using Django admin. Usernames are never interpreted as roles. The test-user command assigns the requested role explicitly.
+
+Restart both Celery worker and beat after updating. Use `config.test_settings` for regression tests to avoid touching operational PostgreSQL or Redis data. All shift windows and the CSV schedule importer use Asia/Manila.
+
+Frontend checks: `npm test`, `npm run typecheck`, `npm run lint`, `npm run build`. Full changes and results are in `../IMPLEMENTATION_REPORT_2026-09-24.md`.

@@ -1,3 +1,4 @@
+import { SESSION_EVENT, sessionChanged, clearSession } from "../services/session";
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import { getApiBaseUrl } from "../services/backend";
 
@@ -33,20 +34,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check for existing session on mount
-    const storedToken = localStorage.getItem("auth_token");
-    const storedUser = localStorage.getItem("auth_user");
-
-    if (storedToken && storedUser) {
+    const sync = () => {
+      const storedToken = localStorage.getItem("auth_token");
+      const storedUser = localStorage.getItem("auth_user");
       try {
         setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      } catch {
-        localStorage.removeItem("auth_token");
-        localStorage.removeItem("auth_user");
-      }
-    }
-    setIsLoading(false);
+        setUser(storedToken && storedUser ? JSON.parse(storedUser) : null);
+      } catch { setUser(null); setToken(null); }
+      setIsLoading(false);
+    };
+    sync();
+    window.addEventListener(SESSION_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => { window.removeEventListener(SESSION_EVENT, sync); window.removeEventListener("storage", sync); };
   }, []);
 
   const login = async (username: string, password: string) => {
@@ -79,6 +79,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         localStorage.setItem("refresh_token", data.refresh);
       }
 
+      sessionChanged();
       // Establish WebSocket connection after login
       // This will be handled by the dashboard components
     } catch (err) {
@@ -97,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await fetch(`${getApiBaseUrl()}/api/auth/logout/`, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${token}`,
+            "Authorization": `Bearer ${localStorage.getItem("auth_token")}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ refresh: refreshToken }),
@@ -111,6 +112,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.removeItem("auth_token");
       localStorage.removeItem("refresh_token");
       localStorage.removeItem("auth_user");
+      clearSession();
     }
   };
 

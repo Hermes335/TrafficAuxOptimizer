@@ -1,4 +1,4 @@
-import { Clock, CloudRain, Bell, LogOut, User as UserIcon, ChevronDown } from "lucide-react";
+import { Clock, CloudRain, Bell, LogOut, ChevronDown } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../contexts/AuthContext";
@@ -124,6 +124,7 @@ export function Header() {
 
         <div className="relative">
           <button
+            aria-label="Account menu" aria-expanded={showUserMenu}
             onClick={() => setShowUserMenu(!showUserMenu)}
             className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100"
           >

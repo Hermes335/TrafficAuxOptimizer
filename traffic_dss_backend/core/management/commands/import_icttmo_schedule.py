@@ -24,6 +24,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from core.models import Bottleneck, Deployment, Officer
+from core.operational_time import MANILA, operational_date, shift_window
 
 
 class Command(BaseCommand):
@@ -78,12 +79,6 @@ class Command(BaseCommand):
                 "road_priority_weight": 0.1,
             },
         )
-
-        now = timezone.now()
-        morning_start = now.replace(hour=6, minute=0, second=0, microsecond=0)
-        morning_end = now.replace(hour=14, minute=0, second=0, microsecond=0)
-        afternoon_start = now.replace(hour=14, minute=0, second=0, microsecond=0)
-        afternoon_end = now.replace(hour=22, minute=0, second=0, microsecond=0)
 
         # Pre-load bottlenecks grouped by district
         all_bottlenecks = list(Bottleneck.objects.filter(is_deleted=False))
@@ -149,22 +144,26 @@ class Command(BaseCommand):
                     continue
 
                 # Set times based on shift (use the CSV date when present, else today)
-                base_date = now
+                day = operational_date()
                 if date_raw:
                     try:
-                        parsed_date = datetime.strptime(date_raw, "%Y-%m-%d").date()
-                        base_date = timezone.make_aware(
-                            datetime.combine(parsed_date, datetime.min.time()),
-                            timezone.get_default_timezone(),
-                        )
+                        day = datetime.strptime(date_raw, "%Y-%m-%d").date()
                     except ValueError:
-                        pass
-                if shift == "morning":
-                    start_time = base_date.replace(hour=6, minute=0, second=0, microsecond=0)
-                    end_time = base_date.replace(hour=14, minute=0, second=0, microsecond=0)
-                else:
-                    start_time = base_date.replace(hour=14, minute=0, second=0, microsecond=0)
-                    end_time = base_date.replace(hour=22, minute=0, second=0, microsecond=0)
+                        errors.append(f"Row {row_num}: Invalid operational date '{date_raw}'")
+                        skipped += 1
+                        continue
+                start_time, end_time = shift_window(shift, day)
+                if row.get("Start_Time") or row.get("End_Time"):
+                    try:
+                        start_time = datetime.combine(day, time.fromisoformat(row["Start_Time"].strip()), MANILA)
+                        end_time = datetime.combine(day, time.fromisoformat(row["End_Time"].strip()), MANILA)
+                        shift_start, shift_end = shift_window(shift, day)
+                        if not shift_start <= start_time < end_time <= shift_end:
+                            raise ValueError("outside shift")
+                    except (ValueError, KeyError):
+                        errors.append(f"Row {row_num}: Invalid shift time window")
+                        skipped += 1
+                        continue
 
                 # Find officer by badge number
                 officer = Officer.objects.filter(badge_number=badge, is_deleted=False).first()

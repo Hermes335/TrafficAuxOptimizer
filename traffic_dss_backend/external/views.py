@@ -80,22 +80,6 @@ class TrafficRealtimeView(APIView):
 		return Response(TrafficDataSerializer(rows, many=True).data)
 
 
-class AnalyticsTrendsView(APIView):
-	permission_classes = [permissions.AllowAny]
-	throttle_classes = []
-
-	def get(self, request):
-		series = (
-			TrafficData.objects.filter(is_deleted=False)
-			.order_by("-timestamp")
-			.values("timestamp", "traffic_severity_index", "avg_speed")[:30]
-		)
-		if not series:
-			return Response({"trends": [], "metadata": _unavailable()})
-		latest = TrafficData.objects.filter(is_deleted=False).order_by("-timestamp").first()
-		return Response({"trends": list(series), "metadata": _provenance(latest)})
-
-
 class TomTomTileProxyView(APIView):
 	permission_classes = [permissions.AllowAny]
 	throttle_classes = []

@@ -1,6 +1,6 @@
-import { Camera, MapPin, X, Pencil } from "lucide-react";
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from "../../../components/ui/dialog";
+import { MapPin, Pencil } from "lucide-react";
 import { Link } from "react-router";
-import incidentImage from "../../../../assets/57fa97e8c83f22033790625605fab5b96dfc2d8b.png";
 import type { Incident } from "../../../services/backend";
 
 interface IncidentModalProps {
@@ -15,25 +15,15 @@ export function IncidentModal({ showIncidentModal, onClose, selectedIncident, in
   if (!showIncidentModal) return null;
 
   return (
-    <div className="absolute bottom-8 left-1/2 z-30 w-96 -translate-x-1/2 rounded-xl bg-white p-4 shadow-2xl">
-      <button onClick={onClose} className="absolute right-2 top-2 text-gray-400 hover:text-gray-600">
-        <X className="h-4 w-4" />
-      </button>
+    <Dialog open={showIncidentModal} onOpenChange={open => {if (!open) onClose();}}><DialogContent>
       <div className="mb-2 inline-block rounded bg-red-500 px-2 py-1 text-xs font-medium text-white">
         {selectedIncident ? selectedIncident.type.toUpperCase() : "NO ACTIVE INCIDENT"}
       </div>
-      <h3 className="mb-1 text-xl font-bold">{incidentHeadline}</h3>
+      <DialogTitle>{incidentHeadline}</DialogTitle><DialogDescription>Saved incident details</DialogDescription>
       <p className="mb-3 text-sm text-gray-600">
         <MapPin className="mr-1 inline h-3 w-3" />
         {incidentLocation}
       </p>
-      <div className="relative mb-4 overflow-hidden rounded-lg">
-        <img src={incidentImage} alt="Incident" className="h-48 w-full object-cover" />
-        <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded bg-black/70 px-2 py-1 text-xs text-white">
-          <Camera className="h-3 w-3" />
-          Incident Photo
-        </div>
-      </div>
       <div className="mb-4 flex items-center gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-yellow-100 text-yellow-700">
           <MapPin className="h-5 w-5" />
@@ -48,7 +38,7 @@ export function IncidentModal({ showIncidentModal, onClose, selectedIncident, in
         {selectedIncident && (
           <Link
             to={`/incident-report/${selectedIncident.id}`}
-            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-yellow-400 py-2 text-sm font-medium text-white hover:bg-yellow-500"
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-yellow-400 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500"
           >
             <Pencil className="h-4 w-4" />
             Edit
@@ -61,6 +51,6 @@ export function IncidentModal({ showIncidentModal, onClose, selectedIncident, in
           Close
         </button>
       </div>
-    </div>
+    </DialogContent></Dialog>
   );
 }

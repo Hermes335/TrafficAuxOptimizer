@@ -1,5 +1,19 @@
 # Field Test Protocol — Diversion Road + Jaro District
 
+## Current shadow session: Prime State (2026-09-25)
+
+Prime State is bottleneck `B-TEST-VERIFY-2`. Use
+`shadow_pilot_observations_2026-09-25.csv` for measured field conditions and
+`shadow_pilot_recommendations_2026-09-25.csv` for the application's afternoon
+shift recommendation. The supervisor expects 2–3 officers; enter the confirmed
+assignment and actual on-site count when observed.
+
+Record the time in Asia/Manila. Run optimization only after checking the current
+roster and input freshness, then copy the Prime State recommendation and run ID
+to the recommendation CSV. Leave the operational deployment unchanged: do not
+confirm publication or import the shadow recommendation as an assignment.
+The Week 2 publication steps below describe a separate intervention phase.
+
 ## Overview
 Compare manual ICTTMO deployment vs GA-optimized deployment over 1 week (5 afternoon shifts).
 
