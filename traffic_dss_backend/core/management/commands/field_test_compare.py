@@ -1,187 +1,126 @@
-"""
-Field test comparison: Manual ICTTMO vs Optimized deployment.
-
- Compares manual assignments (imported via CSV) against optimized assignments
- for an explicitly selected bottleneck name or district.
-
-Usage:
-    python manage.py field_test_compare --location "Atrium Rotonda" --shift afternoon
-"""
+"""Compare one dated manual baseline with one saved recommendation/publication."""
 import csv
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
-
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Q
-
-from core.models import Bottleneck, Deployment
+from django.utils.dateparse import parse_datetime
+from core.models import Bottleneck, Deployment, OptimizationRun, ScheduleRevision
+from core.operational_time import MANILA, shift_window
 
 
 class Command(BaseCommand):
-    help = "Compare manual vs optimized deployments for field test"
+    help = "Compare a dated manual baseline with an explicitly selected recommendation or publication"
 
     def add_arguments(self, parser):
-        parser.add_argument("--location", type=str, required=True, help="Exact bottleneck name or district to compare")
-        parser.add_argument("--shift", type=str, default="afternoon", help="Shift to compare")
-        parser.add_argument(
-            "--observations-csv",
-            type=str,
-            default="",
-            help="Optional field observations CSV; raw TSI values are checked but never normalized or compared",
-        )
+        parser.add_argument("--location", required=True, help="Bottleneck name or district")
+        parser.add_argument("--shift", choices=["morning", "afternoon"], default="afternoon")
+        parser.add_argument("--date", required=True, help="Recommendation operational date (YYYY-MM-DD, Asia/Manila)")
+        parser.add_argument("--manual-date", default="", help="Baseline date; defaults to --date")
+        selected = parser.add_mutually_exclusive_group(required=True)
+        selected.add_argument("--run-id", default="", help="Saved recommendation; works for unpublished shadow runs")
+        selected.add_argument("--revision-id", type=int, default=None, help="Immutable published schedule revision")
+        parser.add_argument("--observations-csv", default="", help="Optional dated field observations; raw TSI is never normalized")
 
     def handle(self, *args, **options):
-        location = options["location"].strip()
-        shift = options["shift"]
-        observations_csv = options["observations_csv"]
-
-        # Match either an explicitly selected bottleneck name or district.
-        bottlenecks = list(Bottleneck.objects.filter(
-            Q(name__iexact=location) | Q(district__iexact=location),
-            is_deleted=False,
-        ).values("id", "name", "latitude", "longitude", "tsi", "road_priority_weight"))
-
-        if not bottlenecks:
-            self.stdout.write(self.style.ERROR(f"No bottlenecks found for location: {location}"))
-            return
-
-        self._report_observation_tsi(observations_csv)
-
-        self.stdout.write("")
-        self.stdout.write(self.style.SUCCESS("=" * 60))
-        self.stdout.write(self.style.SUCCESS(f"FIELD TEST COMPARISON - {location}"))
-        self.stdout.write(self.style.SUCCESS("=" * 60))
-        self.stdout.write("")
-
-        bn_ids = [b["id"] for b in bottlenecks]
-
-        self.stdout.write(f"Test District Bottlenecks ({len(bottlenecks)}):")
-        for b in bottlenecks:
-            self.stdout.write(f"  * {b['name']}")
-
-        # Manual (ICTTMO) Stats
-        manual_deployments = Deployment.objects.filter(
-            bottleneck_id__in=bn_ids,
-            shift=shift,
-            source="manual",
-            is_deleted=False,
-        )
-
-        manual_count = manual_deployments.count()
-        manual_covered = manual_deployments.values("bottleneck_id").distinct().count()
-        manual_officers = manual_deployments.values("officer_id").distinct().count()
-
-        self.stdout.write("")
-        self.stdout.write("-" * 40)
-        self.stdout.write(self.style.WARNING("MANUAL (ICTTMO) DEPLOYMENT"))
-        self.stdout.write("-" * 40)
-        self.stdout.write(f"  Total assignments: {manual_count}")
-        self.stdout.write(f"  Officers deployed: {manual_officers}")
-        self.stdout.write(f"  Bottlenecks covered: {manual_covered}/{len(bottlenecks)} ({manual_covered/len(bottlenecks)*100:.0f}%)")
-
-        manual_per_bn = defaultdict(list)
-        for d in manual_deployments.select_related("officer"):
-            manual_per_bn[d.bottleneck_id].append(d.officer.name if d.officer else "Unknown")
-
-        self.stdout.write("")
-        self.stdout.write("  Per-bottleneck assignments:")
-        for bn in bottlenecks:
-            officers = manual_per_bn.get(bn["id"], [])
-            status = f"{len(officers)} officer(s)" if officers else "UNCOVERED"
-            self.stdout.write(f"    {bn['name'][:45]:45s} {status}")
-
-        # Optimized Stats
-        opt_deployments = Deployment.objects.filter(
-            bottleneck_id__in=bn_ids,
-            shift=shift,
-            source="optimized",
-            is_deleted=False,
-        )
-
-        opt_count = opt_deployments.count()
-        opt_covered = opt_deployments.values("bottleneck_id").distinct().count()
-        opt_officers = opt_deployments.values("officer_id").distinct().count()
-
-        self.stdout.write("")
-        self.stdout.write("-" * 40)
-        self.stdout.write(self.style.SUCCESS("OPTIMIZED (GA) DEPLOYMENT"))
-        self.stdout.write("-" * 40)
-        self.stdout.write(f"  Total assignments: {opt_count}")
-        self.stdout.write(f"  Officers deployed: {opt_officers}")
-        self.stdout.write(f"  Bottlenecks covered: {opt_covered}/{len(bottlenecks)} ({opt_covered/len(bottlenecks)*100:.0f}%)")
-
-        opt_per_bn = defaultdict(list)
-        for d in opt_deployments.select_related("officer"):
-            opt_per_bn[d.bottleneck_id].append(d.officer.name if d.officer else "Unknown")
-
-        self.stdout.write("")
-        self.stdout.write("  Per-bottleneck assignments:")
-        for bn in bottlenecks:
-            officers = opt_per_bn.get(bn["id"], [])
-            status = f"{len(officers)} officer(s)" if officers else "UNCOVERED"
-            self.stdout.write(f"    {bn['name'][:45]:45s} {status}")
-
-        # TSI Comparison
-        self.stdout.write("")
-        self.stdout.write("-" * 40)
-        self.stdout.write("APPLICATION TRAFFIC SEVERITY (NORMALIZED TSI)")
-        self.stdout.write("-" * 40)
-        self.stdout.write("Database TSI values below use the application-normalized [0,1] scale.")
-        self.stdout.write("No quantitative comparison with raw field-observation TSI is performed.")
-
-        for bn in bottlenecks:
-            tsi = bn.get("tsi", 0) or 0
-            tsi_pct = round(tsi * 100, 1)
-            filled = int(tsi_pct / 5)
-            bar = "#" * filled + "." * (20 - filled)
-            self.stdout.write(f"  {bn['name'][:40]:40s} [{bar}] {tsi_pct}%")
-
-        # Summary
-        self.stdout.write("")
-        self.stdout.write("=" * 60)
-        self.stdout.write("COMPARISON SUMMARY")
-        self.stdout.write("=" * 60)
-
-        if manual_count > 0 and opt_count > 0:
-            coverage_delta = opt_covered - manual_covered
-            officers_delta = opt_officers - manual_officers
-            sign_c = "+" if coverage_delta >= 0 else ""
-            sign_o = "+" if officers_delta >= 0 else ""
-            self.stdout.write(f"  Coverage:  Manual {manual_covered}/{len(bottlenecks)} -> Optimized {opt_covered}/{len(bottlenecks)} ({sign_c}{coverage_delta})")
-            self.stdout.write(f"  Officers:  Manual {manual_officers} -> Optimized {opt_officers} ({sign_o}{officers_delta})")
-        elif manual_count == 0:
-            self.stdout.write(self.style.WARNING(""))
-            self.stdout.write(self.style.WARNING("  No manual deployments found for this location/shift."))
-            self.stdout.write("  Import manual data with: python manage.py import_icttmo_schedule --csv path/to/file.csv")
-        elif opt_count == 0:
-            self.stdout.write(self.style.WARNING(""))
-            self.stdout.write(self.style.WARNING("  No optimized deployments found."))
-            self.stdout.write("  Run optimization and publish results first.")
-
-        self.stdout.write("")
-
-    def _report_observation_tsi(self, observations_csv: str):
-        if not observations_csv:
-            return
-
         try:
-            with Path(observations_csv).open(newline="", encoding="utf-8-sig") as handle:
-                rows = list(csv.DictReader(handle))
-        except OSError as exc:
-            self.stdout.write(self.style.WARNING(f"Could not read field observations CSV: {exc}"))
-            return
+            day = date.fromisoformat(str(options["date"]))
+            manual_day = date.fromisoformat(str(options.get("manual_date") or day))
+        except (TypeError, ValueError) as exc:
+            raise CommandError("Provide an operational date in YYYY-MM-DD format.") from exc
+        shift = options["shift"]
+        location = options["location"].strip()
+        revision = None
+        if options.get("revision_id"):
+            revision = ScheduleRevision.objects.select_related("run").filter(pk=options["revision_id"]).first()
+            if not revision or revision.operational_date != day or revision.shift != shift:
+                raise CommandError("The publication revision does not match this date and shift.")
+            run = revision.run
+        elif options.get("run_id"):
+            run = OptimizationRun.objects.filter(run_id=options["run_id"], is_deleted=False, status="completed").first()
+        else:
+            raise CommandError("Select --run-id or --revision-id; an unscoped comparison is not supported.")
+        if not run or run.parameters.get("shift") != shift:
+            raise CommandError("Select a completed recommendation for the specified operational date and shift.")
+        snapshot = run.result_data.get("input_snapshot") or {}
+        saved_day = run.parameters.get("operational_date")
+        inferred = not saved_day
+        if inferred:
+            captured = parse_datetime(snapshot.get("captured_at", ""))
+            saved_day = str(captured.astimezone(MANILA).date()) if captured and captured.tzinfo else None
+        if saved_day != str(day):
+            raise CommandError("The saved recommendation date does not match --date.")
+        saved_nodes = {row["id"]: row for row in snapshot.get("bottlenecks", [])}
+        if not saved_nodes:
+            raise CommandError("This run has no historical input snapshot. Generate a new recommendation.")
+        # Historical records may refer to nodes that have since been soft-deleted or renamed.
+        current_ids = set(Bottleneck.objects.filter(Q(name__iexact=location) | Q(district__iexact=location)).values_list("pk", flat=True))
+        nodes = [node for key, node in saved_nodes.items() if key in current_ids or node.get("name", "").casefold() == location.casefold() or node.get("district", "").casefold() == location.casefold()]
+        if not nodes:
+            raise CommandError(f"No saved locations match: {location}")
+        node_ids = {node["id"] for node in nodes}
+        start, end = shift_window(shift, manual_day)
+        manual = list(Deployment.objects.filter(bottleneck_id__in=node_ids, shift=shift, source="manual",
+            is_deleted=False, status__in=["assigned", "completed"], start_time__lt=end, end_time__gt=start).select_related("officer"))
+        top = run.result_data.get("top_solutions") or []
+        proposals = revision.assignments if revision else top[0].get("assignments", []) if top else []
+        proposed = [row for row in proposals if row.get("bottleneck_id") in node_ids]
+        self.stdout.write(f"FIELD TEST COMPARISON - {location}")
+        self.stdout.write(f"Asia/Manila · {shift} · Manual date {manual_day} · Recommendation date {day}")
+        self.stdout.write(f"Run: {run.run_id} · Session: {run.parameters.get('session_id') or 'Unspecified'} · Mode: {run.parameters.get('mode', 'Legacy / unspecified')}")
+        self.stdout.write(f"Revision: {revision.pk if revision else 'Recommendation only; no publication revision selected'}")
+        if inferred:
+            self.stdout.write("Legacy run: --date matches its input capture date. Its intended deployment date was not recorded.")
+        self.stdout.write("Assignment records and recommendations do not establish actual officer presence or traffic effects.")
+        self._report_observation_tsi(options.get("observations_csv", ""), {str(day), str(manual_day)}, location)
 
-        raw_values = []
+        manual_by_node = defaultdict(list)
+        for row in manual:
+            manual_by_node[row.bottleneck_id].append(row.officer.badge_number)
+        proposed_by_node = defaultdict(list)
+        officer_badges = {row["id"]: row.get("badge_number", str(row["id"])) for row in snapshot.get("officers", [])}
+        for row in proposed:
+            proposed_by_node[row["bottleneck_id"]].append(row.get("badge_number") or officer_badges.get(row.get("officer_id"), "Unknown"))
+        for label, rows, officers, grouped in [
+            ("MANUAL (ICTTMO) DEPLOYMENT RECORDS", manual, {row.officer_id for row in manual}, manual_by_node),
+            ("PUBLISHED RECOMMENDATION" if revision else "APP RECOMMENDATION (SAVED PLAN)", proposed, {row.get("officer_id") for row in proposed}, proposed_by_node),
+        ]:
+            self.stdout.write(f"\n{label}")
+            self.stdout.write(f"  Total assignments: {len(rows)}")
+            self.stdout.write(f"  Distinct officers: {len(officers)}")
+            self.stdout.write(f"  Bottlenecks covered: {len(grouped)}/{len(nodes)}")
+            for node in nodes:
+                self.stdout.write(f"  {node.get('name', node['id'])}: {len(grouped[node['id']])} assignment(s)")
+        self.stdout.write("\nSAVED INPUT TRAFFIC SEVERITY (NORMALIZED TSI)")
+        self.stdout.write("No quantitative comparison with raw field-observation TSI is performed.")
+        for node in nodes:
+            value = node.get("tsi")
+            self.stdout.write(f"  {node.get('name', node['id'])}: {float(value) * 100:.1f}%" if value is not None else f"  {node['id']}: unavailable")
+        unmatched = current_ids - set(saved_nodes)
+        if unmatched:
+            self.stdout.write(f"Locations absent from the saved snapshot: {', '.join(sorted(unmatched))}")
+        if top and top[0].get("constraints_violated"):
+            self.stdout.write("Recommendation has staffing constraint violations; it is not publishable.")
+
+    def _report_observation_tsi(self, path, dates, location):
+        if not path:
+            return
+        try:
+            with Path(path).open(newline="", encoding="utf-8-sig") as handle:
+                rows = [row for row in csv.DictReader(handle) if row.get("Date") in dates and row.get("Location", "").casefold() == location.casefold()]
+        except OSError as exc:
+            raise CommandError(f"Could not read observations: {exc}") from exc
+        values = []
         for row in rows:
             try:
-                raw_values.append(float(row["TSI"]))
+                values.append(float(row["TSI"]))
             except (KeyError, TypeError, ValueError):
                 continue
-
-        if any(value < 0 or value > 1 for value in raw_values):
-            self.stdout.write(self.style.WARNING(
-                "Field observation TSI is not comparable to application TSI: "
-                "values fall outside the documented [0,1] range. No conversion was applied."
-            ))
+        self.stdout.write(f"Matched field observations: {len(rows)}")
+        if not values:
+            self.stdout.write("No comparable TSI column is available; vehicle counts require explicit units and sampling duration.")
+        elif any(not 0 <= value <= 1 for value in values):
+            self.stdout.write("Field observation TSI is not comparable to application TSI: values fall outside [0,1]. No conversion was applied.")
         else:
-            self.stdout.write("Field observation TSI values are within [0,1]; source semantics still require confirmation.")
+            self.stdout.write("Field observation TSI source semantics require confirmation; no conversion or numerical comparison was applied.")

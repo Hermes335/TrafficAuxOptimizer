@@ -115,6 +115,8 @@ export interface OptimizationStatus {
   total_generations: number;
   current_fitness: number;
   estimated_completion?: string;
+  updated_at?: string;
+  converged_early?: boolean;
   error?: string;
 }
 
@@ -360,6 +362,9 @@ export async function fetchCurrentWeather(): Promise<WeatherCurrentSnapshot> {
 
 export interface OptimizationRunRequest {
   shift?: string;
+  operational_date?: string;
+  mode?: "operational" | "shadow";
+  session_id?: string;
   population_size?: number;
   generations?: number;
   mutation_rate?: number;
@@ -381,6 +386,10 @@ export interface OptimizationRunResponse {
 }
 
 export interface OptimizationConfigRequest {
+  shift?: string;
+  operational_date?: string;
+  mode?: "operational" | "shadow";
+  session_id?: string;
   population_size?: number;
   generations?: number;
   mutation_rate?: number;
@@ -393,7 +402,7 @@ export interface OptimizationConfigRequest {
 }
 
 export interface OptimizationConfigResponse {
-  parameters: Required<OptimizationConfigRequest>;
+  parameters: OptimizationConfigRequest;
   valid: boolean;
   errors?: Record<string, string | string[]>;
 }
@@ -456,6 +465,7 @@ export interface ParetoPoint {
 }
 
 export interface OptimizationResults {
+  parameters?: {mode?: "operational" | "shadow"; operational_date?: string; session_id?: string};
   run_id: string;
   status: string;
   fitness_scores?: number[];
@@ -469,6 +479,9 @@ export interface OptimizationResults {
     road_priority_coverage?: number;
     constraints_violated?: boolean;
     staffing_shortages?: Record<string, number>;
+    staffing_targets?: Record<string, number>;
+    staffing_efficiency?: number;
+    reserve_officers?: number;
     generated_at?: string;
     assignments?: Array<{
       officer_id?: number;
@@ -504,6 +517,7 @@ export interface OptimizationHistoryItem {
   result_data: Record<string, unknown>;
   status: string;
   created_by: number;
+  generations_completed?: number;
 }
 
 export function fetchOptimizationHistory(page = 1, status?: string): Promise<ApiPage<OptimizationHistoryItem>> {
@@ -531,6 +545,9 @@ export interface PublishOptimizationDeploymentsRequest {
   status?: string;
   replace_existing?: boolean;
   operational_date?: string;
+  expected_revision?: string;
+  idempotency_key?: string;
+  input_override_reason?: string;
 }
 
 export interface PublishOptimizationDeploymentsResponse {
@@ -575,7 +592,7 @@ export async function publishDeploymentsFromOptimization(
 
   if (!response.ok) {
     const detail = await extractApiError(response, `Failed to publish optimization deployment: ${response.status}`);
-    throw new Error(detail);
+    throw Object.assign(new Error(detail), {status: response.status});
   }
 
   return response.json() as Promise<PublishOptimizationDeploymentsResponse>;
@@ -809,7 +826,7 @@ export async function fetchIncident(incidentId: number): Promise<{
 
 export async function updateIncident(
   incidentId: number,
-  data: { incident_type?: string; severity?: string; description?: string },
+  data: { incident_type?: string; severity?: string; description?: string; bottleneck?: string },
 ): Promise<void> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/incidents/${incidentId}/update/`, {
     method: "PUT",
@@ -817,7 +834,7 @@ export async function updateIncident(
     body: JSON.stringify(data),
   });
   if (!response.ok) {
-    throw new Error(`Failed to update incident: ${response.status}`);
+    throw new Error(await extractApiError(response, `Failed to update incident: ${response.status}`));
   }
 }
 
@@ -895,6 +912,29 @@ export interface AdminSystemHealthSnapshot {
   timestamp: string;
   database: string;
   queue: string;
+  workers?: string;
+  scheduler?: string;
+  version?: string;
+  pending_migrations?: number;
+  providers?: Record<string, {status: string; observed_at: string | null; age_seconds: number | null}>;
+}
+
+export async function exportRecommendation(runId: string): Promise<void> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/export/${encodeURIComponent(runId)}/`);
+  if (!response.ok) throw new Error(await extractApiError(response, "Recommendation export failed."));
+  const url = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement("a"); anchor.href = url; anchor.download = "recommendation.csv";
+  document.body.appendChild(anchor); anchor.click(); anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+export interface ScheduleRevisionRecord {
+  id: number; run_id: string; operational_date: string; shift: string; published_at: string;
+  effective_start: string; effective_end: string; published_by: string;
+  previous_assignments: PublicationAssignment[]; assignments: PublicationAssignment[];
+}
+export function fetchScheduleRevisions(date: string, page = 1) {
+  return fetchPage<ScheduleRevisionRecord>(`${getApiBaseUrl()}/api/deployments/revisions/?date=${encodeURIComponent(date)}&page=${page}`);
 }
 
 export interface SystemHealthSnapshot {
@@ -947,6 +987,15 @@ export interface PublicationPreview extends PublishOptimizationDeploymentsRespon
   staff_removed: number[];
   replaced: number;
   conflicts: string[];
+  expected_revision: string;
+  captured_at: string;
+  input_issues: string[];
+  added_assignments: PublicationAssignment[];
+  removed_assignments: PublicationAssignment[];
+}
+export interface PublicationAssignment {
+  officer_id: number; officer_name: string; badge_number: string;
+  bottleneck_id: string; bottleneck_name: string; start_time: string; end_time: string;
 }
 export async function previewPublication(payload: PublishOptimizationDeploymentsRequest): Promise<PublicationPreview> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/preview-optimization/`, {

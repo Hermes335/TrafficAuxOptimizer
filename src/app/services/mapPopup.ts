@@ -37,7 +37,7 @@ export function poiPopup(poi: POI, save: (data: {name: string; category: string;
   category.value = poi.category;
   label("Category", category);
   const boost = document.createElement("input");
-  boost.type = "number"; boost.min = "1"; boost.max = "5"; boost.step = "0.5"; boost.value = String(poi.priority_boost);
+  boost.type = "number"; boost.min = "0"; boost.max = "10"; boost.step = "any"; boost.value = String(poi.priority_boost);
   label("Priority boost", boost);
   const error = document.createElement("p");
   error.setAttribute("role", "alert"); error.className = "text-red-700";

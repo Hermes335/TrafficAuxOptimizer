@@ -22,6 +22,26 @@ export function getRunStatusToneClass(status: string | undefined): string {
   return "bg-yellow-100 text-yellow-700";
 }
 
+type GenerationStatus = {
+  status: string;
+  current_generation: number;
+  total_generations: number;
+  converged_early?: boolean;
+};
+
+export function getOptimizationProgress(status: GenerationStatus | null): number {
+  if (status?.status === "completed") return 100;
+  if (!status || status.total_generations <= 0) return 0;
+  return Math.max(0, Math.min(100, Math.round(status.current_generation / status.total_generations * 100)));
+}
+
+export function getOptimizationCompletionSummary(status: GenerationStatus | null): string | null {
+  if (status?.status !== "completed") return null;
+  return status.converged_early
+    ? `Converged early after ${status.current_generation} generations (limit ${status.total_generations}). The search results stabilized.`
+    : `Completed ${status.current_generation} generations (limit ${status.total_generations}).`;
+}
+
 export interface OptimizationRunParams {
   population_size: number;
   generations: number;

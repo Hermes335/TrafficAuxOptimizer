@@ -1,4 +1,4 @@
-import { ChevronLeft, MapPin, Camera } from "lucide-react";
+import { ChevronLeft, MapPin } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import {
@@ -31,74 +31,51 @@ export function IncidentReport() {
   const [severities, setSeverities] = useState<IncidentMetaOption[]>([]);
   const [selectedBottleneck, setSelectedBottleneck] = useState("");
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
-    fetchBottlenecks()
-      .then((rows) => {
+    setLoading(true); setLoaded(false); setError(null); setStatusMessage(null);
+    Promise.all([fetchBottlenecks(), fetchIncidentMeta(), editId ? fetchIncident(Number(editId)) : Promise.resolve(null)])
+      .then(([rows, meta, incident]) => {
         if (!active) {
           return;
         }
         setBottlenecks(rows);
-        if (rows.length > 0) {
-          setSelectedBottleneck(rows[0].id);
-        }
-      })
-      .catch((loadError: unknown) => {
-        if (!active) {
-          return;
-        }
-        const message = loadError instanceof Error ? loadError.message : "Failed to load bottlenecks";
-        setError(message);
-      });
-
-    fetchIncidentMeta()
-      .then((meta) => {
-        if (!active) {
-          return;
-        }
         setIncidentTypes(meta.incident_types);
         setSeverities(meta.severities);
-        if (meta.incident_types.length > 0) {
-          setIncidentType(meta.incident_types[0].value);
+        if (incident) {
+          setIncidentType(incident.incident_type);
+          setSeverity(incident.severity);
+          setDescription(incident.description);
+          setSelectedBottleneck(incident.bottleneck ?? "");
+        } else {
+          setSelectedBottleneck(rows[0]?.id ?? "");
+          setIncidentType(meta.incident_types[0]?.value ?? "collision");
+          setSeverity(meta.severities.find(item => item.value === "major")?.value ?? meta.severities[0]?.value ?? "major");
+          setDescription("");
         }
-        if (meta.severities.length > 0) {
-          const preferred = meta.severities.find((item) => item.value === "major");
-          setSeverity(preferred?.value ?? meta.severities[0].value);
-        }
+        setLoaded(true);
       })
       .catch((loadError: unknown) => {
         if (!active) {
           return;
         }
-        const message = loadError instanceof Error ? loadError.message : "Failed to load incident metadata";
+        const message = loadError instanceof Error ? loadError.message : "Failed to load incident form";
         setError(message);
-      });
+      }).finally(() => { if (active) setLoading(false); });
 
     return () => {
       active = false;
     };
-  }, []);
-
-  // Fetch incident data when editing
-  useEffect(() => {
-    if (!editId) return;
-    let active = true;
-    fetchIncident(Number(editId))
-      .then((incident) => {
-        if (!active) return;
-        setIncidentType(incident.incident_type || "collision");
-        setSeverity(incident.severity || "major");
-        setDescription(incident.description || "");
-        if (incident.bottleneck) setSelectedBottleneck(incident.bottleneck);
-      })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [editId]);
+  }, [editId, loadAttempt]);
 
   const onSubmit = async () => {
+    if (!loaded || loading || saving) return;
     if (!description.trim()) {
       setError("Please enter a description.");
       return;
@@ -115,6 +92,7 @@ export function IncidentReport() {
           incident_type: incidentType,
           severity,
           description: description.trim(),
+          ...(selectedBottleneck ? {bottleneck: selectedBottleneck} : {}),
         });
         setStatusMessage("Incident updated successfully.");
       } else {
@@ -155,16 +133,18 @@ export function IncidentReport() {
 
         <div className="mb-6">
           <div className="mb-2 flex items-center justify-between">
-            <label className="text-sm font-medium text-gray-700">INCIDENT LOCATION</label>
+            <label htmlFor="incident-location" className="text-sm font-medium text-gray-700">INCIDENT LOCATION</label>
             <span className="rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-700">Backend Live</span>
           </div>
           <div className="flex items-center gap-2 rounded-lg border p-3">
             <MapPin className="h-5 w-5 text-yellow-500" />
             <select
+              id="incident-location" disabled={loading || !loaded || saving}
               className="w-full outline-none"
               value={selectedBottleneck}
               onChange={(event) => setSelectedBottleneck(event.target.value)}
             >
+              {!selectedBottleneck && <option value="">{isEditing ? "Original map location" : "Choose a location"}</option>}
               {bottlenecks.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.id} - {item.name}
@@ -181,6 +161,7 @@ export function IncidentReport() {
               <button
                 key={type.value}
                 onClick={() => setIncidentType(type.value)}
+                aria-pressed={incidentType === type.value} disabled={loading || !loaded || saving}
                 className={`flex flex-col items-center gap-2 rounded-xl border-2 p-4 transition-all ${
                   incidentType === type.value ? "border-red-500 bg-red-50" : "border-gray-200 hover:border-gray-300"
                 }`}
@@ -204,6 +185,7 @@ export function IncidentReport() {
               <button
                 key={level.value}
                 onClick={() => setSeverity(level.value)}
+                aria-pressed={severity === level.value} disabled={loading || !loaded || saving}
                 className={`flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all ${
                   severity === level.value ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                 }`}
@@ -215,8 +197,9 @@ export function IncidentReport() {
         </div>
 
         <div className="mb-6">
-          <label className="mb-2 block text-sm font-medium text-gray-700">DESCRIPTION & NOTES</label>
+          <label htmlFor="incident-description" className="mb-2 block text-sm font-medium text-gray-700">DESCRIPTION & NOTES</label>
           <textarea
+            id="incident-description" disabled={loading || !loaded || saving}
             value={description}
             onChange={(event) => setDescription(event.target.value)}
             placeholder="Describe the incident details..."
@@ -225,21 +208,11 @@ export function IncidentReport() {
           />
         </div>
 
-        <div className="mb-6">
-          <label className="mb-2 block text-sm font-medium text-gray-700">VISUAL EVIDENCE</label>
-          <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-yellow-300 bg-yellow-50 p-8">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-yellow-200">
-              <Camera className="h-8 w-8 text-yellow-600" />
-            </div>
-            <div className="text-center">
-              <div className="font-medium">Photo upload is optional in desktop mode</div>
-              <div className="text-sm text-gray-500">You can still submit text reports now.</div>
-            </div>
-          </div>
-        </div>
-
-        {error && <p className="mb-4 text-sm text-red-600">{error}</p>}
-        {statusMessage && <p className="mb-4 text-sm text-green-600">{statusMessage}</p>}
+        <p className="mb-4 text-xs text-gray-500">This form saves text reports. Photo upload is unavailable here.</p>
+        {loading && <p role="status">Loading incident details…</p>}
+        {error && <p role="alert" className="mb-4 text-sm text-red-600">{error}</p>}
+        {!loading && !loaded && <button onClick={() => setLoadAttempt(n => n + 1)} className="mb-4 underline">Retry loading</button>}
+        {statusMessage && <p role="status" className="mb-4 text-sm text-green-600">{statusMessage}</p>}
 
         <div className="flex gap-3">
           <Link
@@ -250,7 +223,7 @@ export function IncidentReport() {
           </Link>
           <button
             onClick={onSubmit}
-            disabled={saving}
+            disabled={saving || loading || !loaded}
             className="w-2/3 rounded-xl bg-yellow-400 py-4 text-lg font-bold text-white hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300"
           >
             {saving ? "SAVING..." : isEditing ? "UPDATE REPORT" : "SUBMIT REPORT"}

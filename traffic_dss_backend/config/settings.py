@@ -170,6 +170,8 @@ REST_FRAMEWORK = {
         "anon": "100/hour",
         "login": "10/min",
         "refresh": "30/min",
+        "operational_read": "300/min",
+        "public_dashboard": "60/min",
     },
 }
 
@@ -215,6 +217,16 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_TIMEZONE = TIME_ZONE
+
+# Operational input/publication and interrupted-job limits, in seconds.
+PUBLICATION_MAX_INPUT_AGE = env.int("PUBLICATION_MAX_INPUT_AGE", default=900)
+TRAFFIC_MAX_INPUT_AGE = env.int("TRAFFIC_MAX_INPUT_AGE", default=900)
+WEATHER_MAX_INPUT_AGE = env.int("WEATHER_MAX_INPUT_AGE", default=1800)
+OPTIMIZATION_QUEUE_TIMEOUT = env.int("OPTIMIZATION_QUEUE_TIMEOUT", default=600)
+OPTIMIZATION_HEARTBEAT_TIMEOUT = env.int("OPTIMIZATION_HEARTBEAT_TIMEOUT", default=300)
+CELERY_TASK_SOFT_TIME_LIMIT = 1800
+CELERY_TASK_TIME_LIMIT = 1860
+BACKEND_VERSION = "2026.09.28"
 
 CHANNEL_LAYERS = {
     "default": {

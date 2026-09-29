@@ -13,7 +13,7 @@ import {
   subscribeToOptimizationStream,
   type OptimizationStatus,
 } from "../services/backend";
-import { type ConvergencePoint, upsertConvergencePoint, getRunStatusToneClass } from "../types/optimization";
+import { type ConvergencePoint, upsertConvergencePoint, getRunStatusToneClass, getOptimizationProgress, getOptimizationCompletionSummary } from "../types/optimization";
 
 type RunEvent = {
   label: string;
@@ -30,13 +30,10 @@ export function OptimizationRunning() {
   const [convergenceData, setConvergenceData] = useState<ConvergencePoint[]>([]);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const startPromise = useRef<ReturnType<typeof runOptimization> | null>(null);
+  const acceptedStatus = useRef<OptimizationStatus | null>(null);
 
-  const progress = useMemo(() => {
-    if (!status || status.total_generations <= 0) {
-      return 0;
-    }
-    return Math.min(100, Math.round((status.current_generation / status.total_generations) * 100));
-  }, [status]);
+  const progress = getOptimizationProgress(status);
+  const completionSummary = getOptimizationCompletionSummary(status);
 
   const currentGen = status?.current_generation ?? 0;
   const totalGenerations = status?.total_generations ?? 0;
@@ -143,6 +140,9 @@ export function OptimizationRunning() {
     const terminal = (value: string) => ["completed", "failed", "cancelled"].includes(value);
     const accept = (latest: OptimizationStatus) => {
       if (!active) return;
+      if (acceptedStatus.current && terminal(acceptedStatus.current.status) && !terminal(latest.status)) return;
+      latest = {...acceptedStatus.current, ...latest};
+      acceptedStatus.current = latest;
       setStatus(latest); setError(latest.error ?? null);
       if (latest.current_generation > 0) {
         setConvergenceData(previous => {
@@ -177,6 +177,9 @@ export function OptimizationRunning() {
     else {
       if (!startPromise.current) startPromise.current = runOptimization({
         shift: query.get("shift") ?? "afternoon",
+        operational_date: query.get("operational_date") ?? undefined,
+        mode: query.get("mode") === "shadow" ? "shadow" : "operational",
+        session_id: query.get("session_id") ?? "",
         population_size: Number(query.get("population_size") ?? 200),
         generations: Number(query.get("generations") ?? 300),
         mutation_rate: Number(query.get("mutation_rate") ?? 0.1),
@@ -311,7 +314,7 @@ export function OptimizationRunning() {
 
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Resource Utilization</span>
+                    <span className="text-gray-600">Staffing Efficiency</span>
                     <span className="font-medium">{config.resourceUtilizationWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
@@ -343,7 +346,7 @@ export function OptimizationRunning() {
             <div className="flex items-center justify-between">
               <span className="text-gray-600">Last Update</span>
               <span className="font-medium text-gray-900">
-                {status?.estimated_completion ? operationalTime(status.estimated_completion) : "pending"}
+                {status?.updated_at || status?.estimated_completion ? operationalTime(status.updated_at ?? status.estimated_completion!) : "pending"}
               </span>
             </div>
             <div className="rounded bg-white/70 p-2">
@@ -385,13 +388,13 @@ export function OptimizationRunning() {
       {/* Center Panel - Progress */}
       <div className="flex flex-1 flex-col min-w-0 bg-gray-50 p-8 overflow-y-auto">
         <div className="mb-8">
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-yellow-400">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-[240px] flex-1 items-start gap-3">
+              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-yellow-400">
                 <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
               </div>
               <div>
-                <div className="mb-2 flex items-center gap-2">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
                   <h1 className="text-2xl font-bold">{progress}% Optimization Progress</h1>
                   <StatusBadge status={status?.status || "queued"} size="md" />
                 </div>
@@ -404,13 +407,14 @@ export function OptimizationRunning() {
                         ? "Optimization cancelled."
                         : latestFitnessLabel}
                 </p>
+                {completionSummary && <p className="mt-1 text-sm text-green-700">{completionSummary}</p>}
               </div>
             </div>
             <div className="flex gap-2">
               {status?.status === "completed" && (
                 <Link
                   to="/gantt-chart"
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white hover:bg-primary-700"
+                  className="inline-flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500"
                 >
                   Review Schedule
                   <ChevronLeft className="h-4 w-4 rotate-180" />
@@ -453,7 +457,8 @@ export function OptimizationRunning() {
             </div>
           )}
 
-          <div className="mb-2 h-4 overflow-hidden rounded-full bg-gray-200">
+          <div role="progressbar" aria-label="Optimization progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}
+            className="mb-2 h-4 overflow-hidden rounded-full bg-gray-200">
             <div
               className="h-full bg-yellow-400 transition-all duration-300"
               style={{ width: `${progress}%` }}
@@ -507,12 +512,14 @@ export function OptimizationRunning() {
             <div className="rounded-lg bg-yellow-50 p-4">
               <div className="mb-2 flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-yellow-600" />
-                <span className="font-medium">GEN {currentGen} / {totalGenerations}</span>
+                <span className="font-medium">GEN {currentGen} · LIMIT {totalGenerations}</span>
               </div>
               <p className="text-sm text-gray-600">
-                {status?.estimated_completion
-                  ? `Estimated completion ${operationalTime(status.estimated_completion)}`
-                  : "Estimating completion from backend stream..."}
+                {status?.status === "completed"
+                  ? status.estimated_completion ? `Finished at ${operationalTime(status.estimated_completion)}` : "Run finished."
+                  : !isRunActive ? latestFitnessLabel
+                    : status?.estimated_completion ? `Estimated completion ${operationalTime(status.estimated_completion)}`
+                      : "Estimating completion from backend stream..."}
               </p>
             </div>
             <div className="rounded-lg bg-blue-50 p-4">
@@ -567,10 +574,10 @@ export function OptimizationRunning() {
           </div>
 
           <div className="rounded-lg bg-gray-50 p-4">
-            <div className="mb-1 text-xs text-gray-600">Current Generation</div>
+            <div className="mb-1 text-xs text-gray-600">{status?.status === "completed" ? "Generations completed" : "Current Generation"}</div>
             <div className="flex items-end gap-2">
               <div className="text-2xl font-bold">{currentGen}</div>
-              <div className="mb-1 text-sm text-gray-600">/ {totalGenerations}</div>
+              <div className="mb-1 text-sm text-gray-600">of {totalGenerations} max</div>
             </div>
             <div className="mt-2 flex items-center gap-1 text-sm text-gray-600">
               {progress}% complete

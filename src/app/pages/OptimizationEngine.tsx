@@ -1,4 +1,5 @@
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
+import { RecommendationExportButton } from "../components/RecommendationExportButton";
 import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronLeft, Clock, Target, TrendingDown, Users, TrendingUp } from "lucide-react";
@@ -12,7 +13,7 @@ import {
   type OptimizationResults,
   type OptimizationStatus,
 } from "../services/backend";
-import { type ConvergencePoint, upsertConvergencePoint } from "../types/optimization";
+import { type ConvergencePoint, upsertConvergencePoint, getOptimizationProgress, getOptimizationCompletionSummary } from "../types/optimization";
 
 function buildConvergenceFromScores(scores: number[]): ConvergencePoint[] {
   let runningTotal = 0;
@@ -100,12 +101,8 @@ export function OptimizationEngine() {
     };
   }, [runId]);
 
-  const progress = useMemo(() => {
-    if (!status || status.total_generations <= 0) {
-      return 0;
-    }
-    return Math.min(100, Math.round((status.current_generation / status.total_generations) * 100));
-  }, [status]);
+  const progress = getOptimizationProgress(status);
+  const completionSummary = getOptimizationCompletionSummary(status);
 
   const bestSolution = results?.top_solutions?.[0];
   const assignments = bestSolution?.assignments ?? [];
@@ -159,7 +156,7 @@ export function OptimizationEngine() {
             />
             <StatCard
               label="Generations"
-              value={`${status?.current_generation ?? 0}/${status?.total_generations ?? 0}`}
+              value={`${status?.current_generation ?? 0} (max ${status?.total_generations ?? 0})`}
               icon={<Users className="h-4 w-4" />}
             />
             <StatCard
@@ -168,6 +165,8 @@ export function OptimizationEngine() {
               icon={<TrendingDown className="h-4 w-4" />}
             />
           </div>
+
+          {completionSummary && <p className="mb-4 rounded-lg bg-green-50 p-3 text-sm text-green-700">{completionSummary}</p>}
 
           {/* Convergence Chart Section */}
           <div className="space-y-4">
@@ -232,6 +231,9 @@ export function OptimizationEngine() {
                         {officers.length} officer{officers.length > 1 ? "s" : ""}
                       </span>
                     </div>
+                    {bestSolution?.staffing_targets?.[bnId] != null && <p className="mb-2 text-xs text-gray-600">
+                      Staffing target: {bestSolution.staffing_targets[bnId]} officers
+                    </p>}
                     <div className="flex flex-wrap gap-2">
                       {officers.map((a, i) => (
                         <span key={i} className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
@@ -254,6 +256,8 @@ export function OptimizationEngine() {
                 <div>Coverage Efficiency: {bestSolution?.coverage_efficiency != null ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}</div>
                 <div>Estimated travel time: {bestSolution?.avg_response_time != null ? `${bestSolution.avg_response_time.toFixed(1)} min` : "pending"}</div>
                 <div>Resource Utilization: {bestSolution?.resource_utilization != null ? `${bestSolution.resource_utilization.toFixed(1)}%` : "pending"}</div>
+                {bestSolution?.staffing_efficiency != null && <div>Staffing Efficiency: {bestSolution.staffing_efficiency.toFixed(1)}%</div>}
+                {bestSolution?.reserve_officers != null && <div>Officers in reserve: {bestSolution.reserve_officers}</div>}
                 <div>Road Priority Coverage: {bestSolution?.road_priority_coverage != null ? `${bestSolution.road_priority_coverage.toFixed(1)}%` : "pending"}</div>
               </div>
             </div>
@@ -382,7 +386,8 @@ export function OptimizationEngine() {
                 <p className="mb-3 text-sm text-gray-600">
                   Publish the top solution as the deployment schedule for this shift.
                 </p>
-                <PublishScheduleButton runId={runId ?? ""} syntheticSources={results?.synthetic_data_used} />
+                <PublishScheduleButton runId={runId ?? ""} date={results?.parameters?.operational_date} mode={results?.parameters?.mode} syntheticSources={results?.synthetic_data_used} />
+                <RecommendationExportButton runId={runId ?? ""} />
               </div>
             )}
 

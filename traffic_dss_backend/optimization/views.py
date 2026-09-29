@@ -6,7 +6,7 @@ from rest_framework.views import APIView
 from core.models import OptimizationRun
 from core.permissions import IsSupervisor
 from core.realtime import broadcast
-from core.serializers import OptimizationRunSerializer
+from core.serializers import OptimizationHistorySerializer
 from core.utils import write_audit_log
 from .progress_store import load_progress, save_progress
 from .services import OptimizationInput, start_run
@@ -63,10 +63,12 @@ class OptimizationCancelView(APIView):
 
 
 class OptimizationStatusView(APIView):
-	permission_classes = [permissions.AllowAny]
-	throttle_classes = []
+	permission_classes = [permissions.IsAuthenticated]
+	throttle_scope = "operational_read"
 
 	def get(self, request, run_id: str):
+		from .recovery import expire_abandoned_runs
+		expire_abandoned_runs()
 		run = OptimizationRun.objects.filter(run_id=run_id, is_deleted=False).first()
 		if not run:
 			return Response({"detail": "Run not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -76,10 +78,7 @@ class OptimizationStatusView(APIView):
 			return Response(progress)
 
 		total_gens = int(run.parameters.get("generations", 300))
-		if run.status == "completed":
-			current_gen = total_gens
-		else:
-			current_gen = len(run.fitness_scores) if run.fitness_scores else 0
+		current_gen = len(run.fitness_scores) if run.fitness_scores else 0
 		current_fitness = float(run.fitness_scores[-1]) if run.fitness_scores else 0.0
 
 		return Response(
@@ -89,14 +88,18 @@ class OptimizationStatusView(APIView):
 				"current_generation": current_gen,
 				"total_generations": total_gens,
 				"current_fitness": current_fitness,
+				"converged_early": bool(run.result_data.get("converged_early", False)),
+				"updated_at": run.updated_at.isoformat(),
 				"estimated_completion": run.updated_at.isoformat() if run.status in ("completed", "failed", "cancelled") else None,
+				"started_at": run.timestamp.isoformat(), "heartbeat_at": run.heartbeat_at,
+				"error": run.result_data.get("error") if run.status == "failed" else None,
 			}
 		)
 
 
 class OptimizationResultsView(APIView):
-	permission_classes = [permissions.AllowAny]
-	throttle_classes = []
+	permission_classes = [permissions.IsAuthenticated]
+	throttle_scope = "operational_read"
 
 	def get(self, request, run_id: str):
 		run = OptimizationRun.objects.filter(run_id=run_id, is_deleted=False).first()
@@ -116,8 +119,8 @@ class OptimizationResultsView(APIView):
 
 
 class OptimizationHistoryView(APIView):
-	permission_classes = [permissions.AllowAny]
-	throttle_classes = []
+	permission_classes = [permissions.IsAuthenticated]
+	throttle_scope = "operational_read"
 
 	def get(self, request):
 		runs = OptimizationRun.objects.filter(is_deleted=False).order_by("-timestamp", "-id")
@@ -127,4 +130,4 @@ class OptimizationHistoryView(APIView):
 		paginator.page_size_query_param = "page_size"
 		paginator.max_page_size = 100
 		page = paginator.paginate_queryset(runs, request, view=self)
-		return paginator.get_paginated_response(OptimizationRunSerializer(page, many=True).data)
+		return paginator.get_paginated_response(OptimizationHistorySerializer(page, many=True).data)

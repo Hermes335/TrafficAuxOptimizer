@@ -134,6 +134,7 @@ class Deployment(TimeStampedSoftDeleteModel):
 	assignment_type = models.CharField(max_length=20, choices=ASSIGNMENT_TYPES, default="static")
 	status = models.CharField(max_length=20, default="assigned", db_index=True)
 	source = models.CharField(max_length=20, choices=[("manual", "Manual / ICTTMO"), ("optimized", "GA Optimized")], default="manual", db_index=True)
+	revision = models.ForeignKey("ScheduleRevision", on_delete=models.PROTECT, null=True, blank=True, related_name="deployments")
 
 	class Meta:
 		indexes = [
@@ -159,9 +160,27 @@ class OptimizationRun(TimeStampedSoftDeleteModel):
 	result_data = models.JSONField(default=dict)
 	status = models.CharField(max_length=20, choices=STATUSES, default="queued", db_index=True)
 	created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="optimization_runs")
+	task_id = models.CharField(max_length=64, blank=True)
+	heartbeat_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
 	class Meta:
 		indexes = [models.Index(fields=["timestamp", "status"])]
+
+
+class ScheduleRevision(models.Model):
+	"""Append-only publication ledger; assignment snapshots survive later edits."""
+	run = models.ForeignKey(OptimizationRun, on_delete=models.PROTECT, related_name="publications")
+	actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+	operational_date = models.DateField(db_index=True)
+	shift = models.CharField(max_length=20, choices=Officer.SHIFTS)
+	published_at = models.DateTimeField()
+	effective_start = models.DateTimeField()
+	effective_end = models.DateTimeField()
+	idempotency_key = models.CharField(max_length=64, unique=True)
+	request_fingerprint = models.CharField(max_length=64)
+	previous_assignments = models.JSONField(default=list)
+	assignments = models.JSONField(default=list)
+	response = models.JSONField(default=dict)
 
 
 class TrafficData(TimeStampedSoftDeleteModel):

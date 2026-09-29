@@ -89,6 +89,7 @@ it("publication preview uses saved run shift and requires confirmation", async (
   vi.mocked(backend.previewPublication).mockResolvedValue({
     run_id:"morning-run",shift:"morning",start_time:"2026-09-23T22:00:00Z",end_time:"2026-09-24T06:00:00Z",
     operational_date:"2026-09-24",created:2,skipped:[],staff_added:[2,3],staff_removed:[1],replaced:1,conflicts:[],
+    expected_revision:"reviewed-schedule",captured_at:"2026-09-23T22:00:00Z",input_issues:[],added_assignments:[],removed_assignments:[],
   });
   vi.mocked(backend.publishDeploymentsFromOptimization).mockResolvedValue({created:2,shift:"morning"} as backend.PublishOptimizationDeploymentsResponse);
   render(<PublishScheduleButton runId="morning-run" date="2026-09-24" />);
@@ -96,9 +97,10 @@ it("publication preview uses saved run shift and requires confirmation", async (
   expect(await screen.findByText("morning")).toBeTruthy();
   expect(backend.publishDeploymentsFromOptimization).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText("Confirm publication"));
-  await waitFor(()=>expect(backend.publishDeploymentsFromOptimization).toHaveBeenCalledWith({
+  await waitFor(()=>expect(backend.publishDeploymentsFromOptimization).toHaveBeenCalledWith(expect.objectContaining({
     run_id:"morning-run",operational_date:"2026-09-24",replace_existing:true,
-  }));
+    expected_revision:"reviewed-schedule",idempotency_key:expect.any(String),
+  })));
 });
 
 it("a saved run with generated inputs explains why publication is unavailable", () => {
@@ -126,7 +128,7 @@ it("live deployment and incident events refresh all affected collections; failur
   await waitFor(()=>expect(backend.fetchDashboardSnapshot).toHaveBeenCalledTimes(3));
   vi.mocked(backend.fetchDashboardSnapshot).mockRejectedValue(new Error("Offline"));
   receive({event:"incident_reported"});
-  await waitFor(()=>expect(result.current.loadError).toBe("Offline"));
+  await waitFor(()=>expect(result.current.loadError).toBe("Dashboard: Offline"));
   expect(result.current.dashboardSnapshot.incidents[0].id).toBe(2);
   connection("disconnected");
   await waitFor(()=>expect(result.current.connectionState).toBe("disconnected"));

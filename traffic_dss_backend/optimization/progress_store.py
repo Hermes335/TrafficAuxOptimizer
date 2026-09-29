@@ -1,49 +1,22 @@
-from __future__ import annotations
-
-import json
-
-from django.conf import settings
-from redis import Redis
-from redis.exceptions import RedisError
-
-_client: Redis | None = None
+"""Progress uses the configured cache, including isolated in-memory test caches."""
+from django.core.cache import cache
 
 
-def _redis_client() -> Redis | None:
-    global _client
-    if _client is None:
-        try:
-            _client = Redis.from_url(settings.REDIS_URL, decode_responses=True)
-        except Exception:
-            return None
-    return _client
-
-
-def progress_key(run_id: str) -> str:
+def progress_key(run_id):
     return f"optimization:progress:{run_id}"
 
 
-def save_progress(run_id: str, payload: dict) -> None:
-    client = _redis_client()
-    if client is None:
-        return
+def save_progress(run_id, payload):
     try:
-        client.set(progress_key(run_id), json.dumps(payload), ex=24 * 60 * 60)
-    except RedisError:
-        return
+        cache.set(progress_key(run_id), payload, 24 * 60 * 60)
+    except Exception:
+        # The database status and realtime stream remain authoritative.
+        pass
 
 
-def load_progress(run_id: str) -> dict | None:
-    client = _redis_client()
-    if client is None:
-        return None
+def load_progress(run_id):
     try:
-        raw = client.get(progress_key(run_id))
-    except RedisError:
-        return None
-    if not raw:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
+        value = cache.get(progress_key(run_id))
+        return value if isinstance(value, dict) else None
+    except Exception:
         return None

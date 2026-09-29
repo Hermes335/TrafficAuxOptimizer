@@ -30,23 +30,45 @@ export function useDashboardData(shift = "afternoon") {
   const [bottleneckActionNotice, setBottleneckActionNotice] = useState<string | null>(null);
   const [deletingBottleneckId, setDeletingBottleneckId] = useState<string | null>(null);
   const generation = useRef(0);
+  const inFlight = useRef<Promise<void> | null>(null);
+  const pendingRefresh = useRef(false);
+  const mounted = useRef(false);
 
-  const reloadDashboard = useCallback(async () => {
+  const loadCollections = useCallback(async () => {
     const request = ++generation.current;
-    try {
-      const [snapshot, roster, schedule, weather, poiRows] = await Promise.all([
+      const results = await Promise.allSettled([
         fetchDashboardSnapshot(shift), fetchDashboardOfficers(), fetchDeploymentSchedule(), fetchCurrentWeather(), fetchPOIs(),
       ]);
-      if (request !== generation.current) return;
-      setDashboardSnapshot(snapshot); setOfficers(roster); setDeployments(schedule); setWeatherSnapshot(weather); setPois(poiRows);
-      setLastRefresh(new Date().toISOString()); setLoadError(null);
-    } catch (error) {
-      if (request !== generation.current) return;
-      setLoadError(error instanceof Error ? error.message : "Refresh failed. Displaying last successful data.");
-      throw error;
-    }
+      if (!mounted.current || request !== generation.current) return;
+      const [snapshot, roster, schedule, weather, poiRows] = results;
+      if (snapshot.status === "fulfilled") { setDashboardSnapshot(snapshot.value); setLastRefresh(new Date().toISOString()); }
+      if (roster.status === "fulfilled") setOfficers(roster.value);
+      if (schedule.status === "fulfilled") setDeployments(schedule.value);
+      if (weather.status === "fulfilled") setWeatherSnapshot(weather.value);
+      if (poiRows.status === "fulfilled") setPois(poiRows.value);
+      const failures = results.flatMap((result, i) => result.status === "rejected"
+        ? [`${["Dashboard", "Officers", "Schedule", "Weather", "Points of interest"][i]}: ${result.reason instanceof Error ? result.reason.message : "Refresh failed"}`] : []);
+      setLoadError(failures.join(" · ") || null);
+      if (failures.length) throw new Error(failures.join(" · "));
   }, [shift]);
+  const latestLoad = useRef(loadCollections);
+  latestLoad.current = loadCollections;
+  const reloadDashboard = useCallback(() => {
+    pendingRefresh.current = true;
+    if (inFlight.current) return inFlight.current;
+    inFlight.current = (async () => {
+      let failure: unknown;
+      do {
+        pendingRefresh.current = false;
+        failure = undefined;
+        try { await latestLoad.current(); } catch (error) { failure = error; }
+      } while (mounted.current && pendingRefresh.current);
+      if (failure) throw failure;
+    })().finally(() => { inFlight.current = null; });
+    return inFlight.current;
+  }, []);
   useEffect(() => {
+    mounted.current = true;
     setDashboardSnapshot(getFallbackDashboardSnapshot());
     setLastRefresh(null);
     const refresh = () => { void reloadDashboard().catch(() => {}); };
@@ -58,8 +80,8 @@ export function useDashboardData(shift = "afternoon") {
       if (state === "live") refresh(); // Catch up after a missed event or reconnect.
     });
     const timer = window.setInterval(refresh, 60000);
-    return () => { generation.current++; stop(); window.clearInterval(timer); };
-  }, [reloadDashboard]);
+    return () => { mounted.current = false; pendingRefresh.current = false; generation.current++; stop(); window.clearInterval(timer); };
+  }, [reloadDashboard, shift]);
   return {
     dashboardSnapshot, setDashboardSnapshot, weatherSnapshot, officers, deployments, pois, setPois,
     deployedOfficersCount: new Set(deployments.filter(d => d.shift === shift && d.status === "assigned").map(d => d.officer)).size,

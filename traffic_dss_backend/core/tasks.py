@@ -147,6 +147,15 @@ def deployment_lifecycle():
         lock_schedule()
         count = Deployment.objects.filter(is_deleted=False, status="assigned", end_time__lte=timezone.now()).update(
             status="completed", updated_at=timezone.now())
-        sync_officer_status()
-        schedule_event(None, "lifecycle", {"completed": count})
+        statuses_changed = sync_officer_status()
+        if count or statuses_changed:
+            schedule_event(None, "lifecycle", {"completed": count, "statuses_changed": statuses_changed})
     return count
+
+
+@shared_task
+def optimization_maintenance():
+    from django.core.cache import cache
+    from optimization.recovery import expire_abandoned_runs
+    cache.set("scheduler_heartbeat", timezone.now().isoformat(), 180)
+    return expire_abandoned_runs()

@@ -1,6 +1,8 @@
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
+import { ScheduleHistory } from "../components/ScheduleHistory";
+import { RecommendationExportButton } from "../components/RecommendationExportButton";
 import { useAuth } from "../contexts/AuthContext";
-import { operationalDate, operationalHour, operationalTime } from "../services/operationalTime";
+import { operationalDate, operationalTime } from "../services/operationalTime";
 import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronUp, Download, XCircle } from "lucide-react";
 import { GanttTimeline } from "./GanttChart/GanttTimeline";
 import { useEffect, useMemo, useState } from "react";
@@ -40,7 +42,8 @@ export function GanttChart() {
   const [runCount, setRunCount] = useState(0);
   const [completedRuns, setCompletedRuns] = useState<OptimizationHistoryItem[]>([]);
   const [selectedRunId, setSelectedRunId] = useState("");
-  const selectedRunSyntheticSources = completedRuns.find(run => run.run_id === selectedRunId)?.result_data?.synthetic_data_used;
+  const selectedRun = completedRuns.find(run => run.run_id === selectedRunId);
+  const selectedRunSyntheticSources = selectedRun?.result_data?.synthetic_data_used;
   const [clearingSchedule, setClearingSchedule] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
@@ -61,20 +64,21 @@ export function GanttChart() {
   useEffect(() => {
     let active = true;
 
-    Promise.all([fetchDeploymentSchedule(day), fetchBottlenecks(), fetchDashboardOfficers(), fetchOptimizationHistory(runPage, "completed")])
+    Promise.allSettled([fetchDeploymentSchedule(day), fetchBottlenecks(), fetchDashboardOfficers(), fetchOptimizationHistory(runPage, "completed")])
       .then(([deployments, bottleneckRows, officerRows, optimizationRuns]) => {
         if (!active) {
           return;
         }
-        setSchedule(deployments);
-        setError(null); setLastRefresh(new Date().toISOString());
-        setBottlenecks(bottleneckRows);
-        setOfficers(officerRows);
-        setRunCount(optimizationRuns.count);
-        const completed = optimizationRuns.results.filter((run) => run.status === "completed");
-        setCompletedRuns(completed);
-        if (completed.length > 0) {
-          setSelectedRunId(completed[0].run_id);
+        const failures = [deployments, bottleneckRows, officerRows, optimizationRuns].flatMap((row, i) => row.status === "rejected" ? [`${["Schedule", "Locations", "Officers", "Run history"][i]}: ${row.reason instanceof Error ? row.reason.message : "Refresh failed"}`] : []);
+        setError(failures.join(" · ") || null);
+        if (deployments.status === "fulfilled") { setSchedule(deployments.value); setLastRefresh(new Date().toISOString()); }
+        if (bottleneckRows.status === "fulfilled") setBottlenecks(bottleneckRows.value);
+        if (officerRows.status === "fulfilled") setOfficers(officerRows.value);
+        if (optimizationRuns.status === "fulfilled") {
+          setRunCount(optimizationRuns.value.count);
+          const completed = optimizationRuns.value.results.filter(run => run.status === "completed");
+          setCompletedRuns(completed);
+          setSelectedRunId(previous => completed.some(run => run.run_id === previous) ? previous : completed[0]?.run_id ?? "");
         }
       })
       .catch((loadError: unknown) => {
@@ -89,6 +93,11 @@ export function GanttChart() {
       active = false;
     };
   }, [day, refreshKey, runPage]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setRefreshKey(k => k + 1), 60000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => subscribeToDashboardStream(event => {
     if (["deployment_changed", "optimization_complete", "officers_updated", "bottlenecks_updated"].includes(event.event)) setRefreshKey(k => k + 1);
@@ -143,8 +152,9 @@ export function GanttChart() {
     };
   }, [bottlenecks, groupedByBottleneck]);
 
-  const activeAssignments = filteredSchedule.length;
-  const assignedOfficerCodes = useMemo(() => new Set(filteredSchedule.map((item) => item.officer)), [filteredSchedule]);
+  const activeScope = useMemo(() => schedule.filter(item => item.status === "assigned" && (shiftFilter === "all" || item.shift === shiftFilter)), [schedule, shiftFilter]);
+  const activeAssignments = activeScope.length;
+  const assignedOfficerCodes = useMemo(() => new Set(activeScope.map(item => item.officer)), [activeScope]);
   const availableOfficerPool = useMemo(
     () => officers.filter((officer) => (shiftFilter === "all" || officer.shift === shiftFilter) && officer.status !== "off_duty" && officer.status !== "unavailable" && !assignedOfficerCodes.has(officer.badge_number)),
     [officers, assignedOfficerCodes, shiftFilter],
@@ -154,18 +164,17 @@ export function GanttChart() {
   const matrixRows = useMemo(() => {
     const bottleneckRows = bottlenecks;
     return bottleneckRows.map((row) => {
-      const rowAssignments = filteredSchedule.filter((assignment) => assignment.bottleneck === row.id && assignment.status === "assigned");
+      const rowAssignments = schedule.filter(assignment => assignment.bottleneck === row.id && ["assigned", "completed"].includes(assignment.status) && (shiftFilter === "all" || assignment.shift === shiftFilter));
       const cells = hourSlots.map((hour) => {
         const overlapCount = rowAssignments.filter((assignment) => {
-          const startHour = operationalHour(new Date(assignment.start_time));
-          const endHour = operationalHour(new Date(assignment.end_time));
-          return startHour <= hour && endHour > hour;
+          const instant = new Date(`${day}T${String(hour).padStart(2, "0")}:00:00+08:00`).getTime();
+          return new Date(assignment.start_time).getTime() <= instant && instant < new Date(assignment.end_time).getTime();
         }).length;
         return overlapCount;
       });
       return { row, cells };
     });
-  }, [bottlenecks, filteredSchedule, hourSlots]);
+  }, [bottlenecks, schedule, shiftFilter, hourSlots, day]);
 
   const matrixLegend = [
     { label: "2+ officers", className: "bg-yellow-400" },
@@ -258,14 +267,14 @@ export function GanttChart() {
                   onCancel={() => setPublishError("Clear schedule cancelled. Type CLEAR_SCHEDULE next time to confirm the reset.")}
                   trigger={
                     <button
-                      disabled={!canManage || clearingSchedule || filteredSchedule.length === 0}
+                      disabled={!canManage || clearingSchedule || activeAssignments === 0}
                       className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <XCircle className="h-4 w-4" />
                       {clearingSchedule ? "Clearing..." : "Clear Schedule"}
                     </button>
                   }
-                  disabled={!canManage || clearingSchedule || filteredSchedule.length === 0}
+                  disabled={!canManage || clearingSchedule || activeAssignments === 0}
                 />
                 <div className="flex items-center gap-2">
                   <select
@@ -284,7 +293,9 @@ export function GanttChart() {
                   <button aria-label="Previous run page" disabled={runPage === 1} onClick={() => setRunPage(p => p - 1)}>‹</button>
                   <button aria-label="Older run page" disabled={runPage * 10 >= runCount} onClick={() => setRunPage(p => p + 1)}>›</button>
                   {canManage && <PublishScheduleButton runId={selectedRunId} date={day} onPublished={reloadSchedule}
+                    mode={String(selectedRun?.parameters.mode ?? "operational")}
                     syntheticSources={Array.isArray(selectedRunSyntheticSources) ? selectedRunSyntheticSources : null} />}
+                  <RecommendationExportButton runId={selectedRunId} />
                 </div>
               </>
             )}
@@ -313,6 +324,7 @@ export function GanttChart() {
 
 
             <div className="mb-3">
+              <ScheduleHistory day={day} refreshKey={refreshKey} />
               <div className="text-3xl font-bold text-gray-900">{formattedToday}</div>
               <div className="text-sm text-gray-600">{selectedShiftLabel}</div>
               <label>Operational date <input type="date" value={day} onChange={e => { setSchedule([]); setDay(e.target.value); }} /></label>
@@ -355,11 +367,11 @@ export function GanttChart() {
               </div>
               <div className="rounded-lg border bg-white px-3 py-2">
                 <div className="text-xs text-gray-500">Morning Shift</div>
-                <div className="font-semibold">{filteredSchedule.filter((d) => d.shift === "morning").length}</div>
+                <div className="font-semibold">{activeScope.filter(d => d.shift === "morning").length}</div>
               </div>
               <div className="rounded-lg border bg-white px-3 py-2">
                 <div className="text-xs text-gray-500">Afternoon Shift</div>
-                <div className="font-semibold">{filteredSchedule.filter((d) => d.shift === "afternoon").length}</div>
+                <div className="font-semibold">{activeScope.filter(d => d.shift === "afternoon").length}</div>
               </div>
               <div className="rounded-lg border bg-white px-3 py-2">
                 <div className="text-xs text-gray-500">Coverage</div>
@@ -481,6 +493,7 @@ export function GanttChart() {
           <aside className="w-full space-y-4 overflow-y-auto lg:sticky lg:top-4 lg:h-[calc(100vh-10rem)] lg:w-80 lg:self-start">
             <div className="rounded-xl border bg-white p-4">
               <h3 className="mb-3 font-semibold">Coverage Matrix</h3>
+              <p className="mb-2 text-xs text-gray-500">Officers assigned at each displayed hour (Asia/Manila). Includes completed service.</p>
               <div className="space-y-1 overflow-x-auto">
                 {/* Hour header */}
                 <div className="grid gap-1 text-[10px] text-gray-500" style={{gridTemplateColumns: `4rem repeat(${hourSlots.length}, minmax(2rem, 1fr))`}}>

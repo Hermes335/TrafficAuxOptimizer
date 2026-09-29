@@ -3,15 +3,21 @@
 Lock order is bottlenecks, then officers, then deployments. The small operational
 roster is locked as a unit so overlapping batches cannot race capacity checks.
 """
+import json
+from hashlib import sha256
+from django.core.serializers.json import DjangoJSONEncoder
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import APIException
 
-from core.models import Bottleneck, Deployment, Officer, OptimizationRun
+from core.models import Bottleneck, Deployment, Incident, Officer, OptimizationRun, ScheduleRevision
 from core.operational_time import MANILA, operational_date, shift_window
 from core.realtime import broadcast
 from core.utils import write_audit_log
+from core.staffing import required_staffing
+from optimization.input_policy import input_issues
 
 
 class ScheduleConflict(APIException):
@@ -56,8 +62,23 @@ def sync_officer_status():
     now = timezone.now()
     active = Deployment.objects.filter(is_deleted=False, status="assigned", start_time__lte=now, end_time__gt=now)
     ids = active.values_list("officer_id", flat=True)
-    Officer.objects.filter(is_deleted=False, status="deployed").exclude(pk__in=ids).update(status="available", updated_at=now)
-    Officer.objects.filter(is_deleted=False, status="available", pk__in=ids).update(status="deployed", updated_at=now)
+    released = Officer.objects.filter(is_deleted=False, status="deployed").exclude(pk__in=ids).update(status="available", updated_at=now)
+    activated = Officer.objects.filter(is_deleted=False, status="available", pk__in=ids).update(status="deployed", updated_at=now)
+    return released + activated
+
+
+def schedule_version(shift, day):
+    start, end = shift_window(shift, day)
+    rows = list(Deployment.objects.filter(shift=shift, start_time__lt=end, end_time__gt=start).order_by("pk").values(
+        "id", "officer_id", "bottleneck_id", "start_time", "end_time", "status", "assignment_type", "source", "revision_id", "is_deleted", "updated_at"))
+    return sha256(json.dumps(rows, cls=DjangoJSONEncoder, sort_keys=True).encode()).hexdigest()
+
+
+def assignment_snapshot(row):
+    return {"deployment_id": row.pk, "officer_id": row.officer_id, "officer_name": row.officer.name,
+            "badge_number": row.officer.badge_number, "bottleneck_id": row.bottleneck_id,
+            "bottleneck_name": row.bottleneck.name, "start_time": row.start_time.isoformat(),
+            "end_time": row.end_time.isoformat(), "status": row.status, "source": row.source}
 
 
 def validate_entries(entries, excluded_ids, nodes, officers):
@@ -121,6 +142,7 @@ def save_assignment(actor, payload, deployment_id=None):
         candidate.pk = old.pk
         candidate.created_at = old.created_at
         candidate.source = old.source
+        candidate.revision_id = old.revision_id
     candidate.save()
     sync_officer_status()
     schedule_event(actor, "update" if old else "create", {"deployment_id": candidate.pk})
@@ -130,6 +152,17 @@ def save_assignment(actor, payload, deployment_id=None):
 @transaction.atomic
 def publish(actor, payload, preview=False):
     nodes, officers = lock_schedule()
+    key = payload.get("idempotency_key")
+    fingerprint = sha256(json.dumps({"actor": actor.pk, "payload": dict(payload)},
+        cls=DjangoJSONEncoder, sort_keys=True).encode()).hexdigest()
+    if not preview:
+        if not isinstance(key, str) or not 8 <= len(key) <= 64:
+            raise serializers.ValidationError({"idempotency_key": "Provide a publication request key (8–64 characters)."})
+        previous = ScheduleRevision.objects.filter(idempotency_key=key).first()
+        if previous:
+            if previous.request_fingerprint != fingerprint:
+                raise ScheduleConflict("This publication key was already used for a different request.")
+            return previous.response
     run = OptimizationRun.objects.filter(run_id=payload.get("run_id"), is_deleted=False).first()
     if not run or run.status != "completed":
         raise ScheduleConflict("Select a completed optimization run.")
@@ -137,11 +170,35 @@ def publish(actor, payload, preview=False):
         raise ScheduleConflict("Invalid optimization result.")
     if run.result_data.get("synthetic_data_used"):
         raise ScheduleConflict("Simulated results cannot be published. Run again with operational inputs.")
+    if run.parameters.get("mode") == "shadow":
+        raise ScheduleConflict("Shadow recommendations cannot be published. Export the recommendation for comparison.")
+    snapshot = run.result_data.get("input_snapshot")
+    if not isinstance(snapshot, dict) or not snapshot.get("bottlenecks"):
+        raise ScheduleConflict("This run has no verified input snapshot. Run optimization again.")
+    if any(node.get("provenance", {}).get("is_synthetic") for node in snapshot["bottlenecks"]) or snapshot.get("weather", {}).get("is_synthetic"):
+        raise ScheduleConflict("Simulated inputs cannot be published, including with a supervisor override.")
+    day = serializers.DateField().run_validation(payload.get("operational_date", run.parameters.get("operational_date")))
+    if str(day) != run.parameters.get("operational_date") or snapshot.get("operational_date") != str(day):
+        raise ScheduleConflict("Publication date must match the recommendation's operational date. Run optimization for the selected date.")
+    now = timezone.now()
+    issues = input_issues(snapshot, now)
+    reason = payload.get("input_override_reason", "")
+    if not isinstance(reason, str):
+        raise serializers.ValidationError({"input_override_reason": "Provide a text reason."})
+    reason = reason.strip()
+    if issues and len(reason) < 10:
+        raise ScheduleConflict({"detail": "Inputs are stale or unverified. Refresh inputs and re-run, or record a supervisor override reason.", "input_issues": issues})
     shift = (run.parameters or {}).get("shift")
     if shift not in {"morning", "afternoon"}:
         raise ScheduleConflict("The run has no valid operational shift. Run optimization again.")
     if payload.get("shift", shift) != shift:
         raise ScheduleConflict("Publication shift must match the optimization run.")
+    shift_start, shift_end = shift_window(shift, day)
+    if shift_end <= now:
+        raise ScheduleConflict("This shift has ended. Publication cannot backdate operational assignments.")
+    version = schedule_version(shift, day)
+    if not preview and payload.get("expected_revision") != version:
+        raise ScheduleConflict("The schedule changed or has not been reviewed. Request a fresh publication preview.")
     solutions = (run.result_data or {}).get("top_solutions")
     if not isinstance(solutions, list) or not solutions or not isinstance(solutions[0], dict):
         raise ScheduleConflict("Invalid optimization result.")
@@ -160,6 +217,9 @@ def publish(actor, payload, preview=False):
         })
         if not serializer.is_valid():
             raise ScheduleConflict({"detail": "Invalid proposed assignment.", "errors": serializer.errors})
+        serializer.validated_data["start_time"] = max(serializer.validated_data["start_time"], now)
+        if serializer.validated_data["end_time"] <= serializer.validated_data["start_time"]:
+            raise ScheduleConflict("The proposed assignment window has ended.")
         entries.append(serializer.validated_data)
     first = entries[0]
     replace = payload.get("replace_existing", True)
@@ -168,20 +228,70 @@ def publish(actor, payload, preview=False):
     old = list(Deployment.objects.filter(is_deleted=False, status="assigned", shift=shift,
         start_time__lt=first["end_time"], end_time__gt=first["start_time"])) if replace else []
     candidates = validate_entries(entries, [d.pk for d in old], nodes, officers)
+    current_nodes = list(Bottleneck.objects.filter(is_deleted=False, is_archived=False).prefetch_related(
+        Prefetch("incidents", queryset=Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"]), to_attr="publication_incidents")))
+    if {n.pk for n in current_nodes} != {n.get("id") for n in snapshot["bottlenecks"]}:
+        raise ScheduleConflict("The active locations changed. Run optimization again.")
+    retained = list(Deployment.objects.filter(is_deleted=False, status="assigned", shift=shift,
+        start_time__lt=first["end_time"], end_time__gt=first["start_time"]).exclude(pk__in=[d.pk for d in old]))
+    gaps = []
+    for node in current_nodes:
+        required = required_staffing(node, node.publication_incidents)
+        rows = [d for d in retained + candidates if d.bottleneck_id == node.pk]
+        moments = {first["start_time"], first["end_time"]}
+        for row in rows:
+            moments.update([max(first["start_time"], row.start_time), min(first["end_time"], row.end_time)])
+        minimum = min((sum(d.start_time <= moment < d.end_time for d in rows) for moment in sorted(moments)[:-1]), default=0)
+        if minimum < required:
+            gaps.append(f"{node.name}: {minimum} proposed / {required} required.")
+    if gaps:
+        raise ScheduleConflict({"detail": "Current staffing requirements are not met. Re-run optimization.", "staffing_gaps": gaps})
+    before_rows = [assignment_snapshot(d) for d in old]
+    for candidate in candidates:
+        candidate.source = "optimized"
+    after_rows = [assignment_snapshot(d) for d in candidates]
+    old_pairs = {(d.officer_id, d.bottleneck_id) for d in old}
+    new_pairs = {(d.officer_id, d.bottleneck_id) for d in candidates}
     result = {"run_id": run.run_id, "shift": shift, "start_time": first["start_time"], "end_time": first["end_time"],
         "operational_date": first["start_time"].astimezone(MANILA).date(), "created": len(candidates), "skipped": [],
         "staff_added": sorted(set(d.officer_id for d in candidates) - set(d.officer_id for d in old)),
         "staff_removed": sorted(set(d.officer_id for d in old) - set(d.officer_id for d in candidates)),
-        "replaced": len(old), "conflicts": []}
+        "replaced": len(old), "conflicts": [], "expected_revision": version,
+        "captured_at": snapshot.get("captured_at"), "input_issues": issues,
+        "added_assignments": [d for d in after_rows if (d["officer_id"], d["bottleneck_id"]) not in old_pairs],
+        "removed_assignments": [d for d in before_rows if (d["officer_id"], d["bottleneck_id"]) not in new_pairs]}
     if preview:
         return result
-    Deployment.objects.filter(pk__in=[d.pk for d in old]).update(is_deleted=True, status="cancelled", updated_at=timezone.now())
+    json_result = json.loads(json.dumps(result, cls=DjangoJSONEncoder))
+    revision = ScheduleRevision.objects.create(run=run, actor=actor, operational_date=day, shift=shift,
+        published_at=now, effective_start=first["start_time"], effective_end=first["end_time"],
+        idempotency_key=key, request_fingerprint=fingerprint, previous_assignments=before_rows,
+        assignments=after_rows, response=json_result)
+    for row in old:
+        # Preserve elapsed service and any unaffected future tail.
+        if row.end_time > first["end_time"]:
+            Deployment.objects.create(officer=row.officer, bottleneck=row.bottleneck, shift=row.shift,
+                start_time=first["end_time"], end_time=row.end_time, assignment_type=row.assignment_type,
+                source=row.source, revision_id=row.revision_id)
+        if row.start_time < first["start_time"]:
+            row.end_time = first["start_time"]
+            row.status = "completed" if row.end_time <= now else "assigned"
+        else:
+            row.status = "cancelled"
+        row.save(update_fields=["end_time", "status", "updated_at"])
     for candidate in candidates:
         candidate.source = "optimized"
+        candidate.revision = revision
         candidate.save()
     sync_officer_status()
-    schedule_event(actor, "publish", {"run_id": run.run_id, "created": len(candidates)})
-    return result
+    json_result["revision_id"] = revision.pk
+    revision.response = json_result
+    revision.assignments = [assignment_snapshot(candidate) for candidate in candidates]
+    revision.save(update_fields=["response", "assignments"])
+    schedule_event(actor, "publish", {"run_id": run.run_id, "revision_id": revision.pk,
+        "created": len(candidates), "input_override_reason": reason, "input_issues": issues,
+        "previous_assignments": before_rows, "assignments": after_rows})
+    return json_result
 
 
 @transaction.atomic
@@ -195,7 +305,18 @@ def clear_schedule(actor, shift=None, day=None):
     queryset = queryset.filter(start_time__lt=end, end_time__gt=start)
     if shift:
         queryset = queryset.filter(shift=shift)
-    count = queryset.update(is_deleted=True, status="cancelled", updated_at=timezone.now())
+    rows = list(queryset.select_related("officer", "bottleneck"))
+    before = [assignment_snapshot(row) for row in rows]
+    now = timezone.now()
+    for row in rows:
+        if row.start_time < now:
+            row.end_time = min(row.end_time, now)
+            row.status = "completed"
+        else:
+            row.status = "cancelled"
+        row.save(update_fields=["end_time", "status", "updated_at"])
+    count = len(rows)
     sync_officer_status()
-    schedule_event(actor, "clear", {"cleared": count})
+    if count:
+        schedule_event(actor, "clear", {"cleared": count, "previous_assignments": before})
     return count

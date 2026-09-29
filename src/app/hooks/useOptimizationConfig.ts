@@ -31,7 +31,7 @@ export function computeAutoWeights(
   let tsi = 35;
   let wif = 25;
   let rpw = 25;
-  let ru = 15;
+  const ru = 15;
 
   // Compute avg TSI
   const tsiValues = bottlenecks.flatMap(b => b.tsi == null ? [] : [b.tsi]);
@@ -66,10 +66,9 @@ export function computeAutoWeights(
     reasons.push(`${majorCount} major incident(s) → Road Priority weight slightly boosted`);
   }
 
-  // Low utilization → boost RU
+  // Available reserves do not imply unmet staffing demand.
   if (resourceUtilization < 40) {
-    ru += 10;
-    reasons.push(`Low resource utilization (${Math.round(resourceUtilization)}%) → Utilization weight boosted`);
+    reasons.push(`Roster utilization ${Math.round(resourceUtilization)}%: staffing targets determine deployment; surplus officers stay available`);
   }
 
   // Normalize to 100%

@@ -1,4 +1,5 @@
 from django.urls import path
+from .exports import RecommendationExportView
 
 from .views import (
     OptimizationCancelView,
@@ -10,6 +11,7 @@ from .views import (
 )
 
 urlpatterns = [
+    path("export/<str:run_id>/", RecommendationExportView.as_view(), name="optimization-export"),
     path("configure/", OptimizationConfigureView.as_view(), name="optimization-configure"),
     path("start/", OptimizationStartView.as_view(), name="optimization-start"),
     path("cancel/<str:run_id>/", OptimizationCancelView.as_view(), name="optimization-cancel"),

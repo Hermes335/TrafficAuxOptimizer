@@ -38,6 +38,8 @@ export function Dashboard() {
   const [showIncidentModal, setShowIncidentModal] = useState(false);
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(false);
   const [filterTerm, setFilterTerm] = useState("");
+  const [hiddenPoiCategories, setHiddenPoiCategories] = useState<string[]>([]);
+  const visiblePois = useMemo(() => pois.filter(poi => !hiddenPoiCategories.includes(poi.category)), [pois, hiddenPoiCategories]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
 
   // --- Bottleneck actions hook ---
@@ -157,7 +159,7 @@ export function Dashboard() {
     hasFittedRef: map.hasFittedRef,
     filteredBottlenecks,
     incidents,
-    pois,
+    pois: visiblePois,
     selectedBottleneckId: ba.selectedBottleneckId,
     onMarkerClick,
     onIncidentRemove: onRemoveIncident,
@@ -298,7 +300,10 @@ export function Dashboard() {
           {pois.length > 0 && <div aria-label="Point of interest marker legend" className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-5rem)] rounded-xl border border-slate-200 bg-white/95 px-3 py-2 shadow-lg backdrop-blur-sm">
             <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-slate-600">Points of interest</div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              {poiCategories.map(item => <span key={item.value} className="flex items-center gap-1 text-[11px] font-medium text-slate-800"><PoiSymbol category={item.value} className="h-5 w-4 shrink-0" />{item.label}</span>)}
+              {poiCategories.map(item => <button key={item.value} aria-pressed={!hiddenPoiCategories.includes(item.value)}
+                aria-label={`Show ${item.label} markers`} onClick={() => setHiddenPoiCategories(previous => previous.includes(item.value) ? previous.filter(value => value !== item.value) : [...previous, item.value])}
+                className={`flex items-center gap-1 rounded px-1 text-[11px] font-medium ${hiddenPoiCategories.includes(item.value) ? "text-slate-400" : "text-slate-800"}`}>
+                <PoiSymbol category={item.value} className="h-5 w-4 shrink-0" />{item.label}</button>)}
             </div>
           </div>}
         </div>

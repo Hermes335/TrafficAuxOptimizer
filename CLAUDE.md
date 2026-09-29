@@ -25,16 +25,27 @@ and Redis-backed Channels realtime updates.
   Keep interpreter/dependency differences in mind when diagnosing startup versus test behavior.
 
 ## Backend verification
-From `traffic_dss_backend` in PowerShell, using a disposable SQLite test database:
+From `traffic_dss_backend` in PowerShell, using the launcher's root interpreter and isolated SQLite/cache settings:
 ```powershell
-$env:DATABASE_URL = "sqlite:///:memory:"
-& ".\.venv\Scripts\python.exe" -m pytest --collect-only -q
-& ".\.venv\Scripts\python.exe" -m pytest -q
+& "..\.venv\Scripts\python.exe" -m pytest -q --ds=config.test_settings -p no:cacheprovider --basetemp=.test-tmp/regression
+& "..\.venv\Scripts\python.exe" manage.py check --settings=config.test_settings
+& "..\.venv\Scripts\python.exe" manage.py makemigrations --check --dry-run --settings=config.test_settings
 ```
-Some existing integration tests use Redis-backed broadcasts. Do not run tests against operational data.
-The frontend currently has no configured test script or project TypeScript checking configuration.
+`config.test_settings` uses in-memory SQLite, cache, Channels, and Celery. Progress storage follows that configured cache. Do not run tests against operational data.
+
+From the repository root: `npm.cmd test`, `npm.cmd run typecheck`, `npm.cmd run lint`, and `npm.cmd run build`.
+`node scripts/browser-review.cjs` runs the built renderer with mocked API responses and an isolated browser profile.
+
+## Operational changes (2026-09-28)
+- [Implementation report](IMPLEMENTATION_REPORT_2026-09-28.md) maps the September 27 review to fixes and verification.
+- Migration `core.0010_publication_history_and_run_health` adds publication history and run heartbeats. Apply it to the intended database before restarting updated Django/Celery services.
+- New runs save their operational date and operational/shadow mode. Shadow runs require a session name and cannot be published.
+- Publication requires a fresh preview revision and idempotency key. Missing legacy snapshots/date metadata require reoptimization. Stale/unverified inputs need refresh/reoptimization or an audited supervisor override; synthetic inputs and staffing violations cannot be overridden.
+- Officer/run details are authenticated. Public dashboard responses omit assignee identities.
+- [Field workflow](field_test/APPLICATION_WORKFLOW.md) documents dated comparisons and recommendation exports.
 
 ## Current review and field work
+- [Officer assignment fix dated 2026-09-29](MDFILES/OFFICER_ASSIGNMENT_FIX_2026-09-29.md) changes optimizer allocation and resource scoring to use staffing demand; restart the worker before generating new recommendations. The web/desktop platform decision is deferred at the user's request.
 - [Review dated 2026-09-19](MDFILES/CODE_REVIEW_2026-09-19.md) records verified findings,
   the three approved quick fixes, verification results and the deferred improvement backlog.
 - Older P1/P2/readiness documents are historical plans: verify their claims against current source.

@@ -202,7 +202,7 @@ def test_deployment_list_returns_paginated_results():
 
 
 @pytest.mark.django_db
-@patch("optimization.tasks.run_optimization.delay")
+@patch("optimization.tasks.run_optimization.apply_async")
 def test_quick_optimize_enqueue_success_returns_queued(mock_delay):
     user = get_user_model().objects.create_user(username="quick-success", password="pass12345")
     user.groups.add(Group.objects.get(name="supervisor"))
@@ -216,11 +216,11 @@ def test_quick_optimize_enqueue_success_returns_queued(mock_delay):
     run = OptimizationRun.objects.get(run_id=response.json()["run_id"])
     assert run.status == "queued"
     assert run.result_data == {}
-    mock_delay.assert_called_once_with(run.run_id)
+    mock_delay.assert_called_once_with(args=[run.run_id], task_id=run.task_id)
 
 
 @pytest.mark.django_db
-@patch("optimization.tasks.run_optimization.delay", side_effect=RuntimeError("broker unavailable"))
+@patch("optimization.tasks.run_optimization.apply_async", side_effect=RuntimeError("broker unavailable"))
 def test_quick_optimize_enqueue_failure_returns_503_and_marks_run_failed(mock_delay, caplog):
     user = get_user_model().objects.create_user(username="quick-failure", password="pass12345")
     user.groups.add(Group.objects.get(name="supervisor"))
@@ -238,7 +238,7 @@ def test_quick_optimize_enqueue_failure_returns_503_and_marks_run_failed(mock_de
     assert run.result_data["error"] == "Background queue unavailable."
     assert run.result_data["enqueue_error"] == "broker unavailable"
     assert "Failed to enqueue optimization" in caplog.text
-    mock_delay.assert_called_once_with(run.run_id)
+    mock_delay.assert_called_once_with(args=[run.run_id], task_id=run.task_id)
 
 
 @pytest.mark.django_db
@@ -689,21 +689,19 @@ def test_logout_blacklists_refresh_token():
     assert "blacklisted" in str(refresh_after_logout.data).lower() or "invalid" in str(refresh_after_logout.data).lower()
 
 
-@pytest.mark.django_db
+@pytest.mark.django_db(transaction=True)
 def test_audit_log_database_failure_logged():
-    """Test that audit log database failures are logged but don't break the request."""
+    """Audit failures outside a transaction are logged without raising."""
     from core.utils import write_audit_log
     from django.db import DatabaseError
     from unittest.mock import patch
-    import logging
     
     user = get_user_model().objects.create_user(username="audit-user", password="pass12345")
     
     # Mock AuditLog.objects.create to raise DatabaseError
     with patch("core.utils.AuditLog.objects.create", side_effect=DatabaseError("DB connection failed")):
         with patch("core.utils.logging.getLogger") as mock_get_logger:
-            mock_logger = logging.getLogger("test")
-            mock_get_logger.return_value = mock_logger
+            mock_logger = mock_get_logger.return_value
             
             # This should not raise an exception
             write_audit_log(user, "test_action", "test_resource", {"key": "value"})

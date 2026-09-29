@@ -1,5 +1,7 @@
 # Field Test Protocol — Diversion Road + Jaro District
 
+**Current application:** follow [APPLICATION_WORKFLOW.md](APPLICATION_WORKFLOW.md) for explicit shadow mode, exports, and dated comparisons. The historical workflow below predates publication revisions. Replace `YYYY-MM-DD` and `RUN_ID` in comparison examples with the selected recommendation's date and ID. Use the deployment board to verify manual assignments before a recommendation exists.
+
 ## Current shadow session: Prime State (2026-09-25)
 
 Prime State is bottleneck `B-TEST-VERIFY-2`. Use
@@ -75,7 +77,7 @@ optimized deployments published from the optimization run). After both weeks
 are complete, run:
 
 ```bash
-python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon
+python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon --date YYYY-MM-DD --run-id RUN_ID
 ```
 
 This outputs:

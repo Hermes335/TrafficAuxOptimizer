@@ -4,6 +4,8 @@
 
 The optimization assigns **officers to bottlenecks** using NSGA-II, a multi-objective genetic algorithm. Instead of finding one "best" solution, it finds a set of **trade-off solutions** (Pareto front) where no solution is better in all objectives simultaneously.
 
+As of September 29, 2026, staffing follows captured demand targets and surplus officers remain available. See [the assignment fix and pilot replay](OFFICER_ASSIGNMENT_FIX_2026-09-29.md). Earlier saved scores used a different resource objective and should not be compared directly with new scores.
+
 ---
 
 ## Step 1: Input Data
@@ -30,6 +32,7 @@ Bottlenecks: [B0, B2, B0, B1, B3]
 ```
 
 - O1 → B0, O2 → B2, O3 → B0, O4 → B1, O5 → B3
+- A value of `-1` keeps an officer in reserve. Initialization fills staffing targets rather than every location's maximum capacity.
 
 ---
 
@@ -63,13 +66,16 @@ coverage = (sum_of_assigned_priority_weights / total_priority_weights) x 100
 
 Goal: Prioritize high-importance roads (bridges, main intersections).
 
-### Objective 4 — Resource Utilization
+### Objective 4 — Staffing Efficiency
 
 ```
-utilization = (assigned_officers / total_officers) x 100
+filled_posts = sum(min(assigned_at_location, staffing_target))
+staffing_efficiency = filled_posts / max(1, total_target_posts, assigned_officers) x 100
 ```
 
-Goal: Deploy as many officers as possible.
+Goal: Meet staffing requirements without extra assignments. The existing API parameter `resource_utilization_weight` now weights this objective in both fitness and Pareto selection.
+
+Actual roster utilization is still reported separately as `(assigned_officers / total_officers) x 100`. A lower utilization percentage can be appropriate when all staffing targets are filled and surplus officers remain available.
 
 ---
 
@@ -80,7 +86,11 @@ Solutions that violate constraints get fitness multiplied by 1e-6 (effectively z
 | Constraint | Rule |
 |------------|------|
 | Minimum coverage | >= min(60%, officers/bottlenecks x 90%) |
-| No over-assignment | No bottleneck gets > max(4, fair_share x 3) officers |
+| Operational cap | No bottleneck exceeds its configured `max_officers_allowed` |
+| Staffing target | No bottleneck exceeds the captured target |
+| Required staffing | Each location meets its captured minimum when the roster can meet all minima; otherwise shortages are reported |
+
+The captured target follows the existing staffing policy: configured minimum below TSI 0.5, minimum plus one from TSI 0.5 to below 0.8, and the configured maximum from TSI 0.8. A linked active/investigating critical incident adds one, bounded by the operational cap. Traffic, weather, road priority, and POIs continue to influence coverage or travel estimates; they do not justify filling every cap automatically.
 
 ---
 

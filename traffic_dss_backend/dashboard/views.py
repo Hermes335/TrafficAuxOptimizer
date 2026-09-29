@@ -17,7 +17,7 @@ from core.assignment_scoring import rank_candidates_for_bottleneck
 from core.data_quality_checks import get_data_quality_issues
 from core.models import Bottleneck, Deployment, Incident, Officer, OptimizationRun, POI, TrafficData, WeatherData
 from core.serializers import BottleneckSerializer, OfficerSerializer, IncidentCreateSerializer, IncidentResponseSerializer, POISerializer
-from core.utils import write_audit_log
+from core.mutations import record_mutation
 from core.permissions import IsSupervisor, SupervisorWrite
 
 
@@ -76,7 +76,7 @@ class DashboardKPIsView(APIView):
 
 class DashboardBottlenecksView(APIView):
 	permission_classes = [permissions.AllowAny]
-	throttle_classes = []
+	throttle_scope = "public_dashboard"
 
 	def get(self, request):
 		from core.operational_time import shift_window, operational_date
@@ -127,7 +127,7 @@ class DashboardBottlenecksView(APIView):
 			deployments = getattr(b, "active_deployments", [])
 			assigned_officers = [
 				{"name": d.officer.name, "badge_number": d.officer.badge_number}
-				for d in deployments
+				for d in deployments if request.user.is_authenticated
 			]
 			# Use bottleneck's tsi field if available, otherwise fall back to traffic data
 			tsi_val = b.tsi
@@ -174,7 +174,7 @@ class DashboardBottlenecksView(APIView):
 					"latitude": b.latitude,
 					"longitude": b.longitude,
 					"status": status_value,
-					"tsi": round(tsi_val, 2),
+					"tsi": tsi_val,
 					"weather_impact_factor": wif,
 					"assigned_officers": assigned_officers,
 					"deployed_officers": assigned_count,
@@ -194,8 +194,8 @@ class DashboardBottlenecksView(APIView):
 
 
 class DashboardOfficersView(APIView):
-	permission_classes = [permissions.AllowAny]
-	throttle_classes = []
+	permission_classes = [permissions.IsAuthenticated]
+	throttle_scope = "operational_read"
 
 	def get(self, request):
 		officers = Officer.objects.filter(is_deleted=False).order_by("name", "id")
@@ -255,7 +255,7 @@ class DashboardBottleneckManageView(APIView):
 		)
 		serializer.is_valid(raise_exception=True)
 		created = serializer.save()
-		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "bottlenecks_updated"}))
+		record_mutation(request.user, "create", "bottleneck", {"bottleneck_id": created.pk}, "bottlenecks_updated")
 
 		return Response(BottleneckSerializer(created).data, status=status.HTTP_201_CREATED)
 
@@ -275,12 +275,15 @@ class DashboardBottleneckManageView(APIView):
 			"bottleneck_type": payload.get("bottleneck_type", bottleneck.bottleneck_type),
 			"road_priority_weight": payload.get("road_priority_weight", bottleneck.road_priority_weight),
 			"tsi": payload.get("tsi", bottleneck.tsi),
+			"min_officers_required": payload.get("min_officers_required", bottleneck.min_officers_required),
+			"max_officers_allowed": payload.get("max_officers_allowed", bottleneck.max_officers_allowed),
+			"is_archived": payload.get("is_archived", bottleneck.is_archived),
 		}
 
 		serializer = BottleneckSerializer(bottleneck, data=allowed_fields, partial=True)
 		serializer.is_valid(raise_exception=True)
 		updated = serializer.save()
-		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "bottlenecks_updated"}))
+		record_mutation(request.user, "update", "bottleneck", {"bottleneck_id": updated.pk}, "bottlenecks_updated")
 		return Response(BottleneckSerializer(updated).data)
 
 	@transaction.atomic
@@ -304,7 +307,7 @@ class DashboardBottleneckManageView(APIView):
 
 		bottleneck.is_deleted = True
 		bottleneck.save(update_fields=["is_deleted", "updated_at"])
-		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "bottlenecks_updated"}))
+		record_mutation(request.user, "delete", "bottleneck", {"bottleneck_id": bottleneck.pk}, "bottlenecks_updated")
 		return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -318,7 +321,7 @@ class DashboardOfficerManageView(APIView):
 		serializer = OfficerSerializer(data=payload)
 		serializer.is_valid(raise_exception=True)
 		created = serializer.save()
-		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "officers_updated"}))
+		record_mutation(request.user, "create", "officer", {"officer_id": created.pk}, "officers_updated")
 		return Response(OfficerSerializer(created).data, status=status.HTTP_201_CREATED)
 
 	@transaction.atomic
@@ -331,7 +334,7 @@ class DashboardOfficerManageView(APIView):
 		serializer = OfficerSerializer(officer, data=request.data or {}, partial=True)
 		serializer.is_valid(raise_exception=True)
 		updated = serializer.save()
-		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "officers_updated"}))
+		record_mutation(request.user, "update", "officer", {"officer_id": updated.pk}, "officers_updated")
 		return Response(OfficerSerializer(updated).data)
 
 	@transaction.atomic
@@ -350,7 +353,7 @@ class DashboardOfficerManageView(APIView):
 
 		officer.is_deleted = True
 		officer.save(update_fields=["is_deleted", "updated_at"])
-		transaction.on_commit(lambda: broadcast("dashboard_live", "dashboard_event", {"event": "officers_updated"}))
+		record_mutation(request.user, "delete", "officer", {"officer_id": officer.pk}, "officers_updated")
 		return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -401,13 +404,13 @@ class IncidentListCreateView(APIView):
 		page = paginator.paginate_queryset(incidents, request, view=self)
 		return paginator.get_paginated_response(IncidentResponseSerializer(page, many=True).data)
 
+	@transaction.atomic
 	def post(self, request):
+		lock_schedule()
 		serializer = IncidentCreateSerializer(data=request.data, context={"request": request})
 		serializer.is_valid(raise_exception=True)
 		incident = serializer.save()
-		write_audit_log(request.user, "create", "incident", {"incident_id": incident.id})
-		from core.realtime import broadcast
-		broadcast("dashboard_live", "dashboard_event", {"event": "incident_reported", "id": incident.id})
+		record_mutation(request.user, "create", "incident", {"incident_id": incident.id}, "incident_reported")
 		return Response(IncidentResponseSerializer(incident).data, status=status.HTTP_201_CREATED)
 
 
@@ -422,15 +425,14 @@ class IncidentDetailView(APIView):
 
 	@transaction.atomic
 	def put(self, request, incident_id):
+		lock_schedule()
 		incident = Incident.objects.select_for_update().filter(id=incident_id, is_deleted=False).first()
 		if not incident:
 			return Response({"detail": "Incident not found"}, status=status.HTTP_404_NOT_FOUND)
 		serializer = IncidentCreateSerializer(incident, data=request.data, partial=True)
 		serializer.is_valid(raise_exception=True)
 		incident = serializer.save()
-		write_audit_log(request.user, "update", "incident", {"incident_id": incident.id})
-		from core.realtime import broadcast
-		broadcast("dashboard_live", "dashboard_event", {"event": "incident_updated", "id": incident.id})
+		record_mutation(request.user, "update", "incident", {"incident_id": incident.id}, "incident_updated")
 		return Response(IncidentResponseSerializer(incident).data)
 
 
@@ -444,6 +446,7 @@ class POIListView(APIView):
 		page = paginator.paginate_queryset(pois, request, view=self)
 		return paginator.get_paginated_response(POISerializer(page, many=True).data)
 
+	@transaction.atomic
 	def post(self, request):
 		data = request.data.copy()
 		if not data.get("poi_id"):
@@ -452,7 +455,7 @@ class POIListView(APIView):
 		serializer = POISerializer(data=data)
 		if serializer.is_valid():
 			poi = serializer.save()
-			broadcast("dashboard_live", "dashboard_event", {"event": "pois_updated"})
+			record_mutation(request.user, "create", "poi", {"poi_id": poi.poi_id}, "pois_updated")
 			return Response(POISerializer(poi).data, status=status.HTTP_201_CREATED)
 		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
@@ -460,6 +463,7 @@ class POIListView(APIView):
 class POIDetailView(APIView):
 	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
+	@transaction.atomic
 	def put(self, request, poi_id):
 		poi = POI.objects.filter(poi_id=poi_id, is_deleted=False).first()
 		if not poi:
@@ -467,16 +471,18 @@ class POIDetailView(APIView):
 		serializer = POISerializer(poi, data=request.data, partial=True)
 		if serializer.is_valid():
 			poi = serializer.save()
+			record_mutation(request.user, "update", "poi", {"poi_id": poi.poi_id}, "pois_updated")
 			return Response(POISerializer(poi).data)
 		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+	@transaction.atomic
 	def delete(self, request, poi_id):
 		poi = POI.objects.filter(poi_id=poi_id, is_deleted=False).first()
 		if not poi:
 			return Response({"detail": "POI not found."}, status=status.HTTP_404_NOT_FOUND)
 		poi.is_deleted = True
 		poi.save(update_fields=["is_deleted", "updated_at"])
-		broadcast("dashboard_live", "dashboard_event", {"event": "pois_updated"})
+		record_mutation(request.user, "delete", "poi", {"poi_id": poi.poi_id}, "pois_updated")
 		return Response(status=status.HTTP_204_NO_CONTENT)
 
 

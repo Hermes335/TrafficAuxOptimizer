@@ -49,6 +49,7 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     const node={id:"B-TEST",name:'Test junction <img src=x onerror="window.exploited=true">',status:"normal",
       latitude:10.72,longitude:122.56,tsi:0.1,road_priority_weight:1,deployed_officers:0,required_officers:2};
     let publications=0;
+    const previewRuns=[], exportedRuns=[];
     ws.onmessage=async message=>{
       const event=JSON.parse(message.data);
       if(event.id) {const job=pending.get(event.id);if(job){pending.delete(event.id);event.error?job.reject(event.error):job.resolve(event.result);}return;}
@@ -62,12 +63,29 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       if(url.pathname.includes("/kpis/")) payload=kpis;
       else if(url.pathname.includes("/bottlenecks/")) payload={...empty,count:1,results:[node]};
       else if(url.pathname.includes("/weather/")) payload={condition:null,weather_impact_factor:null,source:"missing",available:false,data_status:"unavailable",is_stale:false};
-      else if(url.pathname.includes("/history/")) payload={...empty,count:1,results:[{id:1,run_id:"morning-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{}}]};
+      else if(url.pathname.includes("/optimization/status/")) payload={run_id:"early-fixture",status:"completed",current_generation:48,total_generations:300,current_fitness:95.75,converged_early:true,updated_at:new Date().toISOString(),estimated_completion:new Date().toISOString()};
+      else if(url.pathname.includes("/optimization/results/")) payload={run_id:"early-fixture",status:"completed",fitness_scores:Array.from({length:48},(_,i)=>95.5+i/200),total_generations:300,converged_early:true,top_solutions:[{staffing_efficiency:100,reserve_officers:7,staffing_targets:{"B-TEST":2},staffing_shortages:{},resource_utilization:22.2,assignments:[{officer_id:1,badge_number:"DEMO-1",bottleneck_id:"B-TEST",bottleneck_name:"Quiet junction"},{officer_id:2,badge_number:"DEMO-2",bottleneck_id:"B-TEST",bottleneck_name:"Quiet junction"}]}],parameters:{}};
+      else if(url.pathname.includes("/history/")) payload={...empty,count:3,results:[
+        {id:1,run_id:"morning-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{}},
+        {id:2,run_id:"generated-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{synthetic_data_used:["tsi"]}},
+        {id:3,run_id:"shadow-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning",mode:"shadow"},fitness_scores:[],result_data:{}},
+      ]};
       else if(url.pathname.includes("/preview-optimization/")) {
+        previewRuns.push(JSON.parse(request.postData).run_id);
         const day=JSON.parse(request.postData).operational_date;
-        payload={run_id:"morning-fixture",shift:"morning",created:2,replaced:1,skipped:[],staff_added:[2,3],staff_removed:[1],conflicts:[],operational_date:day,start_time:day+"T06:00:00+08:00",end_time:day+"T14:00:00+08:00"};
+        payload={run_id:"morning-fixture",shift:"morning",created:2,replaced:1,skipped:[],staff_added:[2,3],staff_removed:[1],conflicts:[],operational_date:day,start_time:day+"T06:00:00+08:00",end_time:day+"T14:00:00+08:00",expected_revision:"browser-review",captured_at:new Date().toISOString(),input_issues:[],added_assignments:[],removed_assignments:[]};
+        payload.added_assignments=[{officer_id:2,officer_name:"Officer Two",badge_number:"DEMO-2",bottleneck_id:"B-TEST",bottleneck_name:"Test junction"},{officer_id:3,officer_name:"Officer Three",badge_number:"DEMO-3",bottleneck_id:"B-TEST",bottleneck_name:"Test junction"}];
+        payload.removed_assignments=[{officer_id:1,officer_name:"Officer One",badge_number:"DEMO-1",bottleneck_id:"B-TEST",bottleneck_name:"Test junction"}];
       }
-      else if(url.pathname.includes("/publish-optimization/")) {publications++;payload={created:2,shift:"morning",skipped:[]};}
+      else if(url.pathname.includes("/publish-optimization/")) {
+        const input=JSON.parse(request.postData);
+        if(input.expected_revision!=="browser-review" || !input.idempotency_key) errors.push("Publication lacks its reviewed revision or request key");
+        publications++;payload={created:2,shift:"morning",skipped:[]};
+      }
+      else if(url.pathname.includes("/optimization/export/")) {
+        exportedRuns.push(decodeURIComponent(url.pathname.split("/").filter(Boolean).at(-1)));
+        await call("Fetch.fulfillRequest",{requestId,responseCode:200,responseHeaders:[{name:"Content-Type",value:"text/csv"},{name:"Access-Control-Allow-Origin",value:"*"}],body:Buffer.from("Run_ID,Location\nmorning-fixture,Test junction\n").toString("base64")});return;
+      }
       else if(url.pathname.includes("/pois/") && request.method==="GET") payload={...empty,count:5,results:[
         ["hospital",10.720,122.560],["fire_station",10.716,122.567],["police_station",10.724,122.565],
         ["school",10.717,122.552],["other",10.726,122.556],
@@ -82,9 +100,11 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       await call("Fetch.fulfillRequest",{requestId,responseCode:200,responseHeaders:headers,body:Buffer.from(JSON.stringify(payload)).toString("base64")});
     };
     await call("Page.enable");await call("Runtime.enable");await call("Network.enable");
+    await call("Browser.setDownloadBehavior",{behavior:"deny"});
     await call("Network.setBlockedURLs",{urls:["ws://*","wss://*"]});
     await call("Fetch.enable",{patterns:[{urlPattern:"*",requestStage:"Request"}]});
     await call("Emulation.setTimezoneOverride",{timezoneId:"America/Los_Angeles"});
+    await call("Emulation.setFocusEmulationEnabled",{enabled:true});
     await call("Page.addScriptToEvaluateOnNewDocument",{source:'window.WebSocket = class { constructor(){setTimeout(()=>this.onclose?.(),10);} close(){} };'});
     const auth=role=>`localStorage.setItem("auth_token","test-only");localStorage.setItem("refresh_token","test-refresh");localStorage.setItem("auth_user",JSON.stringify({id:1,username:"Browser fixture",role:"${role}",permissions:[],shift:"morning"}));`;
     const authScript=await call("Page.addScriptToEvaluateOnNewDocument",{source:auth("supervisor")});
@@ -105,6 +125,10 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     assert.equal(await evaluate("[...document.querySelectorAll('a')].some(e=>/scenarios|analytics/i.test(e.getAttribute('href')))"),false);
     await waitFor("document.querySelectorAll('.poi-marker').length===5");
     assert.equal(await evaluate("new Set([...document.querySelectorAll('.poi-marker')].map(e=>e.dataset.poiCategory)).size"),5);
+    await evaluate("document.querySelector('button[aria-label=\"Show School markers\"]').click()");
+    await waitFor("document.querySelectorAll('.poi-marker').length===4");
+    await evaluate("document.querySelector('button[aria-label=\"Show School markers\"]').click()");
+    await waitFor("document.querySelectorAll('.poi-marker').length===5");
     await evaluate('document.querySelector(\'button[aria-label^="Test junction"]\')?.click()');
     await delay(250);
     const poiShot=await call("Page.captureScreenshot",{format:"png"});
@@ -113,7 +137,8 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await call("Page.navigate",{url:origin+"/gantt-chart"});
     await waitFor("[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='Preview publication' && !e.disabled)");
     await clickText("Preview publication");
-    await waitFor("document.querySelector('[role=dialog]')?.innerText.includes('morning')");
+    await waitFor("[...document.querySelectorAll('[role=dialog] button')].some(e=>e.textContent.trim()==='Confirm publication' && !e.disabled)");
+    assert.equal(await evaluate("document.querySelector('[role=dialog]').innerText.includes('Officer Two (DEMO-2)')"),true);
     assert.equal(publications,0);
     await delay(250);
     const shot=await call("Page.captureScreenshot",{format:"png"});
@@ -121,6 +146,64 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await clickText("Confirm publication");
     await waitFor("document.body.innerText.includes('Published 2 assignments')");
     assert.equal(publications,1);
+    console.log("Opening optimization history actions");
+    await call("Page.navigate",{url:origin+"/optimization"});
+    const actions='document.querySelector(\'[role="group"][aria-label="Actions for morning-fixture"]\')';
+    await waitFor(`Boolean(${actions})`);
+    for (const width of [1920,1280]) {
+      await call("Emulation.setDeviceMetricsOverride",{width,height:1000,deviceScaleFactor:1,mobile:false});
+      await delay(100);
+      const geometry=await evaluate(`(() => {
+        const group=${actions}; const buttons=[...group.querySelectorAll('button')];
+        const rects=buttons.map(button=>button.getBoundingClientRect());
+        const groups=[...document.querySelectorAll('[role="group"][aria-label^="Actions for "]')];
+        return {count:buttons.length,heights:rects.map(rect=>rect.height),tops:rects.map(rect=>rect.top),gap:rects[1].left-rects[0].right,
+          rowHeights:groups.map(group=>group.closest('tr').getBoundingClientRect().height)};
+      })()`);
+      assert.equal(geometry.count,2);
+      assert.equal(geometry.heights[0],geometry.heights[1],"History actions should be the same height");
+      assert.equal(geometry.tops[0],geometry.tops[1],"History actions should share one row");
+      assert(geometry.gap>=8,"History actions need visible spacing");
+      assert.equal(geometry.rowHeights.length,3);
+      assert(geometry.rowHeights.every(height=>Math.abs(height-geometry.rowHeights[0])<1),"Generated/shadow warnings must not increase row height");
+      if(width===1920) {
+        const actionsShot=await call("Page.captureScreenshot",{format:"png"});
+        fs.writeFileSync(path.join(artifacts,"optimization-actions.png"),Buffer.from(actionsShot.data,"base64"));
+      }
+    }
+    const blockedActions='document.querySelector(\'[role="group"][aria-label="Actions for generated-fixture"]\')';
+    const previewCount=previewRuns.length;
+    await evaluate(`${blockedActions}.querySelector('button[aria-label="Preview publication"]').click()`);
+    assert.equal(previewRuns.length,previewCount,"Generated runs cannot open publication previews");
+    await evaluate(`${blockedActions}.querySelector('span[tabindex="0"]').focus()`);
+    await waitFor("document.querySelector('[role=tooltip]')?.textContent.includes('generated inputs (tsi)')");
+    await evaluate(`${blockedActions}.querySelector('span[tabindex="0"]').blur()`);
+    await waitFor("!document.querySelector('[role=tooltip]')");
+    await evaluate(`${actions}.querySelector('button[aria-label="Preview publication"]').click()`);
+    await waitFor("[...document.querySelectorAll('[role=dialog] button')].some(e=>e.textContent.trim()==='Confirm publication' && !e.disabled)");
+    assert.equal(previewRuns.at(-1),"morning-fixture");
+    await clickText("Cancel");
+    await waitFor("!document.querySelector('[role=dialog]')");
+    await evaluate(`${actions}.querySelector('button[aria-label="Export recommendation"]').click()`);
+    await waitFor(`${actions}.querySelector('button[aria-label="Export recommendation"]')?.disabled === false`);
+    assert.deepEqual(exportedRuns,["morning-fixture"]);
+    assert.equal(publications,1,"Preview/export must not publish a run");
+    await call("Emulation.clearDeviceMetricsOverride");
+    console.log("Opening early-completed optimization run");
+    await call("Page.navigate",{url:origin+"/optimization-running?run_id=early-fixture"});
+    await waitFor("document.body.innerText.includes('100% Optimization Progress')");
+    assert.equal(await evaluate("document.querySelector('[role=progressbar]').getAttribute('aria-valuenow')"),"100");
+    assert.equal(await evaluate("document.body.innerText.includes('Converged early after 48 generations (limit 300)')"),true);
+    assert.equal(await evaluate("document.body.innerText.includes('16%')"),false);
+    const completedShot=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"optimization-early-completion.png"),Buffer.from(completedShot.data,"base64"));
+    await call("Page.navigate",{url:origin+"/optimization-engine?run_id=early-fixture"});
+    await waitFor("document.body.innerText.includes('Converged early after 48 generations (limit 300)')");
+    assert.equal(await evaluate("document.body.innerText.includes('100%') && document.body.innerText.includes('48 (max 300)')"),true);
+    assert.equal(await evaluate("document.body.innerText.includes('Staffing target: 2 officers') && document.body.innerText.includes('Officers in reserve: 7') && document.body.innerText.includes('Staffing Efficiency: 100.0%')"),true);
+    await evaluate("[...document.querySelectorAll('p')].find(e=>e.textContent.includes('Staffing target: 2 officers')).scrollIntoView({block:'center'})");
+    const staffingShot=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"optimization-staffing-targets.png"),Buffer.from(staffingShot.data,"base64"));
     for(const oldRoute of ["/scenarios","/analytics"]){
       await call("Page.navigate",{url:origin+oldRoute});
       await waitFor("location.pathname === '/' && document.body.innerText.includes('Unfilled posts: 2')");
@@ -132,7 +215,7 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await call("Page.navigate",{url:origin+"/login"});
     await waitFor("document.body.innerText.includes(\'Sign In to System\')");
     assert.equal(errors.length,0,errors.join("\n"));
-    console.log("Browser PASS: dashboard, malicious saved text, publication preview/confirmation, removed routes, dispatcher actions; timezone America/Los_Angeles.");
+    console.log("Browser PASS: dashboard, malicious saved text, publication preview/confirmation, history action layout/preview/export at 1920 and 1280 widths, early completion, staffing targets/reserves, removed routes, dispatcher actions; timezone America/Los_Angeles.");
     console.log("Screenshots: "+path.join(artifacts,"poi-markers.png")+" and "+path.join(artifacts,"publication-preview.png"));
     await call("Browser.close").catch(()=>{});
   } finally {

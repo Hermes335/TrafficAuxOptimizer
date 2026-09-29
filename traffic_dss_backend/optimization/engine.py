@@ -22,6 +22,8 @@ class GARunResult:
 class GeneticDeploymentOptimizer:
     """NSGA-II multi-objective optimizer for officer-to-bottleneck assignments."""
 
+    ALLOCATION_POLICY_VERSION = "demand-targets-v1"
+
     def __init__(self, seed: int | None = None):
         if seed is None:
             seed = randint(0, 2**31 - 1)
@@ -84,7 +86,8 @@ class GeneticDeploymentOptimizer:
         radius_km: float = 0.5,
     ) -> dict[int, dict]:
         """For each bottleneck, compute priority boosts from nearby incidents.
-        Incidents increase road_priority_weight so the optimizer assigns more officers there."""
+        Boosts favor covering affected locations. Staffing counts come from the
+        captured requirements, including the critical-incident staffing rule."""
         boosts: dict[int, dict] = {}
         severity_multiplier = {"critical": 3.0, "major": 2.0, "minor": 1.0}
 
@@ -202,6 +205,11 @@ class GeneticDeploymentOptimizer:
 
         coverage_efficiency = (len(covered) / max(1, len(bottlenecks))) * 100
         resource_utilization = (assigned_count / max(1, len(officers))) * 100
+        targets = self._staffing_targets(bottlenecks)
+        filled_posts = sum(min(assigned_indices.count(idx), target) for idx, target in enumerate(targets))
+        # A reserve officer is not wasted capacity. Reward meeting staffing demand,
+        # and penalize extra assignments rather than rewarding roster saturation.
+        staffing_efficiency = filled_posts / max(1, sum(targets), assigned_count) * 100
 
         response_minutes = []
         assigned_priority_weight = 0.0
@@ -249,6 +257,7 @@ class GeneticDeploymentOptimizer:
             "response_time_score": round(response_time_score, 3),
             "road_priority_coverage": round(road_priority_coverage, 3),
             "resource_utilization": round(resource_utilization, 3),
+            "staffing_efficiency": round(staffing_efficiency, 3),
             "avg_response_time": round(avg_response_time, 3),
             "incident_coverage_score": round(incident_coverage_score, 3),
         }
@@ -281,6 +290,9 @@ class GeneticDeploymentOptimizer:
             max_allowed = max(1, int(bottlenecks[b_idx].get("max_officers_allowed", 5)))
             if count > max_allowed:
                 violations.append(f"over_assigned:{bottlenecks[b_idx].get('id', b_idx)}:{count}>{max_allowed}")
+            target = self._staffing_targets([bottlenecks[b_idx]])[0]
+            if count > target:
+                violations.append(f"above_staffing_target:{bottlenecks[b_idx].get('id', b_idx)}:{count}>{target}")
 
         minimums = [max(1, int(b.get("min_officers_required", 1))) for b in bottlenecks]
         if sum(minimums) <= len(officers):
@@ -307,7 +319,7 @@ class GeneticDeploymentOptimizer:
             (objectives["coverage_efficiency"] * weights["tsi_weight"])
             + (objectives["response_time_score"] * weights["wif_weight"])
             + (objectives["road_priority_coverage"] * weights["rpw_weight"])
-            + (objectives["resource_utilization"] * weights["resource_utilization_weight"])
+            + (objectives["staffing_efficiency"] * weights["resource_utilization_weight"])
         )
 
         # Incident coverage bonus: reward covering bottlenecks near active incidents
@@ -324,6 +336,7 @@ class GeneticDeploymentOptimizer:
             "coverage_efficiency": objectives["coverage_efficiency"],
             "avg_response_time": objectives["avg_response_time"],
             "resource_utilization": objectives["resource_utilization"],
+            "staffing_efficiency": objectives["staffing_efficiency"],
             "road_priority_coverage": objectives["road_priority_coverage"],
             "response_time_score": objectives["response_time_score"],
             "constraints_violated": constraints_violated,
@@ -335,7 +348,7 @@ class GeneticDeploymentOptimizer:
     @staticmethod
     def _dominates(a: dict, b: dict) -> bool:
         """Check if solution a dominates solution b (all objectives >=, at least one >)."""
-        objs = ["coverage_efficiency", "response_time_score", "road_priority_coverage", "resource_utilization"]
+        objs = ["coverage_efficiency", "response_time_score", "road_priority_coverage", "staffing_efficiency"]
         at_least_one_better = False
         for obj in objs:
             if a[obj] < b[obj]:
@@ -389,7 +402,7 @@ class GeneticDeploymentOptimizer:
                 distances[i] = inf
             return distances
 
-        objs = ["coverage_efficiency", "response_time_score", "road_priority_coverage", "resource_utilization"]
+        objs = ["coverage_efficiency", "response_time_score", "road_priority_coverage", "staffing_efficiency"]
         for obj in objs:
             sorted_front = sorted(front, key=lambda i: scored[i][1][obj])
             distances[sorted_front[0]] = inf
@@ -505,8 +518,8 @@ class GeneticDeploymentOptimizer:
     ) -> list[list[int]]:
         """Initialize population with feasibility-checked chromosomes.
         Ensures minimum coverage (each bottleneck gets at least one officer if possible)
-        before distributing remaining officers randomly. POI-nearby bottlenecks are
-        prioritized and guaranteed coverage first."""
+        before distributing remaining officers up to the supplied staffing targets.
+        Surplus officers remain unassigned. POI-nearby bottlenecks receive coverage first."""
         population = []
         poi_set = set(poi_nearby or [])
         caps = max_officers_allowed or [officer_count] * bottleneck_count
@@ -598,6 +611,19 @@ class GeneticDeploymentOptimizer:
             bottleneck_officers[bottleneck_idx] = [donor_officer]
 
     @staticmethod
+    def _staffing_targets(bottlenecks: list[dict]) -> list[int]:
+        """Captured requirements already include congestion and critical incidents.
+
+        The operational cap is a ceiling, not a demand estimate. An explicit
+        target cannot reduce the required minimum; impossible minima are still
+        reported by the constraint check and staffing shortages.
+        """
+        return [min(max(1, int(b.get("max_officers_allowed", 5))),
+                    max(1, int(b.get("min_officers_required", 1)),
+                        int(b.get("staffing_target", b.get("min_officers_required", 1)))))
+                for b in bottlenecks]
+
+    @staticmethod
     def _repair_capacity(chromosome: list[int], bottlenecks: list[dict]):
         """Move excess officers to the unassigned slot until every cap is met."""
         counts: dict[int, int] = {}
@@ -621,20 +647,40 @@ class GeneticDeploymentOptimizer:
 
     def _repair_staffing(self, chromosome, bottlenecks):
         self._repair_capacity(chromosome, bottlenecks)
+        targets = self._staffing_targets(bottlenecks)
+        # Keep surplus officers in reserve even after crossover or mutation.
+        counts = [0] * len(bottlenecks)
+        for officer_idx, node_idx in enumerate(chromosome):
+            if 0 <= node_idx < len(bottlenecks):
+                counts[node_idx] += 1
+                if counts[node_idx] > targets[node_idx]:
+                    chromosome[officer_idx] = -1
         minimums = [max(1, int(b.get("min_officers_required", 1))) for b in bottlenecks]
         feasible = sum(minimums) <= len(chromosome) and all(
             need <= max(1, int(b.get("max_officers_allowed", 5))) for need, b in zip(minimums, bottlenecks))
         if not feasible:
             self._repair_coverage(chromosome, len(bottlenecks))
             self._repair_capacity(chromosome, bottlenecks)
-            return
-        for target, need in enumerate(minimums):
-            while chromosome.count(target) < need:
-                donor = next((i for i, idx in enumerate(chromosome)
-                    if idx < 0 or chromosome.count(idx) > minimums[idx]), None)
-                if donor is None:
-                    break
-                chromosome[donor] = target
+        else:
+            for target, need in enumerate(minimums):
+                while chromosome.count(target) < need:
+                    donor = next((i for i, idx in enumerate(chromosome)
+                        if idx < 0 or chromosome.count(idx) > minimums[idx]), None)
+                    if donor is None:
+                        break
+                    chromosome[donor] = target
+        # Do not leave officers idle when some captured demand is unfilled.
+        # Under scarcity preserve coverage, then fill the largest requirements.
+        for officer_idx, node_idx in enumerate(chromosome):
+            if node_idx >= 0:
+                continue
+            unmet = [idx for idx, target in enumerate(targets) if chromosome.count(idx) < target]
+            if not unmet:
+                break
+            target_idx = max(unmet, key=lambda idx: (
+                targets[idx], float(bottlenecks[idx].get("tsi", 0)),
+                float(bottlenecks[idx].get("road_priority_weight", 1))))
+            chromosome[officer_idx] = target_idx
 
     def run(
         self,
@@ -666,16 +712,13 @@ class GeneticDeploymentOptimizer:
         # Pre-compute distance matrix (avoids repeated geodesic calls in fitness loop)
         distance_matrix = self._precompute_distance_matrix(officers, bottlenecks)
 
-        max_officers_allowed = [
-            max(1, int(bottleneck.get("max_officers_allowed", 5)))
-            for bottleneck in bottlenecks
-        ]
+        staffing_targets = self._staffing_targets(bottlenecks)
         pop = self._init_population(
             config["population_size"],
             len(officers),
             len(bottlenecks),
             poi_nearby,
-            max_officers_allowed,
+            staffing_targets,
         )
         for chromosome in pop:
             self._repair_staffing(chromosome, bottlenecks)
@@ -839,6 +882,9 @@ class GeneticDeploymentOptimizer:
                 "coverage_efficiency": metrics["coverage_efficiency"],
                 "avg_response_time": metrics["avg_response_time"],
                 "resource_utilization": metrics["resource_utilization"],
+                "staffing_efficiency": metrics["staffing_efficiency"],
+                "reserve_officers": len(officers) - len(assignments),
+                "staffing_targets": {b["id"]: target for b, target in zip(bottlenecks, self._staffing_targets(bottlenecks))},
                 "road_priority_coverage": metrics["road_priority_coverage"],
                 "constraints_violated": metrics.get("constraints_violated", False),
                 "generated_at": datetime.now(UTC).isoformat(),

@@ -1,6 +1,8 @@
 # Field Test Documentation
 ## Traffic Deployment DSS vs Manual ICTTMO Deployment
 
+**Current application workflow:** see [APPLICATION_WORKFLOW.md](APPLICATION_WORKFLOW.md). Choose shadow mode and a session name explicitly. Comparisons require a date and run or publication revision; replace `YYYY-MM-DD` and `RUN_ID` in the historical examples below. Verify manual assignments on the deployment board before a recommendation exists. Legacy runs can be read using their capture date, but lack recorded deployment intent/publication state.
+
 ### Diversion Road + Jaro District | 1 Week Comparison
 
 ---
@@ -178,13 +180,13 @@ This creates Deployment records with `source=manual` for comparison.
 ### Step 4: Verify Import
 
 ```bash
-python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon
+python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon --date YYYY-MM-DD --run-id RUN_ID
 ```
 
 For a bottleneck-name pilot, select it explicitly, for example:
 
 ```bash
-python manage.py field_test_compare --location "Atrium Rotonda" --shift afternoon
+python manage.py field_test_compare --location "Atrium Rotonda" --shift afternoon --date YYYY-MM-DD --run-id RUN_ID
 ```
 
 Should show manual assignments for each bottleneck.
@@ -243,7 +245,7 @@ After both weeks are complete:
 
 ```bash
 cd traffic_dss_backend
-python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon
+python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon --date YYYY-MM-DD --run-id RUN_ID
 ```
 
 This outputs:
@@ -277,7 +279,7 @@ The system's fitness function combines:
 Run the baseline comparison command to get fitness scores:
 
 ```bash
-python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon
+python manage.py field_test_compare --location "Diversion Road + Jaro" --shift afternoon --date YYYY-MM-DD --run-id RUN_ID
 ```
 
 ---

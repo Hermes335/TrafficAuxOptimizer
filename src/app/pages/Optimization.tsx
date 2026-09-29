@@ -1,5 +1,6 @@
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
-import { operationalTime, operationalShift } from "../services/operationalTime";
+import { RecommendationExportButton } from "../components/RecommendationExportButton";
+import { operationalDate, operationalTime, operationalShift } from "../services/operationalTime";
 import { useEffect, useMemo, useState } from "react";
 import { Clock, Target, Zap, TrendingUp, Users, RefreshCw } from "lucide-react";
 import { Link, useNavigate } from "react-router";
@@ -32,6 +33,9 @@ export function Optimization() {
   const navigate = useNavigate();
   const [selectedShift, setSelectedShift] = useState<"morning" | "afternoon">(() => new URLSearchParams(window.location.search).get("shift") === "morning" ? "morning" : operationalShift());
   const [populationSize, setPopulationSize] = useState(DEFAULT_PARAMS.populationSize);
+  const [runDay, setRunDay] = useState(operationalDate());
+  const [mode, setMode] = useState<"operational" | "shadow">("operational");
+  const [sessionId, setSessionId] = useState("");
   const [generationLimit, setGenerationLimit] = useState(DEFAULT_PARAMS.generationLimit);
   const [crossoverRate, setCrossoverRate] = useState(DEFAULT_PARAMS.crossoverRate);
   const [mutationRate, setMutationRate] = useState(DEFAULT_PARAMS.mutationRate);
@@ -78,7 +82,7 @@ export function Optimization() {
         if (active) setLoadingAutoSuggestion(false);
       });
     return () => { active = false; };
-  }, []);
+  }, [selectedShift]);
 
   const applyAutoSuggestion = () => {
     if (!autoSuggestion) return;
@@ -91,6 +95,7 @@ export function Optimization() {
 
   const params = useMemo(
     () => ({
+      shift: selectedShift, operational_date: runDay, mode, session_id: sessionId,
       population_size: populationSize,
       generations: generationLimit,
       mutation_rate: Number((mutationRate / 100).toFixed(2)),
@@ -102,6 +107,7 @@ export function Optimization() {
       resource_utilization_weight: Number((resourceUtilizationWeight / 100).toFixed(2)),
     }),
     [
+      selectedShift, runDay, mode, sessionId,
       populationSize,
       generationLimit,
       mutationRate,
@@ -211,12 +217,27 @@ export function Optimization() {
 
   return (
     <div className="flex h-full">
-      <div className="w-96 overflow-y-auto border-r bg-white p-6">
+      <div className="w-96 shrink-0 overflow-y-auto border-r bg-white p-6">
         <div className="mb-6">
           <h1 className="mb-2 text-2xl font-bold">Optimization Interface</h1>
           <p className="text-sm text-gray-600">
             Configure genetic algorithm parameters and launch a live optimization run.
           </p>
+        </div>
+
+        <div className="mb-6 space-y-3 rounded-xl border p-4">
+          <label className="grid gap-1 text-sm">Operational date (Asia/Manila)
+            <input type="date" min={operationalDate()} value={runDay} onChange={e => setRunDay(e.target.value)} className="rounded border p-2" />
+          </label>
+          <label className="grid gap-1 text-sm">Recommendation mode
+            <select value={mode} onChange={e => setMode(e.target.value as "operational" | "shadow")} className="rounded border p-2">
+              <option value="operational">Operational deployment</option><option value="shadow">Shadow field comparison</option>
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm">Field session {mode === "shadow" ? "(required)" : "(optional)"}
+            <input value={sessionId} maxLength={80} onChange={e => setSessionId(e.target.value)} className="rounded border p-2" />
+          </label>
+          {mode === "shadow" && <p role="status" className="text-sm text-amber-800">Shadow mode records recommendations for comparison. Manual assignments remain authoritative; publication is disabled.</p>}
         </div>
 
         <div className="mb-6 rounded-xl border bg-gray-50 p-4">
@@ -444,10 +465,10 @@ export function Optimization() {
 
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm font-medium">Resource Utilization</label>
+                <label className="text-sm font-medium">Staffing Efficiency</label>
                 <span className="text-yellow-500">{resourceUtilizationWeight}%</span>
               </div>
-              <div className="text-xs text-gray-500">OFFICER-HOUR EFFICIENCY</div>
+              <div className="text-xs text-gray-500">MEET STAFFING TARGETS; KEEP SURPLUS AVAILABLE</div>
               <input
                 type="range"
                 min="0"
@@ -559,7 +580,7 @@ export function Optimization() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-gray-50 p-6">
+      <div className="min-w-0 flex-1 overflow-y-auto bg-gray-50 p-6">
         <div className="rounded-lg bg-white p-6">
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -590,7 +611,7 @@ export function Optimization() {
             <div className="rounded-lg border bg-white p-3">
               <div className="mb-1 text-xs text-gray-600">LATEST SCORE ON PAGE</div>
               <div className="mb-1 text-2xl font-bold">
-                {bestRun ? Number(((bestRun.result_data as { top_solutions?: Array<{ fitness?: number }> })?.top_solutions?.[0]?.fitness ?? 0).toFixed(4)) : 0}
+                {bestRun ? Number(Number(bestRun.result_data?.best_fitness ?? 0).toFixed(4)) : 0}
               </div>
               <div className="text-xs text-gray-600">Latest completed run</div>
             </div>
@@ -623,20 +644,19 @@ export function Optimization() {
                       <th className="px-3 py-2">Started</th>
                       <th className="px-3 py-2">Fitness</th>
                       <th className="px-3 py-2">Generations</th>
-                      <th className="px-3 py-2">Action</th>
+                      <th className="px-3 py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     {history.slice(0, 10).map((run, runIndex) => {
-                      const topSolutions = run.result_data?.top_solutions as Array<{ fitness?: number }> | undefined;
-                      const bestFitness = topSolutions?.[0]?.fitness ?? null;
-                      const generationCount = Array.isArray(run.fitness_scores) ? run.fitness_scores.length : 0;
+                      const bestFitness = typeof run.result_data?.best_fitness === "number" ? run.result_data.best_fitness : null;
+                      const generationCount = run.generations_completed ?? 0;
                       const prevFitness = runIndex < history.length - 1
-                        ? ((history[runIndex + 1].result_data as { top_solutions?: Array<{ fitness?: number }> })?.top_solutions?.[0]?.fitness ?? null)
+                        ? (typeof history[runIndex + 1].result_data.best_fitness === "number" ? history[runIndex + 1].result_data.best_fitness as number : null)
                         : null;
-                      const trend = bestFitness && prevFitness ? bestFitness - prevFitness : null;
+                      const trend = bestFitness !== null && prevFitness !== null ? bestFitness - prevFitness : null;
                       return (
-                        <tr key={run.id} className="border-b last:border-b-0 cursor-pointer hover:bg-gray-50">
+                        <tr key={run.id} className="border-b last:border-b-0 hover:bg-gray-50">
                           <td className="px-3 py-2 font-medium text-gray-900"><Link to={`/optimization-engine?run_id=${encodeURIComponent(run.run_id)}`} className="underline">{run.run_id}</Link></td>
                           <td className="px-3 py-2">
                             <span className={`rounded px-2 py-0.5 text-xs font-medium ${
@@ -657,7 +677,7 @@ export function Optimization() {
                           </td>
                           <td className="px-3 py-2 text-gray-700">
                             <div className="flex items-center gap-1">
-                              {bestFitness ? bestFitness.toFixed(4) : "-"}
+                              {bestFitness !== null ? bestFitness.toFixed(4) : "-"}
                               {trend !== null && trend !== 0 && (
                                 <span className={`text-xs ${trend > 0 ? "text-green-600" : "text-red-600"}`}>
                                   {trend > 0 ? "↑" : "↓"}{Math.abs(trend).toFixed(2)}
@@ -668,7 +688,12 @@ export function Optimization() {
                           <td className="px-3 py-2 text-gray-700">{generationCount}</td>
                           <td className="px-3 py-2">
                             {run.status === "completed" ? (
-                              <PublishScheduleButton runId={run.run_id} />
+                              <div role="group" aria-label={`Actions for ${run.run_id}`} className="flex items-start gap-2">
+                                <PublishScheduleButton compact runId={run.run_id} date={String(run.parameters.operational_date ?? operationalDate())}
+                                mode={String(run.parameters.mode ?? "operational")}
+                                syntheticSources={Array.isArray(run.result_data.synthetic_data_used) ? run.result_data.synthetic_data_used : null} />
+                                <RecommendationExportButton compact runId={run.run_id} />
+                              </div>
                             ) : (
                               <span className="text-xs text-gray-400">-</span>
                             )}
@@ -698,7 +723,7 @@ export function Optimization() {
                 <div className="flex justify-between"><span className="text-gray-500">TSI Weight</span><span className="font-medium">{tsiWeight}%</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">WIF Weight</span><span className="font-medium">{wifWeight}%</span></div>
                 <div className="flex justify-between"><span className="text-gray-500">RPW Weight</span><span className="font-medium">{rpwWeight}%</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Utilization Weight</span><span className="font-medium">{resourceUtilizationWeight}%</span></div>
+                <div className="flex justify-between"><span className="text-gray-500">Staffing Efficiency Weight</span><span className="font-medium">{resourceUtilizationWeight}%</span></div>
               </div>
             </div>
           </div>

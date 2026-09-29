@@ -7,9 +7,11 @@ from .views import (
     DeploymentScheduleView,
     DeploymentUpdateView,
     OfficerDeploymentView,
+    ScheduleRevisionView,
 )
 
 urlpatterns = [
+    path("revisions/", ScheduleRevisionView.as_view(), name="schedule-revisions"),
     path("preview-optimization/", DeploymentPreviewView.as_view(), name="deployment-preview"),
     path("schedule/", DeploymentScheduleView.as_view(), name="deployment-schedule"),
     path("assign/", DeploymentAssignView.as_view(), name="deployment-assign"),

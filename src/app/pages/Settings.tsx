@@ -11,6 +11,7 @@ export function Settings() {
   const [health, setHealth] = useState<SystemHealthSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     let active = true;
@@ -39,13 +40,18 @@ export function Settings() {
     return () => {
       active = false;
     };
+  }, [refreshKey]);
+  useEffect(() => {
+    const timer = window.setInterval(() => setRefreshKey(n => n + 1), 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
   return (
     <div className="flex h-full flex-col gap-4 bg-gray-50 p-6">
       <div>
-        <h1 className="text-2xl font-bold">System Configuration</h1>
+        <h1 className="text-2xl font-bold">System Health</h1>
         <p className="text-sm text-gray-600">Runtime health and environment connectivity</p>
+        <button className="mt-2 rounded border px-3 py-1 text-sm" onClick={() => setRefreshKey(n => n + 1)}>Refresh health</button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -83,6 +89,15 @@ export function Settings() {
           </div>
         </div>
       </div>
+
+      {health?.adminHealth && <div className="rounded-xl border bg-white p-4 text-sm">
+        <p>Operational readiness: <strong>{health.adminHealth.status}</strong></p>
+        <p>Worker: {health.adminHealth.workers ?? "unknown"} · Scheduler: {health.adminHealth.scheduler ?? "unknown"}</p>
+        <p>Backend version: {health.adminHealth.version ?? "unknown"} · Pending migrations: {health.adminHealth.pending_migrations ?? "unknown"}</p>
+        {Object.entries(health.adminHealth.providers ?? {}).map(([name, provider]) => <p key={name}>{name}: {provider.status}
+          {provider.age_seconds !== null && ` · ${Math.max(0, Math.round(provider.age_seconds / 60))} minutes old`}</p>)}
+        <p className="mt-1 text-xs text-gray-500">Last check: {health.adminHealth.timestamp}</p>
+      </div>}
 
       <div className="rounded-xl border bg-white p-4">
         <h2 className="mb-2 text-sm font-semibold text-gray-700">Environment</h2>

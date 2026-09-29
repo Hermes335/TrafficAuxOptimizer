@@ -2,6 +2,7 @@
 from datetime import date, datetime, timedelta, timezone as utc_timezone
 from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 import pytest
 from django.contrib.auth import get_user_model
@@ -14,7 +15,7 @@ from rest_framework.test import APIClient
 from core.models import AuditLog, Bottleneck, Deployment, Incident, Officer, OptimizationRun
 from core.operational_time import MANILA, operational_date, shift_window, is_peak_hour
 from core.tasks import incident_lifecycle, deployment_lifecycle
-from deployments.services import publish
+from deployments.services import publish, schedule_version
 from optimization.engine import GeneticDeploymentOptimizer
 from optimization.tasks import capture_inputs, run_optimization
 
@@ -37,12 +38,16 @@ def schedule():
     old = Deployment.objects.create(officer=officers[0], bottleneck=node, shift="morning",
                                     start_time=start, end_time=end)
     run = OptimizationRun.objects.create(run_id="fix-run", timestamp=timezone.now(), created_by=user,
-        status="completed", parameters={"shift": "morning"}, result_data={"top_solutions": [{
+        status="completed", parameters={"shift": "morning", "operational_date": str(day)}, result_data={
+            "input_snapshot": {"captured_at": timezone.now().isoformat(), "operational_date": str(day),
+                "bottlenecks": [{"id": node.id, "name": node.name, "provenance": {"observed_at": timezone.now().isoformat(), "data_status": "live"}}],
+                "weather": {"observed_at": timezone.now().isoformat(), "data_status": "live"}}, "top_solutions": [{
             "assignments": [{"officer_id": o.id, "bottleneck_id": node.id} for o in officers[1:]]
         }]})
     return SimpleNamespace(user=user, client=client, node=node, officers=officers, old=old, run=run,
                            day=day, start=start, end=end,
-                           payload={"run_id": run.run_id, "operational_date": str(day)})
+                           payload={"run_id": run.run_id, "operational_date": str(day),
+                                    "expected_revision": schedule_version("morning", day), "idempotency_key": uuid4().hex})
 
 
 @pytest.mark.parametrize("invalid", ["officer", "bottleneck", "empty", "malformed", "off_duty", "wrong_shift", "capacity", "violated", "synthetic"])
@@ -84,6 +89,8 @@ def test_publication_insertion_failure_rolls_back_entire_batch(schedule, failure
     calls = 0
     def fail_after_partial_insert(instance, *args, **kwargs):
         nonlocal calls
+        if instance.pk:
+            return original(instance, *args, **kwargs)
         calls += 1
         if calls == failure_on:
             raise IntegrityError("injected insertion failure")
@@ -114,8 +121,8 @@ def test_preview_is_read_only_and_publication_emits_only_after_commit(schedule, 
     assert response.status_code == 201
     assert Deployment.objects.filter(is_deleted=False, source="optimized").count() == 2
     s.old.refresh_from_db()
-    assert s.old.is_deleted
-    assert Deployment.objects.filter(is_deleted=False).first().start_time == s.start
+    assert not s.old.is_deleted and s.old.status == "cancelled"
+    assert Deployment.objects.filter(is_deleted=False, status="assigned").first().start_time == s.start
 
 
 def test_preview_revalidates_before_publish(schedule):
@@ -239,7 +246,7 @@ def test_optimization_invalid_input_returns_structured_errors(schedule, field, v
 
 @pytest.mark.parametrize("url", ["/api/optimization/start/", "/api/dashboard/quick-optimize/"])
 def test_queue_failure_has_terminal_record(schedule, url):
-    with patch("optimization.tasks.run_optimization.delay", side_effect=RuntimeError("broker down")):
+    with patch("optimization.tasks.run_optimization.apply_async", side_effect=RuntimeError("broker down")):
         response = schedule.client.post(url, {"shift": "morning"}, format="json")
     assert response.status_code == 503
     run = OptimizationRun.objects.get(run_id=response.data["run_id"])

@@ -4,7 +4,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 
-from core.models import Deployment
+from core.models import Deployment, ScheduleRevision
 from core.permissions import IsSupervisor, SupervisorWrite
 from core.operational_time import shift_window
 from core.serializers import DeploymentSerializer
@@ -75,3 +75,23 @@ class DeploymentPublishOptimizationView(ScheduleWriteView):
 class DeploymentPreviewView(ScheduleWriteView):
     def post(self, request):
         return Response(publish(request.user, request.data, preview=True))
+
+
+class ScheduleRevisionView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = "operational_read"
+
+    def get(self, request):
+        from rest_framework import serializers
+        queryset = ScheduleRevision.objects.select_related("run", "actor").order_by("-published_at", "-pk")
+        if request.query_params.get("date"):
+            queryset = queryset.filter(operational_date=serializers.DateField().run_validation(request.query_params["date"]))
+        if request.query_params.get("shift"):
+            queryset = queryset.filter(shift=serializers.ChoiceField(choices=["morning", "afternoon"]).run_validation(request.query_params["shift"]))
+        paginator = PageNumberPagination()
+        paginator.page_size = 10
+        page = paginator.paginate_queryset(queryset, request, view=self)
+        return paginator.get_paginated_response([{"id": row.pk, "run_id": row.run.run_id,
+            "operational_date": row.operational_date, "shift": row.shift, "published_at": row.published_at,
+            "effective_start": row.effective_start, "effective_end": row.effective_end, "published_by": row.actor.username,
+            "previous_assignments": row.previous_assignments, "assignments": row.assignments} for row in page])

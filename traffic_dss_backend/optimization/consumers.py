@@ -5,6 +5,10 @@ from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
 class OptimizationProgressConsumer(AsyncJsonWebsocketConsumer):
     async def connect(self):
+        user = self.scope.get("user")
+        if not user or not user.is_authenticated:
+            await self.close(code=4401)
+            return
         self._message_window_started = monotonic()
         self._message_count = 0
         self.run_id = self.scope["url_route"]["kwargs"]["run_id"]
@@ -14,7 +18,8 @@ class OptimizationProgressConsumer(AsyncJsonWebsocketConsumer):
         await self.send_json({"event": "connected", "scope": "optimization", "run_id": self.run_id})
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if hasattr(self, "group_name"):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive_json(self, content, **kwargs):
         now = monotonic()

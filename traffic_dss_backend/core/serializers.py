@@ -115,6 +115,31 @@ class OptimizationRunSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class OptimizationHistorySerializer(serializers.ModelSerializer):
+    result_data = serializers.SerializerMethodField()
+    fitness_scores = serializers.SerializerMethodField()
+    generations_completed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = OptimizationRun
+        fields = ["id", "run_id", "timestamp", "updated_at", "status", "parameters", "result_data", "fitness_scores", "generations_completed", "created_by"]
+
+    def get_result_data(self, run):
+        result = run.result_data if isinstance(run.result_data, dict) else {}
+        top = result.get("top_solutions") or []
+        if not isinstance(top, list) or not top or not isinstance(top[0], dict):
+            top = []
+        return {"synthetic_data_used": result.get("synthetic_data_used", []),
+                "best_fitness": top[0].get("fitness") if top else None,
+                "error": result.get("error"), "mode": run.parameters.get("mode", "operational")}
+
+    def get_fitness_scores(self, run):
+        return run.fitness_scores[-1:] if run.fitness_scores else []
+
+    def get_generations_completed(self, run):
+        return len(run.fitness_scores or [])
+
+
 class TrafficDataSerializer(serializers.ModelSerializer):
     class Meta:
         model = TrafficData
@@ -166,8 +191,11 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
         if not self.instance and not node and (data.get("latitude") is None or data.get("longitude") is None):
             raise serializers.ValidationError("A location or bottleneck is required.")
         if node:
-            data.setdefault("latitude", node.latitude)
-            data.setdefault("longitude", node.longitude)
+            if "bottleneck" in data:
+                data["latitude"], data["longitude"] = node.latitude, node.longitude
+            else:
+                data.setdefault("latitude", node.latitude)
+                data.setdefault("longitude", node.longitude)
         return data
 
     class Meta:
