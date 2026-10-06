@@ -64,13 +64,17 @@ export function Header() {
     if (!weather) {
       return "--°C - Weather unavailable";
     }
+    if (weather.is_stale) return "Weather reading stale";
     const condition = (weather.condition ?? "weather unavailable")
       .replace(/_/g, " ")
       .replace(/\b\w/g, (char) => char.toUpperCase());
     return weather.available && weather.temperature != null ? `${Math.round(weather.temperature)}°C - ${condition}` : `Weather unavailable - ${condition}`;
   }, [weather]);
 
-  const precipitationLabel = weather?.available && weather.precipitation != null ? `${weather.precipitation.toFixed(1)}mm/hr precipitation` : "No live weather feed";
+  const lastWeatherReading = weather?.observed_at ?? weather?.timestamp;
+  const precipitationLabel = weather?.is_stale
+    ? lastWeatherReading ? `Last reading ${new Date(lastWeatherReading).toLocaleString("en-PH", {timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"})}` : "Last reading time unavailable"
+    : weather?.available && weather.precipitation != null ? `${weather.precipitation.toFixed(1)}mm/hr precipitation` : "No live weather feed";
 
   const handleLogout = async () => {
     setShowUserMenu(false);

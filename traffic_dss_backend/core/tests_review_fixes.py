@@ -172,6 +172,8 @@ def test_exactly_sixty_eligible_officers_can_be_assigned(schedule):
     s = schedule
     Officer.objects.bulk_create([Officer(name=f"Roster {i}", badge_number=f"R-{i}", shift="morning") for i in range(57)])
     assert Officer.objects.filter(status="available").count() == 60
+    s.node.min_officers_required = 2
+    s.node.save()
     response = s.client.post("/api/deployments/assign/", {"officer": s.officers[1].pk,
         "bottleneck": s.node.pk, "shift": "morning", "operational_date": str(s.day)}, format="json")
     assert response.status_code == 201, response.data

@@ -22,7 +22,7 @@ class GARunResult:
 class GeneticDeploymentOptimizer:
     """NSGA-II multi-objective optimizer for officer-to-bottleneck assignments."""
 
-    ALLOCATION_POLICY_VERSION = "demand-targets-v1"
+    ALLOCATION_POLICY_VERSION = "timed-demand-v2"
 
     def __init__(self, seed: int | None = None):
         if seed is None:
@@ -203,13 +203,14 @@ class GeneticDeploymentOptimizer:
         assigned_count = len(assigned_indices)
         covered = set(assigned_indices)
 
-        coverage_efficiency = (len(covered) / max(1, len(bottlenecks))) * 100
-        resource_utilization = (assigned_count / max(1, len(officers))) * 100
         targets = self._staffing_targets(bottlenecks)
+        required_nodes = {idx for idx, target in enumerate(targets) if target > 0}
+        coverage_efficiency = (len(covered & required_nodes) / len(required_nodes)) * 100 if required_nodes else 100
+        resource_utilization = (assigned_count / max(1, len(officers))) * 100
         filled_posts = sum(min(assigned_indices.count(idx), target) for idx, target in enumerate(targets))
         # A reserve officer is not wasted capacity. Reward meeting staffing demand,
         # and penalize extra assignments rather than rewarding roster saturation.
-        staffing_efficiency = filled_posts / max(1, sum(targets), assigned_count) * 100
+        staffing_efficiency = filled_posts / max(1, sum(targets), assigned_count) * 100 if sum(targets) or assigned_count else 100
 
         response_minutes = []
         assigned_priority_weight = 0.0
@@ -225,7 +226,7 @@ class GeneticDeploymentOptimizer:
             if incident_boosts and bottleneck_idx in incident_boosts:
                 effective_priority += incident_boosts[bottleneck_idx]["priority_boost"]
 
-            if bottleneck_idx not in set(chromosome[:officer_idx]):
+            if bottleneck_idx in required_nodes and bottleneck_idx not in set(chromosome[:officer_idx]):
                 assigned_priority_weight += effective_priority
             speed_kmh = max(8.0, 28.0 * (1.0 - effective_tsi))
             if distance_matrix:
@@ -235,11 +236,12 @@ class GeneticDeploymentOptimizer:
             travel_minutes = (dist / speed_kmh) * 60.0
             response_minutes.append(travel_minutes * weather_impact_factor)
 
-        priority_denominator = sum(max(0.0, float(item.get("road_priority_weight", 1.0))) for item in bottlenecks)
+        priority_denominator = sum(max(0.0, float(item.get("road_priority_weight", 1.0))) for idx, item in enumerate(bottlenecks) if idx in required_nodes)
         # Add incident priority boosts to denominator
         if incident_boosts:
             for b_idx, boost in incident_boosts.items():
-                priority_denominator += boost["priority_boost"]
+                if b_idx in required_nodes:
+                    priority_denominator += boost["priority_boost"]
         road_priority_coverage = 100.0 if priority_denominator <= 0 else min(100.0, (assigned_priority_weight / priority_denominator) * 100.0)
         avg_response_time = sum(response_minutes) / max(1, len(response_minutes))
         response_time_score = max(0.0, 100.0 - (avg_response_time * 2.0))
@@ -247,7 +249,7 @@ class GeneticDeploymentOptimizer:
         # Incident coverage: bonus for assigning officers to bottlenecks near incidents
         incident_coverage_score = 0.0
         if incident_boosts:
-            incident_bottlenecks = set(incident_boosts.keys())
+            incident_bottlenecks = set(incident_boosts.keys()) & required_nodes
             incident_covered = incident_bottlenecks & covered
             if incident_bottlenecks:
                 incident_coverage_score = (len(incident_covered) / len(incident_bottlenecks)) * 100.0
@@ -275,8 +277,9 @@ class GeneticDeploymentOptimizer:
         # If officers < bottlenecks, can't reach 60% — require at least officers/bottlenecks ratio
         # If officers >= bottlenecks, require 60% minimum
         covered = set(idx for idx in chromosome if 0 <= idx < len(bottlenecks))
-        coverage_ratio = len(covered) / max(1, len(bottlenecks))
-        max_possible_coverage = len(officers) / max(1, len(bottlenecks))
+        required_nodes = {idx for idx, target in enumerate(self._staffing_targets(bottlenecks)) if target > 0}
+        coverage_ratio = len(covered & required_nodes) / len(required_nodes) if required_nodes else 1
+        max_possible_coverage = len(officers) / max(1, len(required_nodes))
         min_coverage = min(0.60, max_possible_coverage * 0.9)
         if coverage_ratio < min_coverage:
             violations.append(f"coverage_below_{min_coverage:.0%}:{coverage_ratio:.2f}")
@@ -287,14 +290,14 @@ class GeneticDeploymentOptimizer:
             if 0 <= idx < len(bottlenecks):
                 bottleneck_counts[idx] = bottleneck_counts.get(idx, 0) + 1
         for b_idx, count in bottleneck_counts.items():
-            max_allowed = max(1, int(bottlenecks[b_idx].get("max_officers_allowed", 5)))
+            max_allowed = max(0, int(bottlenecks[b_idx].get("max_officers_allowed", 5)))
             if count > max_allowed:
                 violations.append(f"over_assigned:{bottlenecks[b_idx].get('id', b_idx)}:{count}>{max_allowed}")
             target = self._staffing_targets([bottlenecks[b_idx]])[0]
             if count > target:
                 violations.append(f"above_staffing_target:{bottlenecks[b_idx].get('id', b_idx)}:{count}>{target}")
 
-        minimums = [max(1, int(b.get("min_officers_required", 1))) for b in bottlenecks]
+        minimums = [max(0, int(b.get("min_officers_required", 1))) for b in bottlenecks]
         if sum(minimums) <= len(officers):
             for idx, required in enumerate(minimums):
                 if bottleneck_counts.get(idx, 0) < required:
@@ -523,9 +526,9 @@ class GeneticDeploymentOptimizer:
         population = []
         poi_set = set(poi_nearby or [])
         caps = max_officers_allowed or [officer_count] * bottleneck_count
-        poi_bottlenecks = [b for b in range(bottleneck_count) if b in poi_set]
-        other_bottlenecks = [b for b in range(bottleneck_count) if b not in poi_set]
-        min_coverage_target = min(bottleneck_count, officer_count)
+        poi_bottlenecks = [b for b in range(bottleneck_count) if b in poi_set and caps[b] > 0]
+        other_bottlenecks = [b for b in range(bottleneck_count) if b not in poi_set and caps[b] > 0]
+        min_coverage_target = min(len(poi_bottlenecks) + len(other_bottlenecks), officer_count)
 
         for _ in range(population_size):
             chromosome = []
@@ -548,7 +551,7 @@ class GeneticDeploymentOptimizer:
             while len(chromosome) < officer_count:
                 available = [
                     b for b in range(bottleneck_count)
-                    if chromosome.count(b) < max(1, int(caps[b]))
+                    if chromosome.count(b) < max(0, int(caps[b]))
                 ]
                 chromosome.append(self.rng.choice(available) if available else -1)
 
@@ -577,12 +580,12 @@ class GeneticDeploymentOptimizer:
         if self.rng.random() < mutation_rate:
             chromosome[self.rng.randrange(0, len(chromosome))] = self.rng.randrange(0, bottleneck_count)
 
-    def _repair_coverage(self, chromosome: list[int], bottleneck_count: int, poi_nearby: list[int] | None = None):
+    def _repair_coverage(self, chromosome: list[int], bottleneck_count: int, poi_nearby: list[int] | None = None, required_nodes=None):
         """Repair operator: ensure minimum coverage after crossover/mutation.
         If any bottleneck is uncovered, reassign one officer from an over-assigned bottleneck.
         POI-nearby bottlenecks are repaired first to guarantee their coverage."""
         covered = set(chromosome)
-        uncovered = [b for b in range(bottleneck_count) if b not in covered]
+        uncovered = [b for b in (range(bottleneck_count) if required_nodes is None else required_nodes) if b not in covered]
 
         if not uncovered:
             return  # All bottlenecks covered
@@ -598,7 +601,7 @@ class GeneticDeploymentOptimizer:
 
         # Reassign officers from over-assigned bottlenecks to uncovered ones
         for bottleneck_idx in uncovered:
-            over_assigned = [bn for bn, officers in bottleneck_officers.items() if len(officers) >= 2]
+            over_assigned = [bn for bn, officers in bottleneck_officers.items() if len(officers) >= (1 if bn < 0 else 2)]
             if not over_assigned:
                 break  # No spare officers available
 
@@ -618,8 +621,8 @@ class GeneticDeploymentOptimizer:
         target cannot reduce the required minimum; impossible minima are still
         reported by the constraint check and staffing shortages.
         """
-        return [min(max(1, int(b.get("max_officers_allowed", 5))),
-                    max(1, int(b.get("min_officers_required", 1)),
+        return [min(max(0, int(b.get("max_officers_allowed", 5))),
+                    max(0, int(b.get("min_officers_required", 1)),
                         int(b.get("staffing_target", b.get("min_officers_required", 1)))))
                 for b in bottlenecks]
 
@@ -632,7 +635,7 @@ class GeneticDeploymentOptimizer:
                 counts[bottleneck_idx] = counts.get(bottleneck_idx, 0) + 1
 
         for bottleneck_idx, count in counts.items():
-            cap = max(1, int(bottlenecks[bottleneck_idx].get("max_officers_allowed", 5)))
+            cap = max(0, int(bottlenecks[bottleneck_idx].get("max_officers_allowed", 5)))
             excess = count - cap
             if excess <= 0:
                 continue
@@ -655,11 +658,11 @@ class GeneticDeploymentOptimizer:
                 counts[node_idx] += 1
                 if counts[node_idx] > targets[node_idx]:
                     chromosome[officer_idx] = -1
-        minimums = [max(1, int(b.get("min_officers_required", 1))) for b in bottlenecks]
+        minimums = [max(0, int(b.get("min_officers_required", 1))) for b in bottlenecks]
         feasible = sum(minimums) <= len(chromosome) and all(
-            need <= max(1, int(b.get("max_officers_allowed", 5))) for need, b in zip(minimums, bottlenecks))
+            need <= max(0, int(b.get("max_officers_allowed", 5))) for need, b in zip(minimums, bottlenecks))
         if not feasible:
-            self._repair_coverage(chromosome, len(bottlenecks))
+            self._repair_coverage(chromosome, len(bottlenecks), required_nodes=[i for i, target in enumerate(targets) if target > 0])
             self._repair_capacity(chromosome, bottlenecks)
         else:
             for target, need in enumerate(minimums):
@@ -696,7 +699,7 @@ class GeneticDeploymentOptimizer:
     ) -> GARunResult:
         if seed is not None:
             self.rng = Random(seed)
-        if not officers or not bottlenecks:
+        if not bottlenecks or (not officers and any(self._staffing_targets(bottlenecks))):
             return GARunResult(best_fitness=0.0, top_solutions=[], generation_fitness=[], status="failed")
 
         config = self._clamp_parameters(parameters)
@@ -813,8 +816,9 @@ class GeneticDeploymentOptimizer:
                 self._mutate(child1, len(bottlenecks), config["mutation_rate"])
                 self._mutate(child2, len(bottlenecks), config["mutation_rate"])
                 # Repair operator: ensure minimum coverage after genetic operators
-                self._repair_coverage(child1, len(bottlenecks), poi_nearby)
-                self._repair_coverage(child2, len(bottlenecks), poi_nearby)
+                required_nodes = [i for i, target in enumerate(staffing_targets) if target > 0]
+                self._repair_coverage(child1, len(bottlenecks), poi_nearby, required_nodes)
+                self._repair_coverage(child2, len(bottlenecks), poi_nearby, required_nodes)
                 self._repair_staffing(child1, bottlenecks)
                 self._repair_staffing(child2, bottlenecks)
                 next_population.append(child1)

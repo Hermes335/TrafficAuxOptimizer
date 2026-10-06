@@ -11,7 +11,7 @@ export function KPICards({ metrics, weather, deployedOfficersCount, totalOfficer
   return <details className="border-b bg-white px-4 py-2">
     <summary className="cursor-pointer text-sm font-medium">Staffing and environmental details</summary>
     <div className="grid grid-cols-2 gap-3 py-3 lg:grid-cols-4">
-      <section className="rounded border p-3"><h2>Staffing coverage</h2>
+      <section className="rounded border p-3"><h2>Shift staffing coverage</h2>
         <strong>{percent(metrics.coverageEfficiency)}</strong>
         <p className="text-xs text-gray-600">{metrics.assignedStaffing ?? "—"} assigned / {metrics.requiredStaffing ?? "—"} required posts in selected shift. Partial shifts are weighted by duration.</p>
       </section>
@@ -21,7 +21,7 @@ export function KPICards({ metrics, weather, deployedOfficersCount, totalOfficer
       </section>
       <section className="rounded border p-3"><h2>Scheduled roster</h2>
         <strong>{percent(metrics.resourceUtilization)}</strong>
-        <p className="text-xs text-gray-600">{deployedOfficersCount} scheduled / {totalOfficersCount} eligible officers in selected shift.</p>
+        <p className="text-xs text-gray-600">{deployedOfficersCount} assigned now / {totalOfficersCount} eligible officers in selected shift. Percentage summarizes the shift.</p>
       </section>
       <section className="rounded border p-3"><h2>Weather impact factor</h2>
         <strong>{metrics.weatherImpactFactor?.toFixed(2) ?? "Unavailable"}</strong>

@@ -38,6 +38,8 @@ class DeploymentScheduleView(ScheduleWriteView):
             "id": d.id, "officer": d.officer.badge_number, "officer_name": d.officer.name,
             "bottleneck": d.bottleneck_id, "shift": d.shift, "start_time": d.start_time,
             "end_time": d.end_time, "assignment_type": d.assignment_type, "status": d.status,
+            "officer_id": d.officer_id, "bottleneck_name": d.bottleneck.name, "area_name": d.bottleneck.area_name,
+            "updated_at": d.updated_at.isoformat(), "override_reason": d.override_reason,
         } for d in page])
 
     def delete(self, request):

@@ -269,7 +269,7 @@ LOGGING = {
     "loggers": {
         "django": {"handlers": ["console"], "level": "INFO"},
         "optimization": {"handlers": ["console"], "level": "INFO"},
-        "external_apis": {"handlers": ["console"], "level": "INFO"},
+        "external_apis": {"handlers": ["console"], "level": "INFO", "propagate": False},
         "celery": {"handlers": ["console"], "level": "INFO"},
     },
 }

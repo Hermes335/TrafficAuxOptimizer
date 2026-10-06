@@ -35,7 +35,9 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
     // Preserve the exact request key/body after a lost response; the server replays its receipt.
     pending.current ??= {
       run_id: reviewRunId, operational_date: day, replace_existing: true,
-      start_time: preview!.start_time, end_time: preview!.end_time,
+      // Timed runs carry windows per assignment. Supplying the preview's
+      // overall shift window would override those saved times and be rejected.
+      ...(preview!.time_periods?.length ? {} : {start_time: preview!.start_time, end_time: preview!.end_time}),
       expected_revision: preview!.expected_revision, idempotency_key: crypto.randomUUID(),
       input_override_reason: overrideReason,
     };
@@ -92,10 +94,11 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
           <p>Inputs captured: {preview.captured_at ? operationalTime(preview.captured_at) : "Unavailable"}</p>
           <p>{preview.created} proposed assignments; {preview.replaced} existing assignments replaced</p>
           <p className="font-semibold">Assignments added or moved</p>
-          {preview.added_assignments?.map(row => <p key={`${row.officer_id}:${row.bottleneck_id}`}>{row.officer_name} ({row.badge_number}) → {row.bottleneck_name}</p>)}
+          {preview.added_assignments?.map(row => <p key={`${row.officer_id}:${row.bottleneck_id}:${row.start_time}`}>{row.officer_name} ({row.badge_number}) → {row.bottleneck_name}{row.start_time && row.end_time ? ` · ${operationalTime(row.start_time)}–${operationalTime(row.end_time)}` : ""}</p>)}
           {!preview.added_assignments?.length && <p>None</p>}
           <p className="font-semibold">Assignments removed or moved</p>
-          {preview.removed_assignments?.map(row => <p key={`${row.officer_id}:${row.bottleneck_id}`}>{row.officer_name} ({row.badge_number}) · {row.bottleneck_name}</p>)}
+          {preview.removed_assignments?.map(row => <p key={`${row.officer_id}:${row.bottleneck_id}:${row.start_time}`}>{row.officer_name} ({row.badge_number}) · {row.bottleneck_name}{row.start_time && row.end_time ? ` · ${operationalTime(row.start_time)}–${operationalTime(row.end_time)}` : ""}</p>)}
+          {preview.time_periods?.map(period=><p key={period.start_time}>{operationalTime(period.start_time)}–{operationalTime(period.end_time)}: {period.assigned_officers} assigned, {period.reserve_officers} available</p>)}
           {!preview.removed_assignments?.length && <p>None</p>}
           {preview.input_issues?.map(issue => <p key={issue} className="text-amber-800">{issue}</p>)}
         </div>}

@@ -33,6 +33,11 @@ class Bottleneck(TimeStampedSoftDeleteModel):
 	bottleneck_type = models.CharField(max_length=40, choices=BOTTLENECK_TYPES, default="other")
 	min_officers_required = models.IntegerField(default=2)
 	max_officers_allowed = models.IntegerField(default=5)
+	area_name = models.CharField(max_length=120, blank=True)
+	signal_status = models.CharField(max_length=20, default="unknown", choices=[
+		("unknown", "Unknown"), ("working", "Working traffic lights"),
+		("none", "No traffic lights"), ("out_of_order", "Traffic lights out of order")])
+	staffing_periods = models.JSONField(default=list, blank=True)
 
 	class Meta:
 		indexes = [
@@ -135,6 +140,7 @@ class Deployment(TimeStampedSoftDeleteModel):
 	status = models.CharField(max_length=20, default="assigned", db_index=True)
 	source = models.CharField(max_length=20, choices=[("manual", "Manual / ICTTMO"), ("optimized", "GA Optimized")], default="manual", db_index=True)
 	revision = models.ForeignKey("ScheduleRevision", on_delete=models.PROTECT, null=True, blank=True, related_name="deployments")
+	override_reason = models.CharField(max_length=500, blank=True)
 
 	class Meta:
 		indexes = [
@@ -142,6 +148,28 @@ class Deployment(TimeStampedSoftDeleteModel):
 			models.Index(fields=["bottleneck", "start_time"]),
 			models.Index(fields=["shift", "status"]),
 		]
+
+
+class OfficerTimeBlock(TimeStampedSoftDeleteModel):
+	officer = models.ForeignKey(Officer, on_delete=models.PROTECT)
+	start_time = models.DateTimeField(db_index=True)
+	end_time = models.DateTimeField()
+	kind = models.CharField(max_length=12, choices=[("break", "Break"), ("travel", "Travel")])
+	note = models.CharField(max_length=300, blank=True)
+	created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+
+
+class FieldObservation(models.Model):
+	bottleneck = models.ForeignKey(Bottleneck, on_delete=models.PROTECT)
+	observed_at = models.DateTimeField(db_index=True)
+	actual_officers = models.PositiveIntegerField()
+	traffic = models.CharField(max_length=12, choices=[("free", "Free"), ("moderate", "Moderate"), ("heavy", "Heavy"), ("critical", "Critical")])
+	note = models.CharField(max_length=1000, blank=True)
+	required_officers = models.PositiveIntegerField()
+	scheduled_officers = models.PositiveIntegerField()
+	area_name = models.CharField(max_length=120, blank=True)
+	created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT)
+	created_at = models.DateTimeField(auto_now_add=True)
 
 
 class OptimizationRun(TimeStampedSoftDeleteModel):

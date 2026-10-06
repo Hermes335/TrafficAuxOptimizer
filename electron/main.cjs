@@ -104,7 +104,6 @@ async function bootstrap() {
   await app.whenReady();
   startDjangoBackend();
   await waitForBackendReady(BACKEND_BASE_URL);
-  app.commandLine.appendSwitch("disable-http-cache");
   createWindow();
 }
 

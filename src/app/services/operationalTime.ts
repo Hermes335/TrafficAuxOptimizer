@@ -1,4 +1,7 @@
 export const OPERATIONAL_TIME_ZONE = "Asia/Manila";
+export function isDeploymentActive(row: { status: string; start_time: string; end_time: string }, at = Date.now()) {
+  return row.status === "assigned" && Date.parse(row.start_time) <= at && at < Date.parse(row.end_time);
+}
 export function operationalDate(value = new Date()) {
   const parts = new Intl.DateTimeFormat("en-US", {timeZone: OPERATIONAL_TIME_ZONE, year: "numeric", month: "2-digit", day: "2-digit"}).formatToParts(value);
   const part = (key: string) => parts.find(p => p.type === key)?.value;

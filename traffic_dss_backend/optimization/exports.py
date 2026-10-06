@@ -30,7 +30,8 @@ class RecommendationExportView(APIView):
         writer = csv.writer(response)
         writer.writerow(["Run_ID", "Session_ID", "Mode", "Operational_Date", "Shift", "Captured_At", "Timezone",
             "Bottleneck_ID", "Location", "App_Recommended_Officers", "Recommended_Badges", "App_TSI",
-            "App_Weather_Factor", "Traffic_Source", "Traffic_Status", "Published", "Supervisor_Decision", "Date_Source"])
+            "App_Weather_Factor", "Traffic_Source", "Traffic_Status", "Published", "Supervisor_Decision", "Date_Source",
+            "Period_Start", "Period_End", "Required_Officers", "Requirement_Reason", "Area"])
         captured = parse_datetime(snapshot.get("captured_at", ""))
         timestamp = captured.astimezone(MANILA).isoformat() if captured and captured.tzinfo else ""
         assignments = top[0].get("assignments") or []
@@ -38,15 +39,22 @@ class RecommendationExportView(APIView):
         published = run.publications.exists()
         legacy = not run.parameters.get("operational_date")
         target_date = run.parameters.get("operational_date") or (str(captured.astimezone(MANILA).date()) if captured and captured.tzinfo else "")
-        for node in snapshot.get("bottlenecks", []):
-            assigned = [a for a in assignments if a.get("bottleneck_id") == node["id"]]
-            badges = ";".join(officers.get(a.get("officer_id"), {}).get("badge_number", "") for a in assigned)
-            provenance = node.get("provenance") or {}
-            writer.writerow([csv_text(value) for value in [run.run_id, run.parameters.get("session_id"),
-                run.parameters.get("mode", "legacy_unknown"), target_date, run.parameters.get("shift"),
-                timestamp, "Asia/Manila", node["id"], node.get("name"), len(assigned), badges, node.get("tsi"),
-                snapshot.get("weather", {}).get("impact_factor"), provenance.get("source"), provenance.get("data_status"),
-                "Yes" if published else "Unknown (legacy)" if legacy else "No",
-                "Published by supervisor" if published else "Unknown (legacy)" if legacy else "Pending",
-                "Input capture date (legacy)" if legacy else "Recorded operational date"]])
+        for period in top[0].get("time_periods") or [None]:
+            for node in snapshot.get("bottlenecks", []):
+                assigned = [a for a in assignments if a.get("bottleneck_id") == node["id"]]
+                if period:
+                    instant = parse_datetime(period["start_time"])
+                    assigned = [a for a in assigned if parse_datetime(a["start_time"]) <= instant < parse_datetime(a["end_time"])]
+                requirement = next((r for r in period["requirements"] if r["bottleneck_id"] == node["id"]), {}) if period else {}
+                badges = ";".join(officers.get(a.get("officer_id"), {}).get("badge_number", "") for a in assigned)
+                provenance = node.get("provenance") or {}
+                writer.writerow([csv_text(value) for value in [run.run_id, run.parameters.get("session_id"),
+                    run.parameters.get("mode", "legacy_unknown"), target_date, run.parameters.get("shift"),
+                    timestamp, "Asia/Manila", node["id"], node.get("name"), len(assigned), badges, node.get("tsi"),
+                    snapshot.get("weather", {}).get("impact_factor"), provenance.get("source"), provenance.get("data_status"),
+                    "Yes" if published else "Unknown (legacy)" if legacy else "No",
+                    "Published by supervisor" if published else "Unknown (legacy)" if legacy else "Pending",
+                    "Input capture date (legacy)" if legacy else "Recorded operational date",
+                    period["start_time"] if period else "", period["end_time"] if period else "",
+                    requirement.get("required", ""), requirement.get("reason", ""), node.get("area_name", "")]])
         return response

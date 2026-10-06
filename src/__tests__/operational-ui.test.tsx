@@ -103,6 +103,25 @@ it("publication preview uses saved run shift and requires confirmation", async (
   })));
 });
 
+it("publishes a timed recommendation using its saved assignment windows", async () => {
+  vi.mocked(backend.previewPublication).mockResolvedValue({
+    run_id:"timed-run",shift:"afternoon",start_time:"2026-10-02T06:00:00Z",end_time:"2026-10-02T14:00:00Z",
+    operational_date:"2026-10-02",created:2,skipped:[],staff_added:[2,3],staff_removed:[],replaced:0,conflicts:[],
+    expected_revision:"timed-review",captured_at:"2026-10-02T06:00:00Z",input_issues:[],added_assignments:[],removed_assignments:[],
+    time_periods:[{start_time:"2026-10-02T06:00:00Z",end_time:"2026-10-02T14:00:00Z",assigned_officers:2,reserve_officers:0}],
+  } as backend.PublicationPreview);
+  vi.mocked(backend.publishDeploymentsFromOptimization).mockResolvedValue({created:2,shift:"afternoon"} as backend.PublishOptimizationDeploymentsResponse);
+  render(<PublishScheduleButton runId="timed-run" date="2026-10-02" />);
+  fireEvent.click(screen.getByText("Preview publication"));
+  await screen.findByText("afternoon");
+  fireEvent.click(screen.getByText("Confirm publication"));
+  await waitFor(() => expect(backend.publishDeploymentsFromOptimization).toHaveBeenCalled());
+  const request = vi.mocked(backend.publishDeploymentsFromOptimization).mock.calls[0][0];
+  expect(request).toMatchObject({run_id:"timed-run",expected_revision:"timed-review"});
+  expect(request).not.toHaveProperty("start_time");
+  expect(request).not.toHaveProperty("end_time");
+});
+
 it("a saved run with generated inputs explains why publication is unavailable", () => {
   render(<PublishScheduleButton runId="older-run" syntheticSources={["road_priority_weight", "tsi"]} />);
   expect(screen.getByRole("button", {name: "Preview publication"})).toHaveProperty("disabled", true);

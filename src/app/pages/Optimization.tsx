@@ -292,7 +292,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Generation Limit</label>
                 <span className="text-yellow-500">{generationLimit}</span>
               </div>
-              <div className="text-xs text-gray-500">MAX ITERATIONS BEFORE STOP</div>
+              <div className="text-xs text-gray-500">MAX GENERATIONS PER STAFFING PERIOD</div>
               <input
                 type="range"
                 min="50"

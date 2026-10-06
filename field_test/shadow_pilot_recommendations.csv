@@ -5,3 +5,4 @@ Date,Time,Location,Shift,App_Recommended_Officers,Recommended_Badges,App_TSI,App
 2026-09-11,17:30,Atrium Rotonda,afternoon,5,"CP2-8820;CP2-7731;LP2-4091;LP2-5582;LP2-4467",0.39,1.17,No,"Observed only; no intervention","Run opt-20260911092919889629 completed with fitness 92.7785; recommendation not published"
 2026-09-11,17:45,Atrium Rotonda,afternoon,5,"CP2-8321;CP2-4439;LP2-1329;MD2-9903;JR2-2268",0.37,1.17,No,"Observed only; no intervention","Run opt-20260911094520434382 completed with fitness 92.477; recommendation not published"
 2026-09-11,18:00,Atrium Rotonda,afternoon,5,"CP2-6632;LP2-1107;LP2-6614;MD2-6643;JR2-4093",0.35,1.16,No,"Observed only; no intervention","Run opt-20260911095919130181 completed with fitness 92.2316; recommendation not published"
+

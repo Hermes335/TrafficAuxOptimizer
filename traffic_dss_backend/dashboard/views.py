@@ -1,7 +1,7 @@
 from django.db import transaction
 from deployments.services import lock_schedule
 from core.realtime import broadcast
-from core.staffing import required_staffing, shift_staffing
+from core.staffing import required_staffing, staffing_totals, staffing_windows
 import logging
 
 from django.db.models import Avg, Count, OuterRef, Prefetch, Subquery, Q
@@ -55,17 +55,17 @@ class DashboardKPIsView(APIView):
 		start, end = shift_window(shift, day)
 		nodes = list(Bottleneck.objects.filter(is_deleted=False, is_archived=False).prefetch_related("incidents"))
 		assigned = Deployment.objects.filter(is_deleted=False, status__in=["assigned", "completed"], shift=shift, start_time__lt=end, end_time__gt=start)
-		requirements = {b.id: required_staffing(b, [i for i in b.incidents.all() if not i.is_deleted and i.status in {"active", "investigating"}]) for b in nodes}
 		rows = list(assigned)
-		counts = {b.id: shift_staffing([d for d in rows if d.bottleneck_id == b.id], requirements[b.id], start, end) for b in nodes}
-		required = sum(requirements.values())
-		fulfilled = sum(covered for _, covered in counts.values())
+		counts = {b.id: staffing_totals(b, [d for d in rows if d.bottleneck_id == b.id], start, end,
+			[i for i in b.incidents.all() if not i.is_deleted and i.status in {"active", "investigating"}]) for b in nodes}
+		required = sum(need for need, _, _ in counts.values())
+		fulfilled = sum(covered for _, _, covered in counts.values())
 		active_officers = Officer.objects.filter(is_deleted=False, shift=shift, status__in=["available", "deployed"]).count()
 		deployed = assigned.values("officer").distinct().count()
 		weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
 		return Response({
-			"coverage_efficiency": round(100 * fulfilled / required, 1) if required else None,
-			"required_staffing": required, "assigned_staffing": round(sum(count for count, _ in counts.values()), 2), "shortages": round(required - fulfilled, 2),
+			"coverage_efficiency": round(100 * fulfilled / required, 1) if required else (100 if nodes else None),
+			"required_staffing": required, "assigned_staffing": round(sum(count for _, count, _ in counts.values()), 2), "shortages": round(required - fulfilled, 2),
 			"avg_response_time": None, "response_time_kind": "unavailable", "response_time_window": {"start": start.isoformat(), "end": end.isoformat()},
 			"resource_utilization": round(100 * deployed / active_officers, 1) if active_officers else None,
 			"weather_impact_factor": weather.weather_impact_factor if weather else None,
@@ -122,6 +122,8 @@ class DashboardBottlenecksView(APIView):
 		paginator = PageNumberPagination()
 		page = paginator.paginate_queryset(bottlenecks, request, view=self)
 		rows = []
+		now = timezone.now()
+		current_deployments = list(Deployment.objects.filter(is_deleted=False, status="assigned", start_time__lte=now, end_time__gt=now).select_related("officer"))
 		for b in page:
 			active_incident = b.active_incidents[0] if getattr(b, "active_incidents", None) else None
 			deployments = getattr(b, "active_deployments", [])
@@ -137,8 +139,7 @@ class DashboardBottlenecksView(APIView):
 			elif tsi_val >= 0.4:
 				status_value = "warning"
 			
-			required_officers = required_staffing(b, b.active_incidents)
-			assigned_count, covered_count = shift_staffing(deployments, required_officers, scope_start, scope_end)
+			required_officers, assigned_count, covered_count = staffing_totals(b, deployments, scope_start, scope_end, b.active_incidents)
 			staffing_gap = max(required_officers - covered_count, 0)
 			if assigned_count < required_officers:
 				coverage_status = "critical" if active_incident and active_incident.severity == "critical" else "warning"
@@ -178,11 +179,17 @@ class DashboardBottlenecksView(APIView):
 					"weather_impact_factor": wif,
 					"assigned_officers": assigned_officers,
 					"deployed_officers": assigned_count,
+					"current_assigned": sum(d.bottleneck_id == b.pk for d in current_deployments),
+					"current_required": required_staffing(b, b.active_incidents, now),
+					"current_as_of": now.isoformat(),
+					"current_assigned_officers": [{"name": d.officer.name, "badge_number": d.officer.badge_number} for d in current_deployments if d.bottleneck_id == b.pk and request.user.is_authenticated],
 					"assigned_officer_count": assigned_count,
 					"required_officer_count": required_officers,
 					"required_officers": required_officers,
 					"min_officers_required": b.min_officers_required,
 					"max_officers_allowed": b.max_officers_allowed,
+					"area_name": b.area_name, "signal_status": b.signal_status, "staffing_periods": b.staffing_periods,
+					"staffing_windows": staffing_windows(b, scope_start, scope_end, b.active_incidents),
 					"staffing_gap": staffing_gap,
 					"coverage_status": coverage_status,
 					"operational_alerts": operational_alerts,
@@ -251,6 +258,7 @@ class DashboardBottleneckManageView(APIView):
 				"bottleneck_type": str(payload.get("bottleneck_type", "other")).strip() or "other",
 				"road_priority_weight": payload.get("road_priority_weight", 1.0),
 				"tsi": payload.get("tsi", 0.0),
+				**{key: payload[key] for key in ["area_name", "signal_status", "staffing_periods", "min_officers_required", "max_officers_allowed"] if key in payload},
 			}
 		)
 		serializer.is_valid(raise_exception=True)
@@ -278,6 +286,7 @@ class DashboardBottleneckManageView(APIView):
 			"min_officers_required": payload.get("min_officers_required", bottleneck.min_officers_required),
 			"max_officers_allowed": payload.get("max_officers_allowed", bottleneck.max_officers_allowed),
 			"is_archived": payload.get("is_archived", bottleneck.is_archived),
+			**{key: payload[key] for key in ["area_name", "signal_status", "staffing_periods"] if key in payload},
 		}
 
 		serializer = BottleneckSerializer(bottleneck, data=allowed_fields, partial=True)

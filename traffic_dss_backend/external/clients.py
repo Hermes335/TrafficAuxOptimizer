@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from django.conf import settings
@@ -16,21 +17,34 @@ class ProviderError(Exception):
 
 def request_with_backoff(url: str, params: dict[str, Any] | None = None, headers: dict[str, str] | None = None) -> dict:
     delay_seconds = 1.0
-    last_error: Exception | None = None
+    provider = urlsplit(url).hostname or "unknown"
+    failure = "unknown"
 
     for attempt in range(1, 4):
+        status = None
         try:
             response = requests.get(url, params=params, headers=headers, timeout=10)
+            status = response.status_code
             response.raise_for_status()
             return response.json()
-        except Exception as exc:
-            last_error = exc
-            logger.warning("Provider request failed", extra={"url": url, "attempt": attempt, "error": str(exc)})
-            if attempt < 3:
+        except (requests.RequestException, ValueError) as exc:
+            failure = type(exc).__name__
+            transient = isinstance(exc, (requests.Timeout, requests.ConnectionError)) or (
+                status is not None and (status == 408 or status >= 500)
+            )
+            retry = transient and attempt < 3
+            # Exception text and request URLs may contain API keys. Include only
+            # safe diagnostics in the message: the console formatter drops extra.
+            log = logger.info if retry else logger.warning
+            log("Provider request failed provider=%s reason=%s status=%s attempt=%s/3 retry=%s",
+                provider, failure, status if status is not None else "none", attempt, retry)
+            if retry:
                 time.sleep(delay_seconds)
                 delay_seconds *= 2
+            else:
+                break
 
-    raise ProviderError(f"Provider request failed after retries: {last_error}")
+    raise ProviderError(f"Provider {provider} failed: {failure}, status={status}, attempts={attempt}") from None
 
 
 def _weather_condition_to_wif(condition: str) -> tuple[str, float]:

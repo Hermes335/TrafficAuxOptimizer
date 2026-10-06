@@ -1,5 +1,6 @@
 from hashlib import sha256
 from time import monotonic
+from datetime import date
 
 from celery import shared_task
 from django.utils import timezone
@@ -7,10 +8,12 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import OuterRef, Prefetch, Subquery
 
-from core.models import Bottleneck, Incident, Officer, OptimizationRun, POI, TrafficData, WeatherData
+from core.models import Bottleneck, Incident, Officer, OfficerTimeBlock, OptimizationRun, POI, TrafficData, WeatherData
 from core.realtime import broadcast
-from core.staffing import required_staffing
+from core.staffing import required_staffing, staffing_windows
+from core.operational_time import shift_window, operational_date
 from .engine import GeneticDeploymentOptimizer
+from .scheduling import run_schedule, plan_periods
 from .progress_store import save_progress
 
 
@@ -19,9 +22,15 @@ def _broadcast_progress(run_id, payload):
 
 
 def capture_inputs(params):
+    day = date.fromisoformat(str(params.get("operational_date") or operational_date()))
+    start, end = shift_window(params.get("shift", "afternoon"), day)
     officers = list(Officer.objects.filter(is_deleted=False, status__in=["available", "deployed"],
         shift=params.get("shift", "afternoon")).order_by("id").values("id", "badge_number", "current_latitude", "current_longitude"))
     bottlenecks = []
+    blocks = list(OfficerTimeBlock.objects.filter(is_deleted=False, start_time__lt=end, end_time__gt=start))
+    for officer in officers:
+        officer["time_blocks"] = [{"start_time": b.start_time.isoformat(), "end_time": b.end_time.isoformat(), "kind": b.kind}
+                                  for b in blocks if b.officer_id == officer["id"]]
     latest = TrafficData.objects.filter(bottleneck_id=OuterRef("pk"), is_deleted=False).order_by("-timestamp", "-id")
     rows = list(Bottleneck.objects.filter(is_deleted=False, is_archived=False).order_by("id").annotate(
         latest_traffic_id=Subquery(latest.values("pk")[:1])).prefetch_related(Prefetch("incidents",
@@ -29,12 +38,14 @@ def capture_inputs(params):
     observations = TrafficData.objects.in_bulk([b.latest_traffic_id for b in rows if b.latest_traffic_id])
     for b in rows:
         observation = observations.get(b.latest_traffic_id)
-        staffing_target = required_staffing(b, b.snapshot_incidents)
+        staffing_target = required_staffing(b, b.snapshot_incidents, start)
         bottlenecks.append({
             "id": b.id, "name": b.name, "latitude": b.latitude, "longitude": b.longitude,
             "road_priority_weight": b.road_priority_weight, "tsi": b.tsi,
             "min_officers_required": staffing_target, "max_officers_allowed": b.max_officers_allowed,
             "staffing_target": staffing_target, "configured_min_officers_required": b.min_officers_required,
+            "area_name": b.area_name, "signal_status": b.signal_status, "staffing_periods": b.staffing_periods,
+            "staffing_windows": staffing_windows(b, start, end, b.snapshot_incidents),
             "provenance": {"value_origin": "bottleneck.tsi", "source": observation.source if observation else "manual",
                 "is_synthetic": bool(observation and observation.is_synthetic),
                 "data_status": observation.data_status if observation else "unverified",
@@ -76,8 +87,12 @@ def run_optimization(self, run_id):
             "travel_time_model": {"speed_kmh": "max(8, 28 * (1 - TSI))", "missing_officer_location_distance_km": 3.0},
             "captured_at": captured_at, "operational_date": params.get("operational_date"),
             "mode": params.get("mode", "operational"), "session_id": params.get("session_id", ""),
-            "schema_version": 3, "engine_version": settings.BACKEND_VERSION, "seed": seed,
+            "schema_version": 4, "engine_version": settings.BACKEND_VERSION, "seed": seed,
             "allocation_policy_version": GeneticDeploymentOptimizer.ALLOCATION_POLICY_VERSION}
+        periods = plan_periods(bottlenecks, officers)
+        total_generations = params.get("generations", 300) * max(1, len(periods))
+        params = {**params, "total_generations": total_generations, "time_period_count": len(periods)}
+        OptimizationRun.objects.filter(pk=run.pk, status="running").update(parameters=params)
         last_heartbeat = [monotonic()]
         def cancelled():
             if monotonic() - last_heartbeat[0] >= 10:
@@ -92,10 +107,12 @@ def run_optimization(self, run_id):
                 "updated_at": timezone.now().isoformat()}
             save_progress(run_id, payload)
             _broadcast_progress(run_id, payload)
-        result = GeneticDeploymentOptimizer().run(officers=officers, bottlenecks=bottlenecks, parameters=params,
+        result = run_schedule(officers=officers, bottlenecks=bottlenecks, parameters=params,
             weather_impact_factor=wif, incidents=incidents, pois=pois,
             seed=seed, progress_callback=progress, cancel_check=cancelled)
         result_data = {"top_solutions": result.top_solutions, "weather_impact_factor": wif,
+            "best_fitness": result.best_fitness,
+            "total_generations": total_generations,
             "synthetic_data_used": (["weather"] if weather and weather.is_synthetic else []) + [b["id"] for b in bottlenecks if b["provenance"]["is_synthetic"]], "input_snapshot": input_snapshot,
             "pareto_curve_data": result.pareto_curve_data, "converged_early": result.converged_early}
         finished_at = timezone.now()
@@ -105,7 +122,7 @@ def run_optimization(self, run_id):
             return {"run_id": run_id, "status": OptimizationRun.objects.get(pk=run.pk).status}
         payload = {"event": "optimization_complete" if result.status == "completed" else "optimization_" + result.status,
             "run_id": run_id, "status": result.status, "current_generation": len(result.generation_fitness),
-            "total_generations": params.get("generations", 300), "current_fitness": result.best_fitness,
+            "total_generations": total_generations, "current_fitness": result.best_fitness,
             "converged_early": result.converged_early, "updated_at": finished_at.isoformat(),
             "estimated_completion": finished_at.isoformat() if result.status == "completed" else None}
         save_progress(run_id, payload)

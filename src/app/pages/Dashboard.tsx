@@ -1,4 +1,5 @@
 import { MarkerCreationForm } from "./Dashboard/components/MarkerCreationForm";
+import { AreaFilter, inArea } from "../components/AreaFilter";
 import { poiCategories, PoiSymbol } from "../services/poiMarker";
 import { useAuth } from "../contexts/AuthContext";
 import { operationalDate, operationalShift } from "../services/operationalTime";
@@ -29,9 +30,10 @@ export function Dashboard() {
   const {user} = useAuth();
   const canManage = user?.role === "supervisor" || user?.role === "administrator";
   const [selectedShift, setSelectedShift] = useState(operationalShift() === "morning" ? "Morning" : "Afternoon");
+  const [area,setArea]=useState("");
   // --- Data hook ---
   const data = useDashboardData(selectedShift.toLowerCase());
-  const { dashboardSnapshot, weatherSnapshot, deployedOfficersCount, totalOfficersCount, deployments, reloadDashboard, pois, setPois } = data;
+  const { dashboardSnapshot, weatherSnapshot, deployedOfficersCount, totalOfficersCount, activeDeployments, reloadDashboard, pois, setPois } = data;
 
   // --- UI state ---
   const [selectedView, setSelectedView] = useState("Congestion");
@@ -73,11 +75,10 @@ export function Dashboard() {
 
   const filteredBottlenecks = useMemo(() => {
     const term = filterTerm.trim().toLowerCase();
-    if (!term) return bottlenecks;
     return bottlenecks.filter((item) =>
-      item.id.toLowerCase().includes(term) || item.name.toLowerCase().includes(term) || item.status.toLowerCase().includes(term),
+      inArea(item,area)&&(!term||item.id.toLowerCase().includes(term) || item.name.toLowerCase().includes(term) || (item.area_name??"").toLowerCase().includes(term) || item.status.toLowerCase().includes(term)),
     );
-  }, [bottlenecks, filterTerm]);
+  }, [bottlenecks, filterTerm, area]);
 
   const severityThresholds = useMemo(() => computeRelativeThresholds(bottlenecks), [bottlenecks]);
 
@@ -171,7 +172,7 @@ export function Dashboard() {
     mapRef: map.mapRef,
     selectedView,
     bottlenecks: filteredBottlenecks,
-    deployments: deployments.filter(row => row.shift === selectedShift.toLowerCase() && row.status === "assigned"),
+    deployments: activeDeployments,
   });
 
   return (
@@ -179,12 +180,13 @@ export function Dashboard() {
       <div className="flex flex-wrap items-center gap-3 border-b bg-white p-3 text-sm">
         <strong>{operationalDate()} · Asia/Manila</strong>
         <label>Operational shift <select value={selectedShift} onChange={e=>setSelectedShift(e.target.value)} className="rounded border p-1"><option>Morning</option><option>Afternoon</option></select></label>
-        <span>Unfilled posts: {dashboardSnapshot.metrics.shortages ?? "—"}</span>
+        <span>Shift-average unfilled posts: {dashboardSnapshot.metrics.shortages ?? "—"}</span>
         <span>Active incidents: {dashboardSnapshot.incidents.length}</span>
         <span role="status">{data.connectionState} · Last refresh: {data.lastRefresh ? new Date(data.lastRefresh).toLocaleTimeString("en-PH", {timeZone:"Asia/Manila"}) : "Not loaded"}</span>
         {data.loadError && <span role="alert" className="text-red-700">{data.loadError}</span>}
         <button onClick={()=>{void reloadDashboard().catch(()=>{});}} className="rounded border px-2 py-1">Refresh</button>
       </div>
+      <div className="flex flex-wrap items-center gap-4 border-b bg-white px-4 py-2"><AreaFilter nodes={bottlenecks} value={area} onChange={setArea}/><span className="text-xs text-slate-600">Map staffing shows now; coverage metrics summarize the selected shift.</span></div>
       {/* KPI Cards */}
       <KPICards
         metrics={dashboardSnapshot.metrics}
@@ -194,9 +196,9 @@ export function Dashboard() {
       />
 
       {/* Main Content Area */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Left Sidebar - Bottlenecks List */}
-        <div className="flex w-full flex-col border-r border-gray-200 bg-[#f8fafc] md:w-80">
+        <div className="flex min-h-0 w-full flex-col border-r border-gray-200 bg-[#f8fafc] md:w-80">
           <div className="border-b border-gray-200 bg-white px-4 py-4">
             <div className="mb-3 flex items-center gap-2">
               <AlertCircle className="h-4 w-4 text-yellow-500" />
@@ -232,6 +234,7 @@ export function Dashboard() {
                       {(hasIncident || item.badge) && <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">INCIDENT</span>}
                     </div>
                     <div className="truncate text-sm font-semibold text-gray-900">{item.name}</div>
+                    <div className="text-xs text-slate-500">{item.area_name?item.area_name+" · ":""}Now: {item.current_assigned??"—"} assigned / {item.current_required??"—"} required</div>
                   </div>
                   <div className="ml-2 flex shrink-0 flex-col items-end gap-1">
                     <span className={`text-sm font-bold ${congestionTone[severity].text}`}>{tsiPercent}%</span>
@@ -247,7 +250,7 @@ export function Dashboard() {
         </div>
 
         {/* Map Area */}
-        <div className="relative flex-1 bg-gray-100">
+        <div className="relative min-h-0 flex-1 bg-gray-100">
           <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-3">
             <div className="flex gap-1 rounded-full bg-white p-1 shadow-md">
               <button onClick={() => { setSelectedView("Congestion"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Congestion" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Congestion</button>
@@ -255,6 +258,10 @@ export function Dashboard() {
               <button onClick={() => { setSelectedView("Assignments"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Assignments" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Assignments</button>
             </div>
             <div className="flex items-center rounded-full bg-white px-4 py-1.5 text-sm font-medium shadow-md"><MapPin className="mr-1 h-4 w-4 text-pink-500" />{dashboardSnapshot.cityLabel}</div>
+            {selectedView === "Congestion" && <div role="status" className={`flex items-center gap-2 rounded-full bg-white/95 px-3 py-1.5 text-xs shadow-md ${map.trafficError ? "text-red-700" : "text-slate-600"}`}>
+              <span>{map.trafficError ?? (map.trafficLoading ? "Loading traffic roads…" : "Traffic roads · zoom in for local detail")}</span>
+              {map.trafficError && <button onClick={map.retryTraffic} className="font-semibold underline" aria-label="Retry traffic layer">Retry</button>}
+            </div>}
             <div className="relative">
               <button onClick={() => ba.setShowAddMenu(!ba.showAddMenu)} className="flex items-center gap-1 rounded-full bg-orange-500 px-4 py-1.5 text-sm font-medium text-white shadow-md hover:bg-orange-600"><Plus className="h-4 w-4" />Add Marker<ChevronRight className="h-4 w-4 rotate-90" /></button>
               {ba.showAddMenu && (
@@ -280,6 +287,7 @@ export function Dashboard() {
             <div ref={map.mapContainerRef} className="h-full w-full" />
             {ba.editingBottleneckId && (
               <EditBottleneckOverlay
+                editStaffing={ba.editStaffing} setEditStaffing={ba.setEditStaffing}
                 editBottleneckName={ba.editBottleneckName} setEditBottleneckName={ba.setEditBottleneckName}
                 editBottleneckDistrict={ba.editBottleneckDistrict} setEditBottleneckDistrict={ba.setEditBottleneckDistrict}
                 editBottleneckType={ba.editBottleneckType} setEditBottleneckType={ba.setEditBottleneckType}
@@ -309,7 +317,7 @@ export function Dashboard() {
         </div>
 
         {/* Right Sidebar */}
-        <div className="w-full space-y-4 overflow-y-auto bg-white p-4 md:sticky md:top-0 md:h-[calc(100vh-4rem)] md:w-96 md:self-start">
+        <aside aria-label="Dashboard details and quick actions" className="min-h-0 w-full space-y-4 overflow-y-auto overscroll-contain bg-white p-4 pb-8 md:h-full md:w-96">
           {ba.selectedBottleneckId && ba.getSelectedBottleneck() && (
             <BottleneckDetailPanel
               bottleneck={ba.getSelectedBottleneck()!}
@@ -326,7 +334,7 @@ export function Dashboard() {
             selectedIncident={selectedIncident}
           />}
 
-        </div>
+        </aside>
       </div>
     </div>
   );

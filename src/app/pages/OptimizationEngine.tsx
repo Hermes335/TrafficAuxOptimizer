@@ -1,5 +1,6 @@
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
 import { RecommendationExportButton } from "../components/RecommendationExportButton";
+import { operationalTime } from "../services/operationalTime";
 import { useAuth } from "../contexts/AuthContext";
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronLeft, Clock, Target, TrendingDown, Users, TrendingUp } from "lucide-react";
@@ -207,7 +208,9 @@ export function OptimizationEngine() {
             <h2 className="mb-4 text-xl font-semibold">Top Solution Assignments</h2>
             {assignments.length === 0 && (
               <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
-                Awaiting backend solution assignments.
+                {bestSolution?.time_periods?.length && bestSolution.time_periods.every(p=>p.requirements.every(r=>r.required===0))
+                  ? "No officers required for this shift. Officers remain available."
+                  : "Awaiting backend solution assignments."}
               </div>
             )}
             <div className="space-y-3">
@@ -228,16 +231,17 @@ export function OptimizationEngine() {
                         <div className="font-medium">{officers[0]?.bottleneck_name ?? "Unknown"}</div>
                       </div>
                       <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                        {officers.length} officer{officers.length > 1 ? "s" : ""}
+                        {new Set(officers.map(o=>o.officer_id)).size} officer{new Set(officers.map(o=>o.officer_id)).size !== 1 ? "s" : ""}
                       </span>
                     </div>
                     {bestSolution?.staffing_targets?.[bnId] != null && <p className="mb-2 text-xs text-gray-600">
-                      Staffing target: {bestSolution.staffing_targets[bnId]} officers
+                      {bestSolution.time_periods?.length ? "Peak staffing target" : "Staffing target"}: {bestSolution.staffing_targets[bnId]} officers
                     </p>}
                     <div className="flex flex-wrap gap-2">
                       {officers.map((a, i) => (
                         <span key={i} className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
                           {a.badge_number ?? "N/A"}
+                          {a.start_time && a.end_time ? ` · ${operationalTime(a.start_time)}–${operationalTime(a.end_time)}` : ""}
                         </span>
                       ))}
                     </div>
@@ -257,10 +261,20 @@ export function OptimizationEngine() {
                 <div>Estimated travel time: {bestSolution?.avg_response_time != null ? `${bestSolution.avg_response_time.toFixed(1)} min` : "pending"}</div>
                 <div>Resource Utilization: {bestSolution?.resource_utilization != null ? `${bestSolution.resource_utilization.toFixed(1)}%` : "pending"}</div>
                 {bestSolution?.staffing_efficiency != null && <div>Staffing Efficiency: {bestSolution.staffing_efficiency.toFixed(1)}%</div>}
-                {bestSolution?.reserve_officers != null && <div>Officers in reserve: {bestSolution.reserve_officers}</div>}
+                {bestSolution?.reserve_officers != null && <div>{bestSolution.time_periods?.length ? "Minimum officers in reserve" : "Officers in reserve"}: {bestSolution.reserve_officers}</div>}
                 <div>Road Priority Coverage: {bestSolution?.road_priority_coverage != null ? `${bestSolution.road_priority_coverage.toFixed(1)}%` : "pending"}</div>
               </div>
             </div>
+
+            {bestSolution?.time_periods?.length ? <div className="rounded-xl bg-white p-5 shadow-sm">
+              <h3 className="mb-3 font-semibold">Staffing by time · Asia/Manila</h3>
+              <p className="mb-3 text-xs text-gray-500">Unassigned officers remain available. Zero required is a valid period. Travel gaps are reserved when an officer changes intersections.</p>
+              {bestSolution.time_periods.map(period=><div key={period.start_time} className="border-t py-3 text-sm">
+                <strong>{operationalTime(period.start_time)}–{operationalTime(period.end_time)}</strong>
+                <p>{period.assigned_officers} assigned · {period.reserve_officers} available</p>
+                <details className="mt-1 text-xs"><summary className="cursor-pointer">Requirements and reasons</summary>{period.requirements.map(r=><p key={r.bottleneck_id} className="mt-1">{r.bottleneck_id}: {r.required} required · {r.reason}</p>)}</details>
+              </div>)}
+            </div> : null}
 
             {results?.input_snapshot && <details className="rounded-xl bg-white p-4">
               <summary className="cursor-pointer font-semibold">Input sources and freshness</summary>

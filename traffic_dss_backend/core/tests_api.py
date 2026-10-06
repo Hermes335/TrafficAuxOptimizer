@@ -276,6 +276,8 @@ def test_incident_reporting_flow():
 
 @pytest.mark.django_db
 def test_deployment_assignment_uses_default_shift_window_when_times_missing():
+    from datetime import timedelta
+    from core.operational_time import operational_date
     user = get_user_model().objects.create_user(username="assigner", password="pass12345")
     user.groups.add(Group.objects.get(name="supervisor"))
     officer = Officer.objects.create(
@@ -305,6 +307,7 @@ def test_deployment_assignment_uses_default_shift_window_when_times_missing():
             "officer": officer.id,
             "bottleneck": bottleneck.id,
             "shift": "morning",
+            "operational_date": str(operational_date() + timedelta(days=1)),
         },
         format="json",
     )

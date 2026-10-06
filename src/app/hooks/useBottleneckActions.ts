@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { staffingProfile } from "../components/StaffingProfileFields";
 import {
   deleteDashboardBottleneck,
   updateDashboardBottleneck,
@@ -30,6 +31,7 @@ export function useBottleneckActions({
   const [editBottleneckWeight, setEditBottleneckWeight] = useState("1.0");
   const [editLatitude, setEditLatitude] = useState("");
   const [editLongitude, setEditLongitude] = useState("");
+  const [editStaffing, setEditStaffing] = useState(staffingProfile({}));
   const [editPickFromMap, setEditPickFromMap] = useState(false);
   const [savingEditBottleneck, setSavingEditBottleneck] = useState(false);
   const [selectedBottleneckId, setSelectedBottleneckId] = useState<string | null>(null);
@@ -62,6 +64,7 @@ export function useBottleneckActions({
     setEditBottleneckDistrict(target.district ?? "");
     setEditBottleneckType(target.bottleneck_type ?? "other");
     setEditBottleneckWeight(String(target.road_priority_weight ?? 1));
+    setEditStaffing(staffingProfile(target));
     setEditLatitude(target.latitude != null ? String(target.latitude) : "");
     setEditLongitude(target.longitude != null ? String(target.longitude) : "");
     setEditPickFromMap(false);
@@ -98,6 +101,7 @@ export function useBottleneckActions({
         road_priority_weight: weight,
         latitude: latVal,
         longitude: lonVal,
+        ...editStaffing,
       });
       await reloadDashboard();
       setEditingBottleneckId(null);
@@ -121,6 +125,7 @@ export function useBottleneckActions({
     editBottleneckWeight, setEditBottleneckWeight,
     editLatitude, setEditLatitude,
     editLongitude, setEditLongitude,
+    editStaffing, setEditStaffing,
     editPickFromMap, setEditPickFromMap,
     savingEditBottleneck,
     selectedBottleneckId, setSelectedBottleneckId,

@@ -19,6 +19,7 @@ and Redis-backed Channels realtime updates.
 ## Local development
 - Run `npm run dev:local` from the repository root for Django, Celery, renderer and Electron.
 - Renderer uses port 8080; Django uses port 8000.
+- `dev:local` reloads Django after backend edits. The standalone Electron backend still uses `--noreload` and needs an app restart for backend changes.
 - Redis is needed for background jobs and Redis-backed realtime broadcasts.
 - npm/Electron launchers reference the root `.venv/Scripts/python.exe`.
 - A separate backend-local interpreter exists at `traffic_dss_backend/.venv/Scripts/python.exe`.
@@ -45,6 +46,8 @@ From the repository root: `npm.cmd test`, `npm.cmd run typecheck`, `npm.cmd run 
 - [Field workflow](field_test/APPLICATION_WORKFLOW.md) documents dated comparisons and recommendation exports.
 
 ## Current review and field work
+- [Deployment operations guide](field_test/DEPLOYMENT_OPERATIONS.md) covers live staffing, schedule review, audited staffing overrides, area filters, break/travel reservations and field feedback. Migration 0012 is applied locally. Upcoming movement lists and officer acknowledgement/arrival tracking remain excluded.
+- [Dynamic deployment implementation](MDFILES/DYNAMIC_DEPLOYMENT_2026-09-29.md) adds intersection staffing periods, zero demand, timed optimization/publication and an editable Gantt. Migration `0011_bottleneck_staffing_periods` is applied locally; restart workers to load `timed-demand-v2`. Actual site profiles must be entered from field requirements.
 - [Officer assignment fix dated 2026-09-29](MDFILES/OFFICER_ASSIGNMENT_FIX_2026-09-29.md) changes optimizer allocation and resource scoring to use staffing demand; restart the worker before generating new recommendations. The web/desktop platform decision is deferred at the user's request.
 - [Review dated 2026-09-19](MDFILES/CODE_REVIEW_2026-09-19.md) records verified findings,
   the three approved quick fixes, verification results and the deferred improvement backlog.

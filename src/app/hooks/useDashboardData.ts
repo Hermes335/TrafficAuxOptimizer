@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isDeploymentActive } from "../services/operationalTime";
 import {
   fetchPOIs, type POI, fetchDashboardSnapshot, fetchDashboardOfficers, fetchDeploymentSchedule, fetchCurrentWeather,
   getFallbackDashboardSnapshot, subscribeToDashboardStream,
@@ -23,6 +24,7 @@ export function useDashboardData(shift = "afternoon") {
   const [pois, setPois] = useState<POI[]>([]);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
   const [deployments, setDeployments] = useState<DeploymentScheduleItem[]>([]);
+  const [now, setNow] = useState(Date.now);
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -71,7 +73,7 @@ export function useDashboardData(shift = "afternoon") {
     mounted.current = true;
     setDashboardSnapshot(getFallbackDashboardSnapshot());
     setLastRefresh(null);
-    const refresh = () => { void reloadDashboard().catch(() => {}); };
+    const refresh = () => { setNow(Date.now()); void reloadDashboard().catch(() => {}); };
     refresh();
     const stop = subscribeToDashboardStream(event => {
       if (dashboardEventNeedsRefresh(event.event)) refresh();
@@ -82,9 +84,11 @@ export function useDashboardData(shift = "afternoon") {
     const timer = window.setInterval(refresh, 60000);
     return () => { mounted.current = false; pendingRefresh.current = false; generation.current++; stop(); window.clearInterval(timer); };
   }, [reloadDashboard, shift]);
+  const activeDeployments = deployments.filter(d => d.shift === shift && isDeploymentActive(d, now));
   return {
     dashboardSnapshot, setDashboardSnapshot, weatherSnapshot, officers, deployments, pois, setPois,
-    deployedOfficersCount: new Set(deployments.filter(d => d.shift === shift && d.status === "assigned").map(d => d.officer)).size,
+    activeDeployments,
+    deployedOfficersCount: new Set(activeDeployments.map(d => d.officer)).size,
     totalOfficersCount: officers.filter(o => o.shift === shift && ["available", "deployed"].includes(o.status)).length,
     connectionState, lastRefresh, loadError, bottleneckActionError, setBottleneckActionError,
     bottleneckActionNotice, setBottleneckActionNotice,

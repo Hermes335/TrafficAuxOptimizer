@@ -214,6 +214,12 @@ Celery beat schedules periodic tasks. Celery worker executes them.
 3. Used for: map tiles (AllowAny), traffic flow data (TSI calculation)
 4. TSI formula: `1 - (current_speed / free_flow_speed)`
 
+The dashboard overlays transparent PNG traffic tiles from `/api/maps/tomtom-traffic/{z}/{x}/{y}.png?style=relative0` on OpenStreetMap. The tile URL and MapLibre source must both use the raster format. Local-road detail depends on zoom and available provider coverage.
+
+The September 29 traffic regression was caused by switching the dashboard to a new vector endpoint while the running backend still served the old routes. That endpoint returned 404 while the PNG endpoint returned valid live traffic. The dashboard now uses the existing PNG endpoint again. The local launcher uses `--noreload`, so future backend route changes require restarting Django.
+
+To verify the actual running traffic service after building the renderer, run `$env:LIVE_TRAFFIC_TILES='1'; node scripts/browser-review.cjs` in PowerShell. This checks live PNG responses and rendered traffic pixels at zoom levels 13, 14, and 15. Other API calls remain fixtures, including all writes. The normal browser test uses local tile fixtures.
+
 ### Weather
 - **PAGASA** (Philippines): Set `PAGASA_API_ENDPOINT` in `.env`
 - **Open-Meteo** (Fallback): No API key needed, configured by default

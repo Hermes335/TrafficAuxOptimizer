@@ -7,7 +7,24 @@ export interface BottleneckOfficer {
   badge_number: string;
 }
 
-export interface Bottleneck {
+export interface StaffingPeriod {
+  start: string; end: string; required: number; label?: string; days?: number[];
+}
+export interface StaffingWindow {
+  start_time: string; end_time: string; required: number; reason: string;
+}
+export interface StaffingProfile {
+  area_name: string; signal_status: "unknown" | "working" | "none" | "out_of_order";
+  min_officers_required: number; max_officers_allowed: number; staffing_periods: StaffingPeriod[];
+}
+export interface SchedulePeriod {
+  start_time: string; end_time: string; assigned_officers: number; reserve_officers: number;
+  requirements: Array<{bottleneck_id: string; required: number; reason: string}>;
+  staffing_shortages?: Record<string, number>;
+}
+export interface Bottleneck extends Partial<StaffingProfile> {
+  current_assigned?: number; current_required?: number; current_as_of?: string;
+  current_assigned_officers?: BottleneckOfficer[];
   id: string;
   name: string;
   status: BottleneckStatus;
@@ -22,6 +39,7 @@ export interface Bottleneck {
   deployed_officers?: number;
   required_officers?: number;
   assigned_officers?: BottleneckOfficer[];
+  staffing_windows?: StaffingWindow[];
 }
 
 export interface Incident {
@@ -482,12 +500,15 @@ export interface OptimizationResults {
     staffing_targets?: Record<string, number>;
     staffing_efficiency?: number;
     reserve_officers?: number;
+    time_periods?: SchedulePeriod[];
     generated_at?: string;
     assignments?: Array<{
       officer_id?: number;
       badge_number?: string;
       bottleneck_id?: string;
       bottleneck_name?: string;
+      start_time?: string;
+      end_time?: string;
     }>;
   }>;
   pareto_curve_data?: ParetoPoint[];
@@ -525,6 +546,7 @@ export function fetchOptimizationHistory(page = 1, status?: string): Promise<Api
 }
 
 export interface DeploymentScheduleItem {
+  override_reason?: string;
   id: number;
   officer: string;
   officer_name: string;
@@ -534,6 +556,32 @@ export interface DeploymentScheduleItem {
   end_time: string;
   assignment_type: string;
   status: string;
+  officer_id?: number;
+  bottleneck_name?: string;
+  area_name?: string;
+  updated_at?: string;
+}
+
+export interface DeploymentAssignmentPayload {
+  override_reason?: string;
+  officer: number; bottleneck: string; shift: "morning" | "afternoon";
+  start_time: string; end_time: string; assignment_type: "static" | "mobile" | "response";
+  status?: "assigned" | "cancelled"; expected_updated_at?: string;
+}
+export async function saveDeploymentAssignment(payload: DeploymentAssignmentPayload, id?: number): Promise<void> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/${id ? `${id}/update/` : "assign/"}`, {
+    method: id ? "PUT" : "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
+  });
+  if (!response.ok) throw new Error(await extractApiError(response, "Unable to save assignment."));
+}
+
+export interface OfficerTimeBlock {id:number;officer:number;officer_name:string;badge_number:string;start_time:string;end_time:string;kind:"break"|"travel";note:string}
+export interface FieldObservation {id:number;bottleneck:string;bottleneck_name:string;area_name:string;observed_at:string;actual_officers:number;required_officers:number;scheduled_officers:number;traffic:string;note:string}
+export interface ScheduleReview {needs_review:boolean;scope:string;issues:{bottleneck:string;reason:string;assignment_ids:number[]}[]}
+export async function deploymentOperation<T>(path:string, payload?:unknown, method="POST"):Promise<T> {
+  const response=await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/${path}`,payload===undefined&&method==="POST"?undefined:{method,headers:{"Content-Type":"application/json"},body:payload===undefined?undefined:JSON.stringify(payload)});
+  if(!response.ok) throw new Error(await extractApiError(response,"Unable to load or save deployment information."));
+  return response.status===204?undefined as T:response.json();
 }
 
 export interface PublishOptimizationDeploymentsRequest {
@@ -615,12 +663,13 @@ export async function cancelOptimizationRun(runId: string): Promise<{ run_id: st
   return response.json() as Promise<{ run_id: string; status: string }>;
 }
 
-export interface BottleneckOption {
+export interface BottleneckOption extends Partial<StaffingProfile> {
   id: string;
   name: string;
+  staffing_windows?: StaffingWindow[];
 }
 
-export interface DashboardBottleneckPayload {
+export interface DashboardBottleneckPayload extends Partial<StaffingProfile> {
   id?: string;
   name: string;
   latitude: number;
@@ -663,8 +712,17 @@ async function extractApiError(response: Response, fallback: string) {
   return fallback;
 }
 
-export async function fetchBottlenecks(): Promise<BottleneckOption[]> {
-  return fetchAllPages<BottleneckOption>(`${getApiBaseUrl()}/api/dashboard/bottlenecks/`);
+export async function fetchBottlenecks(date?: string, shift?: string): Promise<BottleneckOption[]> {
+  if (shift === "all") {
+    const [morning, afternoon] = await Promise.all([fetchBottlenecks(date,"morning"),fetchBottlenecks(date,"afternoon")]);
+    const rows = new Map(morning.map(node=>[node.id,node]));
+    for (const node of afternoon) rows.set(node.id,{...node,staffing_windows:[...(rows.get(node.id)?.staffing_windows ?? []),...(node.staffing_windows ?? [])]});
+    return [...rows.values()];
+  }
+  const query = new URLSearchParams();
+  if (date) query.set("date", date);
+  if (shift) query.set("shift", shift);
+  return fetchAllPages<BottleneckOption>(`${getApiBaseUrl()}/api/dashboard/bottlenecks/${query.size ? "?" + query : ""}`);
 }
 
 export async function createDashboardBottleneck(payload: DashboardBottleneckPayload): Promise<Bottleneck> {
@@ -696,7 +754,7 @@ export async function deleteDashboardBottleneck(bottleneckId: string): Promise<v
 
 export async function updateDashboardBottleneck(
   bottleneckId: string,
-  payload: Omit<DashboardBottleneckPayload, "id">
+  payload: Partial<Omit<DashboardBottleneckPayload, "id">>
 ): Promise<Bottleneck> {
   const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/bottlenecks/manage/${encodeURIComponent(bottleneckId)}/`, {
     method: "PUT",
@@ -992,6 +1050,7 @@ export interface PublicationPreview extends PublishOptimizationDeploymentsRespon
   input_issues: string[];
   added_assignments: PublicationAssignment[];
   removed_assignments: PublicationAssignment[];
+  time_periods?: SchedulePeriod[];
 }
 export interface PublicationAssignment {
   officer_id: number; officer_name: string; badge_number: string;

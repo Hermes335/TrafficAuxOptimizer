@@ -5,6 +5,10 @@ import { useAuth } from "../contexts/AuthContext";
 import { operationalDate, operationalTime } from "../services/operationalTime";
 import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronUp, Download, XCircle } from "lucide-react";
 import { GanttTimeline } from "./GanttChart/GanttTimeline";
+import { AssignmentEditor, StaffingEditor } from "./GanttChart/ScheduleEditors";
+import { OperationsPanel } from "./GanttChart/OperationsPanel";
+import { AreaFilter, inArea } from "../components/AreaFilter";
+import type { OfficerTimeBlock } from "../services/backend";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -36,6 +40,8 @@ export function GanttChart() {
   const [bottlenecks, setBottlenecks] = useState<BottleneckOption[]>([]);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
   const [query, setQuery] = useState("");
+  const [area,setArea]=useState("");
+  const [blocks,setBlocks]=useState<OfficerTimeBlock[]>([]);
   const [shiftFilter, setShiftFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
   const [runPage, setRunPage] = useState(1);
@@ -48,6 +54,8 @@ export function GanttChart() {
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
   const [ganttViewMode, setGanttViewMode] = useState<"officer" | "bottleneck">("officer");
+  const [editingAssignment,setEditingAssignment] = useState<DeploymentScheduleItem|null|undefined>(undefined);
+  const [editingStaffing,setEditingStaffing] = useState(false);
   const [topCollapsed, setTopCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") {
       return false;
@@ -64,7 +72,7 @@ export function GanttChart() {
   useEffect(() => {
     let active = true;
 
-    Promise.allSettled([fetchDeploymentSchedule(day), fetchBottlenecks(), fetchDashboardOfficers(), fetchOptimizationHistory(runPage, "completed")])
+    Promise.allSettled([fetchDeploymentSchedule(day), fetchBottlenecks(day,shiftFilter), fetchDashboardOfficers(), fetchOptimizationHistory(runPage, "completed")])
       .then(([deployments, bottleneckRows, officerRows, optimizationRuns]) => {
         if (!active) {
           return;
@@ -92,7 +100,7 @@ export function GanttChart() {
     return () => {
       active = false;
     };
-  }, [day, refreshKey, runPage]);
+  }, [day, refreshKey, runPage, shiftFilter]);
 
   useEffect(() => {
     const timer = window.setInterval(() => setRefreshKey(k => k + 1), 60000);
@@ -100,7 +108,7 @@ export function GanttChart() {
   }, []);
 
   useEffect(() => subscribeToDashboardStream(event => {
-    if (["deployment_changed", "optimization_complete", "officers_updated", "bottlenecks_updated"].includes(event.event)) setRefreshKey(k => k + 1);
+    if (["deployment_changed", "optimization_complete", "officers_updated", "bottlenecks_updated", "incident_reported", "incident_updated", "incident_resolved", "incidents_auto_resolved", "tsi_threshold_exceeded"].includes(event.event)) setRefreshKey(k => k + 1);
   }, undefined, state => { setConnection(state); if (state === "live") setRefreshKey(k => k + 1); }), []);
 
   useEffect(() => {
@@ -133,24 +141,34 @@ export function GanttChart() {
         item.officer.toLowerCase().includes(term) ||
         item.officer_name.toLowerCase().includes(term) ||
         item.bottleneck.toString().toLowerCase().includes(term) ||
+        (item.bottleneck_name ?? "").toLowerCase().includes(term) ||
+        (item.area_name ?? "").toLowerCase().includes(term) ||
         item.assignment_type.toLowerCase().includes(term) ||
         item.status.toLowerCase().includes(term);
       const matchesShift = shiftFilter === "all" || item.shift === shiftFilter;
-      return matchesTerm && matchesShift;
+      return matchesTerm && matchesShift && inArea(item,area);
     });
-  }, [schedule, query, shiftFilter]);
+  }, [schedule, query, shiftFilter, area]);
 
   const coverage = useMemo(() => {
     if (bottlenecks.length === 0) {
       return { covered: 0, total: 0, percent: 0 };
     }
-    const covered = bottlenecks.filter((b) => (groupedByBottleneck.get(b.id)?.length ?? 0) > 0).length;
+    const covered = bottlenecks.filter((b) => {
+      if (!b.staffing_windows?.length) return (groupedByBottleneck.get(b.id)?.length ?? 0)>0;
+      const rows=schedule.filter(d=>d.bottleneck===b.id&&["assigned","completed"].includes(d.status));
+      return b.staffing_windows.every(w=>{
+        const left=Date.parse(w.start_time),right=Date.parse(w.end_time);
+        const moments=[left,...rows.flatMap(d=>[Date.parse(d.start_time),Date.parse(d.end_time)])].filter(t=>t>=left&&t<right);
+        return moments.every(t=>rows.filter(d=>Date.parse(d.start_time)<=t&&t<Date.parse(d.end_time)).length>=w.required);
+      });
+    }).length;
     return {
       covered,
       total: bottlenecks.length,
       percent: Math.round((covered / bottlenecks.length) * 100),
     };
-  }, [bottlenecks, groupedByBottleneck]);
+  }, [bottlenecks, groupedByBottleneck, schedule]);
 
   const activeScope = useMemo(() => schedule.filter(item => item.status === "assigned" && (shiftFilter === "all" || item.shift === shiftFilter)), [schedule, shiftFilter]);
   const activeAssignments = activeScope.length;
@@ -162,7 +180,7 @@ export function GanttChart() {
 
   const hourSlots = useMemo(() => Array.from({ length: shiftFilter === "all" ? 16 : 8 }, (_, idx) => (shiftFilter === "afternoon" ? 14 : 6) + idx), [shiftFilter]);
   const matrixRows = useMemo(() => {
-    const bottleneckRows = bottlenecks;
+    const bottleneckRows = bottlenecks.filter(n=>inArea(n,area));
     return bottleneckRows.map((row) => {
       const rowAssignments = schedule.filter(assignment => assignment.bottleneck === row.id && ["assigned", "completed"].includes(assignment.status) && (shiftFilter === "all" || assignment.shift === shiftFilter));
       const cells = hourSlots.map((hour) => {
@@ -170,21 +188,25 @@ export function GanttChart() {
           const instant = new Date(`${day}T${String(hour).padStart(2, "0")}:00:00+08:00`).getTime();
           return new Date(assignment.start_time).getTime() <= instant && instant < new Date(assignment.end_time).getTime();
         }).length;
-        return overlapCount;
+        const instant = new Date(`${day}T${String(hour).padStart(2,"0")}:00:00+08:00`).getTime();
+        const required = row.staffing_windows?.find(w=>Date.parse(w.start_time)<=instant&&instant<Date.parse(w.end_time))?.required;
+        return {count:overlapCount,required};
       });
       return { row, cells };
     });
-  }, [bottlenecks, schedule, shiftFilter, hourSlots, day]);
+  }, [bottlenecks, schedule, shiftFilter, hourSlots, day, area]);
 
   const matrixLegend = [
-    { label: "2+ officers", className: "bg-yellow-400" },
-    { label: "1 officer", className: "bg-yellow-200" },
-    { label: "No officers", className: "bg-rose-100" },
+    { label: "Requirement met", className: "bg-yellow-400" },
+    { label: "No officers required", className: "bg-emerald-100" },
+    { label: "Below requirement", className: "bg-rose-100" },
+    { label: "Requirement unavailable", className: "bg-slate-100" },
   ];
 
   const reloadSchedule = async () => {
     const rows = await fetchDeploymentSchedule(day);
     setSchedule(rows);
+    setRefreshKey(k=>k+1);
   };
 
   const clearScheduleConfirmed = async () => {
@@ -204,7 +226,7 @@ export function GanttChart() {
 
   const onExport = () => {
     const rows = [
-      ["bottleneck", "officer", "shift", "start_time", "end_time", "type", "status"],
+      ["bottleneck", "officer", "shift", "start_time", "end_time", "type", "status", "area", "override_reason"],
       ...filteredSchedule.map((item) => [
         item.bottleneck,
         `${item.officer} - ${item.officer_name}`,
@@ -213,9 +235,10 @@ export function GanttChart() {
         item.end_time,
         item.assignment_type,
         item.status,
+        item.area_name ?? "", item.override_reason ?? "",
       ]),
     ];
-    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/^[=+@\-]/,"'$&").replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
@@ -246,10 +269,10 @@ export function GanttChart() {
               </div>
             )}
             <h1 className="text-2xl font-bold">Deployment Schedule</h1>
-            {!topCollapsed && <p className="text-sm text-gray-600">Live schedule loaded from backend deployments API.</p>}
+            {!topCollapsed && <p className="text-sm text-gray-600">Gantt schedule · timed assignments and staffing requirements</p>}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             {!topCollapsed && (
               <>
                 <button onClick={onExport} className="flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-gray-50">
@@ -332,12 +355,15 @@ export function GanttChart() {
               <button onClick={() => setRefreshKey(k => k + 1)} className="underline">Refresh schedule</button>
             </div>
 
-            <div className="rounded-lg border border-yellow-100 bg-yellow-50 px-4 py-3">
+            <details className="rounded-lg border border-slate-200 bg-white p-3">
+            <summary className="cursor-pointer text-sm font-medium">Staffing summary · {activeAssignments} scheduled assignments · {coverage.percent}% coverage</summary>
+            <div className="mt-3 rounded-lg border border-yellow-100 bg-yellow-50 px-4 py-3">
               <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-yellow-800">
                 <CalendarDays className="h-4 w-4" />
-                Available Officer Pool
+                Officers without scheduled assignments
                 <span className="text-yellow-700">{availableOfficerPool.length} Officers Unassigned</span>
               </div>
+              <p className="mb-2 text-xs text-yellow-800">These officers have no scheduled posts in the selected shift. Gaps in each officer's Gantt row show additional availability.</p>
               <div className="flex flex-wrap items-center gap-2">
                 {availableOfficerPool.slice(0, 10).map((officer) => (
                   <div key={officer.id} className="flex items-center gap-1 rounded-full border border-yellow-200 bg-white px-2 py-1 text-xs">
@@ -357,7 +383,8 @@ export function GanttChart() {
             </div>
 
             <div className="rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800">
-              Coverage: {coverage.covered}/{coverage.total} bottlenecks with active assignments ({coverage.percent}%)
+              Coverage: {coverage.covered}/{coverage.total} intersections meeting staffing requirements ({coverage.percent}%)
+              <span className="ml-2 text-xs">Zero required is valid coverage. The timeline shows availability within the day.</span>
             </div>
 
             <div className="mt-3 grid grid-cols-4 gap-3 text-sm">
@@ -379,7 +406,9 @@ export function GanttChart() {
               </div>
             </div>
 
+            </details>
             <div className="mt-3 flex flex-col gap-3 md:flex-row">
+              <AreaFilter nodes={bottlenecks} value={area} onChange={setArea}/>
               <input
                 aria-label="Search schedule"
                 value={query}
@@ -402,13 +431,15 @@ export function GanttChart() {
         )}
       </div>
 
+      <OperationsPanel day={day} shift={shiftFilter} area={area} nodes={bottlenecks} officers={officers} canManage={canManage} refreshKey={refreshKey} onBlocks={setBlocks} onChanged={()=>setRefreshKey(k=>k+1)}/>
       {/* Deployment Board */}
-      {filteredSchedule.length > 0 && (
+      {(
         <div className="px-4 pt-4">
           <div className="mb-2 flex items-center gap-2">
             <BarChart3 className="h-4 w-4 text-yellow-500" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Deployment Board</span>
-            <div className="ml-auto flex gap-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Deployment Gantt</span>
+            <div className="ml-auto flex flex-wrap gap-2">
+              {canManage && <><button onClick={()=>setEditingAssignment(null)} className="rounded bg-yellow-400 px-3 py-1.5 text-xs font-medium">Add assignment</button><button onClick={()=>setEditingStaffing(true)} className="rounded border px-3 py-1.5 text-xs font-medium">Staffing periods</button></>}
               <button
                 onClick={() => setGanttViewMode("officer")}
                 className={`rounded px-2 py-1 text-xs font-medium ${ganttViewMode === "officer" ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
@@ -419,11 +450,14 @@ export function GanttChart() {
                 onClick={() => setGanttViewMode("bottleneck")}
                 className={`rounded px-2 py-1 text-xs font-medium ${ganttViewMode === "bottleneck" ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
               >
-                By Bottleneck
+                By Intersection
               </button>
             </div>
           </div>
-          <GanttTimeline deployments={filteredSchedule} viewMode={ganttViewMode} />
+          <GanttTimeline deployments={filteredSchedule} viewMode={ganttViewMode} day={day} shift={shiftFilter} blocks={blocks}
+            bottlenecks={bottlenecks.filter(n=>inArea(n,area)&&(!query.trim()||`${n.name} ${n.id} ${n.area_name??""}`.toLowerCase().includes(query.toLowerCase())))}
+            officers={officers.filter(o=>(!area||filteredSchedule.some(d=>d.officer===o.badge_number))&&(!query.trim()||`${o.name} ${o.badge_number}`.toLowerCase().includes(query.toLowerCase())))}
+            onSelect={canManage?setEditingAssignment:undefined}/>
         </div>
       )}
 
@@ -468,7 +502,7 @@ export function GanttChart() {
                 )}
                 {filteredSchedule.map((item) => (
                   <tr key={item.id}>
-                    <td className="px-4 py-3">{item.bottleneck}</td>
+                    <td className="px-4 py-3">{item.area_name&&<div className="text-xs text-slate-500">{item.area_name}</div>}{item.bottleneck_name??item.bottleneck}</td>
                     <td className="px-4 py-3">{item.officer} - {item.officer_name}</td>
                     <td className="px-4 py-3 capitalize">{item.shift}</td>
                     <td className="px-4 py-3">{operationalTime(item.start_time)}</td>
@@ -507,11 +541,11 @@ export function GanttChart() {
                     <div className="truncate pr-1 text-[10px] font-medium text-gray-600" title={row.name ?? row.id}>
                       {(row.id ?? "").replace("bn-", "").slice(0, 6)}
                     </div>
-                    {cells.map((count, index) => (
+                    {cells.map(({count,required}, index) => (
                       <div
                         key={`${row.id}-${hourSlots[index]}`}
-                        className={`h-6 rounded ${count >= 2 ? "bg-yellow-400" : count === 1 ? "bg-yellow-200" : "bg-rose-100"}`}
-                        title={`${row.name ?? row.id} @ ${hourSlots[index]}:00 -> ${count} officer(s)`}
+                        className={`h-6 rounded ${required == null ? "bg-slate-100" : required === 0 && count === 0 ? "bg-emerald-100" : count >= required ? "bg-yellow-400" : "bg-rose-100"}`}
+                        title={`${row.name ?? row.id} @ ${hourSlots[index]}:00 -> ${count} officer(s)${required == null ? "" : ` / ${required} required`}`}
                       />
                     ))}
                   </div>
@@ -546,6 +580,8 @@ export function GanttChart() {
           </div>
         </div>
       )}
+      {canManage && editingAssignment !== undefined && <AssignmentEditor assignment={editingAssignment} day={day} initialShift={shiftFilter} officers={officers} nodes={bottlenecks} onClose={()=>setEditingAssignment(undefined)} onSaved={reloadSchedule}/>}
+      {canManage && editingStaffing && <StaffingEditor nodes={bottlenecks} onClose={()=>setEditingStaffing(false)} onSaved={reloadSchedule}/>}
     </div>
   );
 }

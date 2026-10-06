@@ -19,13 +19,13 @@ export function BottleneckDetailPanel({
 }: BottleneckDetailPanelProps) {
   const tsiPercent = Math.round((bottleneck.tsi ?? 0) * 100);
   const weatherImpact = bottleneck.weather_impact_factor;
-  const assignedOfficers = bottleneck.assigned_officers ?? [];
-  const deployedCount = bottleneck.deployed_officers ?? assignedOfficers.length;
-  const requiredCount = bottleneck.required_officers ?? 2;
+  const assignedOfficers = bottleneck.current_assigned_officers ?? [];
+  const deployedCount = bottleneck.current_assigned;
+  const requiredCount = bottleneck.current_required;
 
   const tsiColor = tsiPercent >= 80 ? "text-red-600" : tsiPercent >= 60 ? "text-orange-600" : tsiPercent >= 40 ? "text-yellow-600" : "text-green-600";
   const weatherColor = weatherImpact >= 1.7 ? "text-red-600" : weatherImpact >= 1.3 ? "text-orange-600" : "text-green-600";
-  const officerColor = deployedCount >= requiredCount ? "text-green-600" : deployedCount > 0 ? "text-yellow-600" : "text-red-600";
+  const officerColor = deployedCount==null||requiredCount==null?"text-gray-600":deployedCount >= requiredCount ? "text-green-600" : deployedCount > 0 ? "text-yellow-600" : "text-red-600";
 
   return (
     <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-4">
@@ -45,6 +45,7 @@ export function BottleneckDetailPanel({
           <div className="text-xs font-semibold text-gray-600">NAME</div>
           <div className="text-lg font-bold text-blue-900">{bottleneck.name}</div>
           <div className="text-xs text-gray-500">{bottleneck.id}</div>
+          <div className="text-xs text-gray-500">Area: {bottleneck.area_name||"Ungrouped"}</div>
         </div>
 
         {/* TSI - Traffic Severity Index */}
@@ -81,13 +82,13 @@ export function BottleneckDetailPanel({
 
         {/* Officers */}
         <div>
-          <div className="text-xs font-semibold text-gray-600">ASSIGNED OFFICERS</div>
+          <div className="text-xs font-semibold text-gray-600">ASSIGNED NOW</div>
           <div className="flex items-center gap-2">
-            <span className={`text-2xl font-bold ${officerColor}`}>{deployedCount}</span>
-            <span className="text-gray-500">/ {requiredCount} required</span>
+            <span className={`text-2xl font-bold ${officerColor}`}>{deployedCount??"—"}</span>
+            <span className="text-gray-500">/ {requiredCount??"—"} required</span>
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            {deployedCount >= requiredCount ? "Fully staffed" : deployedCount > 0 ? "Understaffed" : "No officers assigned"}
+            {deployedCount==null||requiredCount==null?"Current staffing unavailable":requiredCount===0?"No officers required now":deployedCount >= requiredCount ? "Fully staffed" : deployedCount > 0 ? "Understaffed" : "No officers assigned"}
           </div>
         </div>
 

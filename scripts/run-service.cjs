@@ -6,7 +6,7 @@ const root = path.resolve(__dirname, "..");
 async function main() {
   const service = process.argv[2];
   const commands = {
-    backend: ["manage.py", "runserver", `127.0.0.1:${process.env.BACKEND_PORT || 8000}`, "--noreload"],
+    backend: ["manage.py", "runserver", `127.0.0.1:${process.env.BACKEND_PORT || 8000}`],
     worker: ["-m", "celery", "-A", "config", "worker", "-l", "info", "--pool=solo"],
     beat: ["-m", "celery", "-A", "config", "beat", "-l", "info"],
   };

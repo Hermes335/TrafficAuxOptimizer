@@ -29,12 +29,20 @@ class BottleneckSerializer(serializers.ModelSerializer):
 
     tsi = FiniteFloatField(min_value=0, max_value=1, required=False)
     road_priority_weight = FiniteFloatField(min_value=0, required=False)
+    min_officers_required = serializers.IntegerField(min_value=0, required=False)
+    max_officers_allowed = serializers.IntegerField(min_value=0, required=False)
 
     def validate(self, data):
-        low = data.get("min_officers_required", getattr(self.instance, "min_officers_required", 1))
-        high = data.get("max_officers_allowed", getattr(self.instance, "max_officers_allowed", 4))
-        if low < 1 or high < low:
-            raise serializers.ValidationError({"max_officers_allowed": "Capacity must be at least the positive minimum staffing."})
+        low = data.get("min_officers_required", getattr(self.instance, "min_officers_required", 2))
+        high = data.get("max_officers_allowed", getattr(self.instance, "max_officers_allowed", 5))
+        if high < low:
+            raise serializers.ValidationError({"max_officers_allowed": "Capacity must be at least the normal minimum staffing."})
+        from .staffing import validate_staffing_periods
+        periods = data.get("staffing_periods", getattr(self.instance, "staffing_periods", []))
+        try:
+            validate_staffing_periods(periods, high)
+        except ValueError as exc:
+            raise serializers.ValidationError({"staffing_periods": str(exc)})
         return data
 
     class Meta:
@@ -50,6 +58,7 @@ class BottleneckSerializer(serializers.ModelSerializer):
             "heatmap_tsi",
             "min_officers_required",
             "max_officers_allowed",
+            "area_name", "signal_status", "staffing_periods",
             "is_archived",
             "district",
             "bottleneck_type",

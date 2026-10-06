@@ -57,7 +57,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
   const canManage = user?.role === "supervisor" || user?.role === "administrator";
   const navItems = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-    { icon: CalendarRange, label: "Deployment Board", path: "/gantt-chart" },
+    { icon: CalendarRange, label: "Deployment Gantt", path: "/gantt-chart" },
     { icon: Zap, label: "Optimization", path: "/optimization" },
     { icon: AlertTriangle, label: "Incident Report", path: "/incident-report" },
   ];

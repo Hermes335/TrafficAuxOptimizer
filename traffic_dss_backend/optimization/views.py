@@ -53,7 +53,7 @@ class OptimizationCancelView(APIView):
 			"run_id": run_id,
 			"status": "cancelled",
 			"current_generation": 0,
-			"total_generations": int(run.parameters.get("generations", 300)),
+			"total_generations": int(run.parameters.get("total_generations", run.parameters.get("generations", 300))),
 			"current_fitness": 0.0,
 			"updated_at": timezone.now().isoformat(),
 		}
@@ -77,9 +77,11 @@ class OptimizationStatusView(APIView):
 		if progress and run.status in {"queued", "running"}:
 			return Response(progress)
 
-		total_gens = int(run.parameters.get("generations", 300))
+		total_gens = int(run.parameters.get("total_generations", run.parameters.get("generations", 300)))
 		current_gen = len(run.fitness_scores) if run.fitness_scores else 0
 		current_fitness = float(run.fitness_scores[-1]) if run.fitness_scores else 0.0
+		if run.status == "completed":
+			current_fitness = float(run.result_data.get("best_fitness", current_fitness))
 
 		return Response(
 			{
