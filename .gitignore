@@ -61,3 +61,6 @@ MDFILES
 field_test/
 field_test
 
+# Thesis manuscript and supporting generated artifacts
+thesis_output/
+
