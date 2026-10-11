@@ -132,6 +132,8 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       }
       else if(timedFixtures && url.pathname.includes("/deployments/700/update/")) {const data=JSON.parse(request.postData);savedAssignments.push(data);editedEnd=data.end_time.slice(11,16);payload=data;}
       else if(url.pathname.includes("/kpis/")) payload=kpis;
+      else if(url.pathname === "/api/incidents/meta/") payload={incident_types:[{value:"collision",label:"Collision"}],severities:[{value:"major",label:"Major"}],statuses:[]};
+      else if(url.pathname === "/api/dashboard/incidents/42/") payload={id:42,incident_type:"collision",severity:"major",description:"Nested route fixture",bottleneck:"B-TEST",latitude:null,longitude:null,status:"active"};
       else if(url.pathname.includes("/bottlenecks/")) payload={...empty,count:1,results:[node]};
       else if(url.pathname.includes("/weather/")) payload={condition:null,weather_impact_factor:null,source:"missing",available:false,data_status:"unavailable",is_stale:false};
       else if(url.pathname.includes("/optimization/status/")) payload={run_id:"early-fixture",status:"completed",current_generation:48,total_generations:300,current_fitness:95.75,converged_early:true,updated_at:new Date().toISOString(),estimated_completion:new Date().toISOString()};
@@ -233,7 +235,8 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await evaluate('document.querySelector(\'button[aria-label^="Test junction"]\')?.click()');
     await waitFor("document.querySelector(\'.maplibregl-popup-content\')");
     await waitFor("document.body.innerText.includes('Bottleneck Details')");
-    assert.equal(await evaluate("(() => {const panel=document.querySelector('[aria-label=\"Dashboard details and quick actions\"]');panel.scrollTop=panel.scrollHeight;const run=[...panel.querySelectorAll('a')].find(e=>e.textContent.includes('Run Optimization'));const p=panel.getBoundingClientRect(),r=run.getBoundingClientRect();return panel.scrollTop>0&&r.top>=p.top&&r.bottom<=p.bottom+1;})()"),true,"Quick Optimize must remain reachable when bottleneck details are open");
+    assert.equal(await evaluate("(() => {const panel=document.querySelector('[aria-label=\"Dashboard details and quick actions\"]');panel.scrollTop=panel.scrollHeight;const run=[...panel.querySelectorAll('a')].find(e=>e.textContent.includes('Configure Optimization'));const p=panel.getBoundingClientRect(),r=run.getBoundingClientRect();return panel.scrollTop>0&&r.top>=p.top&&r.bottom<=p.bottom+1;})()"),true,"Quick Optimize must remain reachable when bottleneck details are open");
+    assert.equal(await evaluate("(() => {const panel=document.querySelector('[aria-label=\"Dashboard details and quick actions\"]');return panel.scrollWidth <= panel.clientWidth;})()"),true,"Quick Optimize must fit its panel without horizontal overflow: " + await evaluate("(() => {const p=document.querySelector('[aria-label=\"Dashboard details and quick actions\"]');return JSON.stringify({client:p.clientWidth,scroll:p.scrollWidth,children:[...p.querySelectorAll('*')].filter(e=>e.clientWidth&&e.scrollWidth>e.clientWidth).map(e=>({tag:e.tagName,text:e.textContent.slice(0,80),client:e.clientWidth,scroll:e.scrollWidth}))});})()"));
     assert.equal(await evaluate('!!document.querySelector(".maplibregl-popup-content img, .maplibregl-popup-content script")'),false);
     assert.equal(await evaluate("window.exploited"),undefined);
     assert.equal(await evaluate("[...document.querySelectorAll('a')].some(e=>/scenarios|analytics/i.test(e.getAttribute('href')))"),false);
@@ -247,6 +250,20 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await delay(250);
     const poiShot=await call("Page.captureScreenshot",{format:"png"});
     fs.writeFileSync(path.join(artifacts,"poi-markers.png"),Buffer.from(poiShot.data,"base64"));
+    for (const width of [1024, 390]) {
+      await call("Emulation.setDeviceMetricsOverride", {width,height:850,deviceScaleFactor:1,mobile:false});
+      await delay(400);
+      assert.equal(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"),true,"Dashboard must fit a narrow viewport");
+      await clickText("Hide bottlenecks");
+      await clickText("Hide details");
+      await delay(200);
+      assert.equal(await evaluate("(() => {const canvas=document.querySelector('.maplibregl-canvas');return Math.abs(canvas.getBoundingClientRect().width-canvas.parentElement.getBoundingClientRect().width)<2;})()"),true,"Map must resize with panel changes");
+      const responsiveShot=await call("Page.captureScreenshot",{format:"png"});
+      fs.writeFileSync(path.join(artifacts,`dashboard-${width}.png`),Buffer.from(responsiveShot.data,"base64"));
+      await clickText("Show bottlenecks");
+      await clickText("Show details");
+    }
+    await call("Emulation.setDeviceMetricsOverride", {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     trafficUnavailable=true;
     await call("Network.setCacheDisabled",{cacheDisabled:true});
     await call("Page.navigate",{url:origin+"/"});
@@ -261,7 +278,11 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await waitFor("[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='Preview publication' && !e.disabled)");
     await clickText("Preview publication");
     await waitFor("[...document.querySelectorAll('[role=dialog] button')].some(e=>e.textContent.trim()==='Confirm publication' && !e.disabled)");
-    assert.equal(await evaluate("document.querySelector('[role=dialog]').innerText.includes('Officer Two (DEMO-2)')"),true);
+    assert.equal(await evaluate("document.querySelector('[role=dialog] table').innerText.includes('Officer Two') && document.querySelector('[role=dialog] table').innerText.includes('DEMO-2')"),true);
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:850,deviceScaleFactor:1,mobile:false});
+    await delay(400);
+    assert.equal(await evaluate("(() => {const dialog=document.querySelector('[role=dialog]');const confirm=[...dialog.querySelectorAll('button')].find(b=>b.textContent==='Confirm publication');const rect=confirm.getBoundingClientRect();return rect.top>=0&&rect.bottom<=innerHeight&&dialog.getBoundingClientRect().width<=innerWidth;})()"),true,"Publication confirmation must stay visible on a narrow screen");
+    await call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     assert.equal(publications,0);
     await delay(250);
     const shot=await call("Page.captureScreenshot",{format:"png"});
@@ -271,6 +292,16 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     assert.equal(publications,1);
     console.log("Opening optimization history actions");
     await call("Page.navigate",{url:origin+"/optimization"});
+    await waitFor("document.body.innerText.includes('Advanced settings')");
+    assert.equal(await evaluate("document.querySelector('input[aria-label=\"Population size\"]').closest('details').open"),false,"Advanced settings start collapsed");
+    await evaluate("document.querySelector('input[aria-label=\"Population size\"]').closest('details').open=true");
+    assert.equal(await evaluate("document.querySelector('input[aria-label=\"Population size\"]').getBoundingClientRect().height>0"),true);
+    await evaluate("document.querySelector('input[aria-label=\"Population size\"]').closest('details').open=false");
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:850,deviceScaleFactor:1,mobile:false});
+    await delay(400);
+    assert.equal(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"),true,"Optimization controls must fit a narrow viewport");
+    const configShot=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"optimization-mobile.png"),Buffer.from(configShot.data,"base64"));
     const actions='document.querySelector(\'[role="group"][aria-label="Actions for morning-fixture"]\')';
     await waitFor(`Boolean(${actions})`);
     for (const width of [1920,1280]) {
@@ -367,6 +398,13 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     const operationsShot=await call("Page.captureScreenshot",{format:"png"});fs.writeFileSync(path.join(artifacts,"deployment-operations.png"),Buffer.from(operationsShot.data,"base64"));
     assert.equal(publications,1,"Editing staffing and assignments must not publish a recommendation");
     timedFixtures=false;
+    if (fs.readFileSync(path.join(dist,"index.html"),"utf8").includes('src="/assets/')) {
+      await call("Page.navigate",{url:origin+"/incident-report/42"});
+      await waitFor("document.body.innerText.includes('Edit Incident') && document.querySelector('textarea')?.value === 'Nested route fixture'");
+      await call("Page.reload");
+      await waitFor("document.body.innerText.includes('Edit Incident') && document.querySelector('textarea')?.value === 'Nested route fixture'");
+      console.log("Web deployment PASS: direct nested route and refresh load assets and incident data");
+    }
     for(const oldRoute of ["/scenarios","/analytics"]){
       await call("Page.navigate",{url:origin+oldRoute});
       await waitFor("location.pathname === '/' && document.body.innerText.includes('Shift-average unfilled posts: 2')");

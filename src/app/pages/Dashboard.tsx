@@ -41,6 +41,8 @@ export function Dashboard() {
   const [showWeatherOverlay, setShowWeatherOverlay] = useState(false);
   const [filterTerm, setFilterTerm] = useState("");
   const [hiddenPoiCategories, setHiddenPoiCategories] = useState<string[]>([]);
+  const [showBottlenecks, setShowBottlenecks] = useState(true);
+  const [showDetails, setShowDetails] = useState(true);
   const visiblePois = useMemo(() => pois.filter(poi => !hiddenPoiCategories.includes(poi.category)), [pois, hiddenPoiCategories]);
   const [selectedIncidentId, setSelectedIncidentId] = useState<number | null>(null);
 
@@ -56,6 +58,14 @@ export function Dashboard() {
   // --- Map integration ---
   const tomTomTrafficTileUrl = `${getApiBaseUrl()}/api/maps/tomtom-traffic/{z}/{x}/{y}.png?style=relative0`;
   const map = useMapIntegration({ selectedView, tomTomTrafficTileUrl });
+
+  useEffect(() => {
+    if (!map.mapInstance || !map.mapContainerRef.current || typeof ResizeObserver === "undefined") return;
+    const instance = map.mapInstance;
+    const observer = new ResizeObserver(() => instance.resize());
+    observer.observe(map.mapContainerRef.current);
+    return () => observer.disconnect();
+  }, [map.mapInstance, map.mapContainerRef]);
 
   // --- Map click handler ---
   useMapClickHandler({
@@ -111,6 +121,7 @@ export function Dashboard() {
   // Scroll selected bottleneck into view in the sidebar list
   useEffect(() => {
     if (!ba.selectedBottleneckId) return;
+    setShowDetails(true);
     const el = document.querySelector(`[data-selected="true"]`);
     el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
   }, [ba.selectedBottleneckId]);
@@ -176,8 +187,8 @@ export function Dashboard() {
   });
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex flex-wrap items-center gap-3 border-b bg-white p-3 text-sm">
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto xl:overflow-hidden">
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-white p-3 text-sm">
         <strong>{operationalDate()} · Asia/Manila</strong>
         <label>Operational shift <select value={selectedShift} onChange={e=>setSelectedShift(e.target.value)} className="rounded border p-1"><option>Morning</option><option>Afternoon</option></select></label>
         <span>Shift-average unfilled posts: {dashboardSnapshot.metrics.shortages ?? "—"}</span>
@@ -186,7 +197,14 @@ export function Dashboard() {
         {data.loadError && <span role="alert" className="text-red-700">{data.loadError}</span>}
         <button onClick={()=>{void reloadDashboard().catch(()=>{});}} className="rounded border px-2 py-1">Refresh</button>
       </div>
-      <div className="flex flex-wrap items-center gap-4 border-b bg-white px-4 py-2"><AreaFilter nodes={bottlenecks} value={area} onChange={setArea}/><span className="text-xs text-slate-600">Map staffing shows now; coverage metrics summarize the selected shift.</span></div>
+      <div className="flex shrink-0 flex-wrap items-center gap-3 border-b bg-white px-4 py-2">
+        <AreaFilter nodes={bottlenecks} value={area} onChange={setArea}/>
+        <span className="text-xs text-slate-600">Map shows scheduled staffing now; coverage summarizes the selected shift.</span>
+        <div className="flex flex-wrap gap-2 xl:ml-auto">
+          <button aria-expanded={showBottlenecks} aria-controls="dashboard-bottlenecks" onClick={() => setShowBottlenecks(value => !value)} className="min-h-9 rounded border px-3 text-sm">{showBottlenecks ? "Hide" : "Show"} bottlenecks</button>
+          <button aria-expanded={showDetails} aria-controls="dashboard-details" onClick={() => setShowDetails(value => !value)} className="min-h-9 rounded border px-3 text-sm">{showDetails ? "Hide" : "Show"} details</button>
+        </div>
+      </div>
       {/* KPI Cards */}
       <KPICards
         metrics={dashboardSnapshot.metrics}
@@ -196,11 +214,11 @@ export function Dashboard() {
       />
 
       {/* Main Content Area */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex flex-col xl:min-h-0 xl:flex-1 xl:flex-row">
         {/* Left Sidebar - Bottlenecks List */}
-        <div className="flex min-h-0 w-full flex-col border-r border-gray-200 bg-[#f8fafc] md:w-80">
+        <div id="dashboard-bottlenecks" className={`${showBottlenecks ? "flex" : "hidden"} min-h-0 w-full shrink-0 flex-col border-r border-gray-200 bg-[#f8fafc] xl:w-72`}>
           <div className="border-b border-gray-200 bg-white px-4 py-4">
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center gap-2">
               <AlertCircle className="h-4 w-4 text-yellow-500" />
               <h2 className="text-xl font-semibold tracking-tight text-gray-900">Bottlenecks</h2>
               <span className="ml-auto inline-flex items-center whitespace-nowrap rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-600">{bottlenecks.length} TOTAL</span>
@@ -219,9 +237,9 @@ export function Dashboard() {
             {data.bottleneckActionError && <p className="mt-2 text-xs text-red-600">{data.bottleneckActionError}</p>}
             {data.bottleneckActionNotice && <p className="mt-2 text-xs text-green-700">{data.bottleneckActionNotice}</p>}
           </div>
-          <div className="flex-1 overflow-y-auto bg-[#f8fafc]">
+          <div className="max-h-64 flex-1 overflow-y-auto bg-[#f8fafc] xl:max-h-none">
             {filteredBottlenecks.map((item) => {
-              const tsiPercent = Math.round((Number(item.tsi) || 0) * 100);
+              const tsiPercent = typeof item.tsi === "number" && Number.isFinite(item.tsi) ? Math.round(item.tsi * 100) : null;
               const severity = getRelativeCongestionSeverity(item, severityThresholds);
               const hasIncident = hasIncidentForBottleneck(item.id, item.name);
               const selected = ba.selectedBottleneckId === item.id;
@@ -234,13 +252,13 @@ export function Dashboard() {
                       {(hasIncident || item.badge) && <span className="rounded bg-red-500 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">INCIDENT</span>}
                     </div>
                     <div className="truncate text-sm font-semibold text-gray-900">{item.name}</div>
-                    <div className="text-xs text-slate-500">{item.area_name?item.area_name+" · ":""}Now: {item.current_assigned??"—"} assigned / {item.current_required??"—"} required</div>
+                    <div className="text-xs text-slate-500">{item.area_name?item.area_name+" · ":""}Now: {item.current_assigned??"—"} scheduled / {item.current_required??"—"} required</div>
                   </div>
                   <div className="ml-2 flex shrink-0 flex-col items-end gap-1">
-                    <span className={`text-sm font-bold ${congestionTone[severity].text}`}>{tsiPercent}%</span>
-                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      <ConfirmDialog title="Remove Bottleneck" description={`Are you sure you want to remove ${item.id} (${item.name})?`} confirmText="Remove" isDangerous onConfirm={() => ba.onDeleteBottleneck(item.id)} trigger={<button aria-label="Remove bottleneck" disabled={!canManage || data.deletingBottleneckId === item.id} className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50" onClick={(e) => e.stopPropagation()}><Trash2 className="h-3.5 w-3.5" /></button>} />
-                      <button disabled={!canManage} aria-label="Edit bottleneck" onClick={(e) => { e.stopPropagation(); ba.startEditingBottleneck(item.id); }} className="rounded p-1 text-gray-400 hover:bg-blue-50 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
+                    <span className={`text-sm font-bold ${tsiPercent == null ? "text-slate-500" : congestionTone[severity].text}`}>{tsiPercent == null ? "Unavailable" : `${tsiPercent}%`}</span>
+                    <div className="flex items-center gap-1">
+                      <ConfirmDialog title="Remove Bottleneck" description={`Are you sure you want to remove ${item.id} (${item.name})?`} confirmText="Remove" isDangerous onConfirm={() => ba.onDeleteBottleneck(item.id)} trigger={<button aria-label="Remove bottleneck" disabled={!canManage || data.deletingBottleneckId === item.id} className="grid h-9 w-9 place-items-center rounded text-gray-600 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50" onClick={(e) => e.stopPropagation()}><Trash2 className="h-3.5 w-3.5" /></button>} />
+                      <button disabled={!canManage} aria-label="Edit bottleneck" onClick={(e) => { e.stopPropagation(); ba.startEditingBottleneck(item.id); }} className="grid h-9 w-9 place-items-center rounded text-gray-600 hover:bg-blue-50 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
                 </div>
@@ -250,12 +268,12 @@ export function Dashboard() {
         </div>
 
         {/* Map Area */}
-        <div className="relative min-h-0 flex-1 bg-gray-100">
-          <div className="absolute left-4 top-4 z-20 flex flex-wrap items-center gap-3">
+        <div className="relative h-[60vh] min-h-96 min-w-0 shrink-0 bg-gray-100 xl:h-auto xl:min-h-0 xl:flex-1">
+          <div className="absolute left-3 right-3 top-3 z-20 flex flex-wrap items-center gap-2">
             <div className="flex gap-1 rounded-full bg-white p-1 shadow-md">
-              <button onClick={() => { setSelectedView("Congestion"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Congestion" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Congestion</button>
-              <button onClick={() => { setSelectedView("Weather"); setShowWeatherOverlay(true); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Weather" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Weather</button>
-              <button onClick={() => { setSelectedView("Assignments"); setShowWeatherOverlay(false); }} className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${selectedView === "Assignments" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Assignments</button>
+              <button onClick={() => { setSelectedView("Congestion"); setShowWeatherOverlay(false); }} className={`rounded-full px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${selectedView === "Congestion" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Congestion</button>
+              <button onClick={() => { setSelectedView("Weather"); setShowWeatherOverlay(true); }} className={`rounded-full px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${selectedView === "Weather" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Weather</button>
+              <button onClick={() => { setSelectedView("Assignments"); setShowWeatherOverlay(false); }} className={`rounded-full px-3 py-2 text-xs font-medium transition-colors sm:text-sm ${selectedView === "Assignments" ? "bg-yellow-400 text-gray-900" : "text-gray-600 hover:bg-gray-100"}`}>Assignments</button>
             </div>
             <div className="flex items-center rounded-full bg-white px-4 py-1.5 text-sm font-medium shadow-md"><MapPin className="mr-1 h-4 w-4 text-pink-500" />{dashboardSnapshot.cityLabel}</div>
             {selectedView === "Congestion" && <div role="status" className={`flex items-center gap-2 rounded-full bg-white/95 px-3 py-1.5 text-xs shadow-md ${map.trafficError ? "text-red-700" : "text-slate-600"}`}>
@@ -317,10 +335,11 @@ export function Dashboard() {
         </div>
 
         {/* Right Sidebar */}
-        <aside aria-label="Dashboard details and quick actions" className="min-h-0 w-full space-y-4 overflow-y-auto overscroll-contain bg-white p-4 pb-8 md:h-full md:w-96">
+        <aside id="dashboard-details" aria-label="Dashboard details and quick actions" className={`${showDetails ? "block" : "hidden"} min-h-0 w-full shrink-0 space-y-4 bg-white p-4 pb-8 xl:h-full xl:w-80 xl:overflow-y-auto xl:overscroll-contain`}>
           {ba.selectedBottleneckId && ba.getSelectedBottleneck() && (
             <BottleneckDetailPanel
               bottleneck={ba.getSelectedBottleneck()!}
+              trafficReading={data.trafficReadings.find(reading => reading.bottleneck === ba.selectedBottleneckId)}
               onClose={() => ba.setSelectedBottleneckId(null)}
               onDelete={ba.onDeleteBottleneck}
               deletingId={data.deletingBottleneckId}
@@ -331,6 +350,7 @@ export function Dashboard() {
           {canManage && <QuickOptimizeCard
             selectedShift={selectedShift} setSelectedShift={setSelectedShift}
             WeatherIndicatorIcon={WeatherIndicatorIcon} weatherStyle={weatherStyle} weatherLabel={weatherLabel}
+            weatherAvailable={weatherSnapshot.available} weatherStale={weatherSnapshot.is_stale}
             selectedIncident={selectedIncident}
           />}
 

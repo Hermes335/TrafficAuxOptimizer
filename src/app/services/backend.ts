@@ -1,4 +1,5 @@
 import { clearSession, sessionChanged } from "./session";
+import { resolveApiBaseUrl } from "./apiConfig";
 export type BottleneckStatus = "normal" | "warning" | "critical";
 export type IncidentType = "critical" | "major" | "minor";
 
@@ -106,6 +107,20 @@ export interface ExternalDataProvenance {
   fetched_at: string | null;
 }
 
+export interface TrafficReading extends Omit<ExternalDataProvenance, "available"> {
+  bottleneck: string;
+  timestamp: string;
+  traffic_severity_index: number;
+  available?: boolean;
+}
+
+export async function fetchTrafficReadings(): Promise<TrafficReading[]> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/traffic/real-time/`);
+  if (!response.ok) throw new Error("Traffic observation details unavailable.");
+  const payload = await response.json();
+  return Array.isArray(payload) ? payload : payload.data ?? [];
+}
+
 export interface LiveDashboardEvent {
   event: string;
   timestamp?: string;
@@ -155,12 +170,7 @@ const DEFAULT_TIMEOUT_MS = 15000;
 
 export function getApiBaseUrl() {
   const desktopUrl = typeof window !== "undefined" ? window.desktopConfig?.backendUrl : undefined;
-  const configuredUrl = desktopUrl || import.meta.env.VITE_API_BASE_URL;
-  if (configuredUrl) {
-    return configuredUrl.replace(/\/+$/, "");
-  }
-
-  return "http://127.0.0.1:8000";
+  return resolveApiBaseUrl(import.meta.env.VITE_API_BASE_URL, desktopUrl, import.meta.env.MODE === "web");
 }
 
 let refreshPromise: Promise<string | null> | null = null;

@@ -12,12 +12,14 @@ import os
 from channels.routing import ProtocolTypeRouter, URLRouter
 from django.core.asgi import get_asgi_application
 
-from config.routing import websocket_urlpatterns
-from core.ws_auth import JWTAuthMiddleware
-
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 
 django_asgi_app = get_asgi_application()
+
+# Consumers and authentication import models: initialize Django first when
+# starting directly under Daphne, without manage.py's initialization.
+from config.routing import websocket_urlpatterns
+from core.ws_auth import JWTAuthMiddleware
 
 application = ProtocolTypeRouter(
 	{

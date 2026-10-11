@@ -11,7 +11,7 @@ vi.mock("../app/services/backend", async original => ({
   ...await original<typeof import("../app/services/backend")>(),
   fetchBottlenecks: vi.fn(), fetchIncidentMeta: vi.fn(), fetchIncident: vi.fn(), updateIncident: vi.fn(),
   fetchDeploymentSchedule: vi.fn(), fetchDashboardOfficers: vi.fn(), fetchOptimizationHistory: vi.fn(),
-  fetchDashboardSnapshot: vi.fn(), fetchPOIs: vi.fn(), fetchCurrentWeather: vi.fn(),
+  fetchDashboardSnapshot: vi.fn(), fetchPOIs: vi.fn(), fetchCurrentWeather: vi.fn(), fetchTrafficReadings: vi.fn().mockResolvedValue([]),
   previewPublication: vi.fn(), publishDeploymentsFromOptimization: vi.fn(),
   subscribeToDashboardStream: vi.fn(() => () => {}),
 }));

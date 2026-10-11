@@ -75,14 +75,29 @@ class LoginView(APIView):
         username = request.data.get("username", "")
         password = request.data.get("password", "")
 
+        if not isinstance(username, str) or not isinstance(password, str):
+            return Response(
+                {"detail": "Username or badge number and password must be text."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        username = username.strip()
         if not username or not password:
             return Response(
-                {"detail": "Username and password are required."},
+                {"detail": "Username or badge number and password are required."},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Authenticate user
-        user = authenticate(username=username, password=password)
+        # Existing usernames take priority over badges belonging to other users.
+        # Resolve the badge to a linked account, then let Django verify its password
+        # and active status through the normal authentication backend.
+        account_username = username
+        if not User.objects.filter(**{User.USERNAME_FIELD: username}).exists():
+            badge_profile = Officer.objects.select_related("user").filter(
+                badge_number=username, is_deleted=False, user__isnull=False
+            ).first()
+            if badge_profile:
+                account_username = badge_profile.user.get_username()
+        user = authenticate(request=request, username=account_username, password=password)
 
         if not user:
             return Response(
@@ -90,7 +105,7 @@ class LoginView(APIView):
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Get or create officer profile
+        # Look up the authenticated account's officer profile.
         officer = Officer.objects.filter(
             models.Q(user=user, is_deleted=False)
         ).first()

@@ -14,7 +14,7 @@ vi.mock("../app/services/backend", async importOriginal => ({
   createPOI: vi.fn(), createMapIncident: vi.fn(), createDashboardBottleneck: vi.fn(),
   previewPublication: vi.fn(), publishDeploymentsFromOptimization: vi.fn(),
   fetchDashboardSnapshot: vi.fn(), fetchDashboardOfficers: vi.fn(), fetchDeploymentSchedule: vi.fn(),
-  fetchPOIs: vi.fn(), fetchCurrentWeather: vi.fn(), subscribeToDashboardStream: vi.fn(() => () => {}),
+  fetchPOIs: vi.fn(), fetchCurrentWeather: vi.fn(), fetchTrafficReadings: vi.fn().mockResolvedValue([]), subscribeToDashboardStream: vi.fn(() => () => {}),
 }));
 beforeEach(() => vi.clearAllMocks());
 

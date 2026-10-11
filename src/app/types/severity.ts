@@ -1,11 +1,12 @@
-export type SeverityLevel = "free" | "moderate" | "heavy" | "critical";
+export type SeverityLevel = "free" | "moderate" | "heavy" | "critical" | "unknown";
 
 /**
  * Get severity for a single bottleneck using fixed thresholds.
  * Used when no context of other bottlenecks is available.
  */
 export function getCongestionSeverity(item: { status: string; tsi?: number }): SeverityLevel {
-  const tsiPercent = (Number(item.tsi) || 0) * 100;
+  if (typeof item.tsi !== "number" || !Number.isFinite(item.tsi) || item.tsi < 0 || item.tsi > 1) return "unknown";
+  const tsiPercent = item.tsi * 100;
   if (tsiPercent >= 80) return "critical";
   if (tsiPercent >= 60) return "heavy";
   if (tsiPercent >= 40) return "moderate";
@@ -23,6 +24,7 @@ export function getRelativeCongestionSeverity(item: {status: string; tsi?: numbe
 
 export function getSeverityColor(severity: SeverityLevel): string {
   const colors: Record<SeverityLevel, string> = {
+    unknown: "#64748b",
     free: "#22c55e",
     moderate: "#eab308",
     heavy: "#f97316",
@@ -33,6 +35,7 @@ export function getSeverityColor(severity: SeverityLevel): string {
 
 export function getSeverityBgClass(severity: SeverityLevel): string {
   const classes: Record<SeverityLevel, string> = {
+    unknown: "bg-slate-50 border-slate-200",
     free: "bg-emerald-50 border-emerald-200",
     moderate: "bg-yellow-50 border-yellow-200",
     heavy: "bg-orange-50 border-orange-200",
@@ -43,6 +46,7 @@ export function getSeverityBgClass(severity: SeverityLevel): string {
 
 export function getSeverityTextClass(severity: SeverityLevel): string {
   const classes: Record<SeverityLevel, string> = {
+    unknown: "text-slate-600",
     free: "text-emerald-700",
     moderate: "text-yellow-700",
     heavy: "text-orange-700",
@@ -52,6 +56,7 @@ export function getSeverityTextClass(severity: SeverityLevel): string {
 }
 
 export const congestionTone: Record<SeverityLevel, { dot: string; text: string }> = {
+  unknown: { dot: "bg-slate-500", text: "text-slate-600" },
   free: { dot: "bg-emerald-500", text: "text-emerald-600" },
   moderate: { dot: "bg-yellow-500", text: "text-yellow-600" },
   heavy: { dot: "bg-orange-500", text: "text-orange-600" },

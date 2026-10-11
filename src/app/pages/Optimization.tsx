@@ -216,12 +216,12 @@ export function Optimization() {
   const weightsValid = weightTotal > 0;
 
   return (
-    <div className="flex h-full">
-      <div className="w-96 shrink-0 overflow-y-auto border-r bg-white p-6">
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
+      <div className="w-full shrink-0 border-r bg-white p-4 sm:p-6 xl:w-80 xl:overflow-y-auto">
         <div className="mb-6">
           <h1 className="mb-2 text-2xl font-bold">Optimization Interface</h1>
           <p className="text-sm text-gray-600">
-            Configure genetic algorithm parameters and launch a live optimization run.
+            Choose the date, shift, and recommendation mode, then run optimization.
           </p>
         </div>
 
@@ -238,6 +238,73 @@ export function Optimization() {
             <input value={sessionId} maxLength={80} onChange={e => setSessionId(e.target.value)} className="rounded border p-2" />
           </label>
           {mode === "shadow" && <p role="status" className="text-sm text-amber-800">Shadow mode records recommendations for comparison. Manual assignments remain authoritative; publication is disabled.</p>}
+        </div>
+
+        <div className="mb-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-yellow-500" />
+            <h2 className="font-semibold">SHIFT PERIOD</h2>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedShift === "morning" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              }`}
+              onClick={() => setSelectedShift("morning")}
+            >
+              Morning (6AM - 2PM)
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedShift === "afternoon" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              }`}
+              onClick={() => setSelectedShift("afternoon")}
+            >
+              Afternoon (2PM - 10PM)
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Target className="h-5 w-5 text-yellow-500" />
+            <h2 className="font-semibold">PARAMETER PRESETS</h2>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedPreset === "normal" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              }`}
+              onClick={() => applyPreset("normal")}
+            >
+              Normal
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedPreset === "typhoon" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              }`}
+              onClick={() => applyPreset("typhoon")}
+            >
+              Typhoon
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedPreset === "special_event" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              }`}
+              onClick={() => applyPreset("special_event")}
+            >
+              Special Event
+            </button>
+            <button
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                selectedPreset === "balanced" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              }`}
+              onClick={() => applyPreset("balanced")}
+            >
+              Balanced
+            </button>
+          </div>
         </div>
 
         <div className="mb-6 rounded-xl border bg-gray-50 p-4">
@@ -263,6 +330,9 @@ export function Optimization() {
           )}
         </div>
 
+        <details className="mb-6 rounded-xl border p-4">
+          <summary className="cursor-pointer font-semibold">Advanced settings</summary>
+          <p className="my-3 text-sm text-slate-600">Adjust algorithm parameters and objective weights when needed. Current values are used even when this section is closed.</p>
         <div className="mb-6">
           <div className="mb-4 flex items-center gap-2">
             <Zap className="h-5 w-5 text-yellow-500" />
@@ -273,7 +343,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Population Size</label>
-                <span className="text-yellow-500">{populationSize}</span>
+                <span className="text-amber-700">{populationSize}</span>
               </div>
               <div className="text-xs text-gray-500">INITIAL CHROMOSOME POOL</div>
               <input
@@ -290,7 +360,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Generation Limit</label>
-                <span className="text-yellow-500">{generationLimit}</span>
+                <span className="text-amber-700">{generationLimit}</span>
               </div>
               <div className="text-xs text-gray-500">MAX GENERATIONS PER STAFFING PERIOD</div>
               <input
@@ -307,7 +377,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Crossover Rate</label>
-                <span className="text-yellow-500">{crossoverRate}%</span>
+                <span className="text-amber-700">{crossoverRate}%</span>
               </div>
               <div className="text-xs text-gray-500">GENETIC RECOMBINATION PROBABILITY</div>
               <input
@@ -324,7 +394,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Mutation Rate</label>
-                <span className="text-yellow-500">{mutationRate}%</span>
+                <span className="text-amber-700">{mutationRate}%</span>
               </div>
               <div className="text-xs text-gray-500">RANDOM VARIATION FACTOR</div>
               <input
@@ -341,7 +411,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Elitism Count</label>
-                <span className="text-yellow-500">{elitismCount} individuals</span>
+                <span className="text-amber-700">{elitismCount} individuals</span>
               </div>
               <div className="text-xs text-gray-500">BEST INDIVIDUALS PRESERVED</div>
               <input
@@ -415,7 +485,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Traffic Severity Index (TSI)</label>
-                <span className="text-yellow-500">{tsiWeight}%</span>
+                <span className="text-amber-700">{tsiWeight}%</span>
               </div>
               <div className="text-xs text-gray-500">CONGESTION, SPEED, QUEUE LENGTH</div>
               <input
@@ -432,7 +502,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Weather Impact Factor (WIF)</label>
-                <span className="text-yellow-500">{wifWeight}%</span>
+                <span className="text-amber-700">{wifWeight}%</span>
               </div>
               <div className="text-xs text-gray-500">RAINFALL CAPACITY REDUCTION</div>
               <input
@@ -449,7 +519,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Road Priority Weight (RPW)</label>
-                <span className="text-yellow-500">{rpwWeight}%</span>
+                <span className="text-amber-700">{rpwWeight}%</span>
               </div>
               <div className="text-xs text-gray-500">VOLUME, ECONOMIC IMPORTANCE, INFRASTRUCTURE</div>
               <input
@@ -466,7 +536,7 @@ export function Optimization() {
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-sm font-medium">Staffing Efficiency</label>
-                <span className="text-yellow-500">{resourceUtilizationWeight}%</span>
+                <span className="text-amber-700">{resourceUtilizationWeight}%</span>
               </div>
               <div className="text-xs text-gray-500">MEET STAFFING TARGETS; KEEP SURPLUS AVAILABLE</div>
               <input
@@ -487,74 +557,9 @@ export function Optimization() {
           </div>
         </div>
 
-        <div className="mb-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Clock className="h-5 w-5 text-yellow-500" />
-            <h2 className="font-semibold">SHIFT PERIOD</h2>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedShift === "morning" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
-              }`}
-              onClick={() => setSelectedShift("morning")}
-            >
-              Morning (6AM - 2PM)
-            </button>
-            <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedShift === "afternoon" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
-              }`}
-              onClick={() => setSelectedShift("afternoon")}
-            >
-              Afternoon (2PM - 10PM)
-            </button>
-          </div>
-        </div>
+        </details>
 
-        <div className="mb-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Target className="h-5 w-5 text-yellow-500" />
-            <h2 className="font-semibold">PARAMETER PRESETS</h2>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "normal" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
-              }`}
-              onClick={() => applyPreset("normal")}
-            >
-              Normal
-            </button>
-            <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "typhoon" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
-              }`}
-              onClick={() => applyPreset("typhoon")}
-            >
-              Typhoon
-            </button>
-            <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "special_event" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
-              }`}
-              onClick={() => applyPreset("special_event")}
-            >
-              Special Event
-            </button>
-            <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "balanced" ? "border-yellow-400 bg-yellow-400 text-white" : "hover:bg-gray-50"
-              }`}
-              onClick={() => applyPreset("balanced")}
-            >
-              Balanced
-            </button>
-          </div>
-        </div>
-
-        <div className="flex gap-3">
+        <div className="sticky bottom-0 flex flex-wrap gap-3 border-t bg-white py-3">
           <button
             className="flex-1 rounded-lg border px-4 py-2.5 font-medium hover:bg-gray-50"
             onClick={() => {
@@ -576,13 +581,13 @@ export function Optimization() {
             disabled={!weightsValid || !currentValidation}
             onClick={() => navigate("/optimization-running?" + new URLSearchParams({shift: selectedShift, ...Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v)]))}))}
             className="flex-1 rounded-lg bg-yellow-400 px-4 py-2.5 font-medium text-gray-900 disabled:bg-gray-200 disabled:text-gray-500"
-          >Run Algorithm</button>
+          >Run Optimization</button>
         </div>
       </div>
 
-      <div className="min-w-0 flex-1 overflow-y-auto bg-gray-50 p-6">
+      <div className="min-w-0 shrink-0 bg-gray-50 p-4 sm:p-6 xl:flex-1 xl:overflow-y-auto">
         <div className="rounded-lg bg-white p-6">
-          <div className="mb-4 flex items-center justify-between">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="mb-1 text-lg font-semibold">Optimization Overview</h2>
               <p className="text-sm text-gray-600">Live backend history and configuration summary</p>
@@ -592,7 +597,7 @@ export function Optimization() {
             </span>
           </div>
 
-          <div className="mb-6 grid grid-cols-4 gap-3">
+          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
             <div className="rounded-lg border bg-white p-3">
               <div className="mb-1 text-xs text-gray-600">ACTIVE POPULATION</div>
               <div className="mb-1 text-2xl font-bold">{populationSize}</div>

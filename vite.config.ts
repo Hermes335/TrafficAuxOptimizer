@@ -1,13 +1,19 @@
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
+import { validateHostedApiUrl } from './src/app/services/apiConfig'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
-export default defineConfig({
-  base: './',
+export default defineConfig(({ mode, command }) => {
+  const webBuild = mode === 'web' || process.env.VERCEL === '1';
+  const env = loadEnv(mode, __dirname, 'VITE_');
+  const apiUrl = process.env.VITE_API_BASE_URL ?? env.VITE_API_BASE_URL;
+  if (command === 'build' && webBuild) validateHostedApiUrl(apiUrl);
+  return {
+  base: webBuild ? '/' : './',
   server: {
     host: '127.0.0.1',
     port: 8080,
@@ -54,4 +60,5 @@ export default defineConfig({
     // Optimize chunk size
     chunkSizeWarningLimit: 1000,
   },
+  }
 })

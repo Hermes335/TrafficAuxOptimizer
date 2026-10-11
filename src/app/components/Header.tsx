@@ -61,14 +61,14 @@ export function Header() {
   );
 
   const weatherLabel = useMemo(() => {
-    if (!weather) {
-      return "--°C - Weather unavailable";
+    if (!weather?.available) {
+      return "Weather unavailable";
     }
     if (weather.is_stale) return "Weather reading stale";
     const condition = (weather.condition ?? "weather unavailable")
       .replace(/_/g, " ")
       .replace(/\b\w/g, (char) => char.toUpperCase());
-    return weather.available && weather.temperature != null ? `${Math.round(weather.temperature)}°C - ${condition}` : `Weather unavailable - ${condition}`;
+    return weather.temperature != null ? `${Math.round(weather.temperature)}°C - ${condition}` : condition;
   }, [weather]);
 
   const lastWeatherReading = weather?.observed_at ?? weather?.timestamp;
@@ -98,7 +98,7 @@ export function Header() {
   }, [showUserMenu]);
 
   return (
-    <header className="flex items-center justify-between border-b bg-white px-6 py-3">
+    <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-white px-3 py-3 sm:px-6">
       <div className="flex items-center gap-8">
         <div className="flex items-center gap-2">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-yellow-400">
@@ -108,7 +108,7 @@ export function Header() {
         </div>
       </div>
 
-      <div className="flex items-center gap-6">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-4">
         <div className="flex items-center gap-2 rounded-lg border px-4 py-2">
           <Clock className="h-4 w-4 text-yellow-500" />
           <span className="text-sm text-gray-700">Manila: {manilaTimeLabel}</span>

@@ -2,8 +2,26 @@ import { useEffect, useRef, useState } from "react";
 import { Eye, TriangleAlert } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
-import { previewPublication, publishDeploymentsFromOptimization, type PublicationPreview, type PublishOptimizationDeploymentsRequest } from "../services/backend";
+import { previewPublication, publishDeploymentsFromOptimization, type PublicationAssignment, type PublicationPreview, type PublishOptimizationDeploymentsRequest } from "../services/backend";
 import { operationalDate, operationalTime } from "../services/operationalTime";
+
+function AssignmentChanges({ title, rows = [] }: { title: string; rows?: PublicationAssignment[] }) {
+  return <section className="space-y-2">
+    <h3 className="font-semibold">{title}</h3>
+    {!rows.length ? <p className="text-slate-500">None</p> : <div className="overflow-x-auto rounded border">
+      <table className="w-full min-w-[420px] text-left text-sm">
+        <caption className="sr-only">{title} · times in Asia/Manila</caption>
+        <thead className="bg-slate-50"><tr>{["Officer", "Location", "Start", "End"].map(label => <th key={label} scope="col" className="p-2 font-medium">{label}</th>)}</tr></thead>
+        <tbody>{rows.map(row => <tr key={`${row.officer_id}:${row.bottleneck_id}:${row.start_time}`} className="border-t">
+          <td className="p-2">{row.officer_name}<span className="block text-xs text-slate-500">{row.badge_number}</span></td>
+          <td className="p-2">{row.bottleneck_name}</td>
+          <td className="whitespace-nowrap p-2">{row.start_time ? operationalTime(row.start_time) : "—"}</td>
+          <td className="whitespace-nowrap p-2">{row.end_time ? operationalTime(row.end_time) : "—"}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>}
+  </section>;
+}
 
 export function PublishScheduleButton({runId, date, mode, onPublished, syntheticSources, compact = false}: {
   runId: string; date?: string; mode?: string; onPublished?: () => Promise<void>; syntheticSources?: string[] | null; compact?: boolean;
@@ -82,28 +100,30 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
         </TooltipTrigger>
         <TooltipContent side="top" sideOffset={6} className="max-w-64">{publicationWarning}</TooltipContent>
       </Tooltip> : publicationTrigger}
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
-        <DialogTitle>Review schedule replacement</DialogTitle>
+      <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-2xl">
+        <DialogTitle className="shrink-0 pr-8">Review schedule replacement</DialogTitle>
         <DialogDescription>Review the effective time and assignment changes. Eligibility, staffing, and input freshness are checked again when you publish.</DialogDescription>
+        <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
         <p className="break-all">Run: <strong>{reviewRunId}</strong></p>
         <label className="grid gap-1">Operational date (Asia/Manila)
           <input type="date" required value={day} disabled={busy} onChange={e => {setPreview(null); pending.current = null; setDay(e.target.value);}} className="rounded border p-2" />
         </label>
-        {preview && <div className="max-h-64 space-y-2 overflow-y-auto text-sm">
+        {preview && <div className="space-y-3 text-sm">
           <p>Shift: <strong>{preview.shift}</strong> · Effective {operationalTime(preview.start_time)}–{operationalTime(preview.end_time)}</p>
           <p>Inputs captured: {preview.captured_at ? operationalTime(preview.captured_at) : "Unavailable"}</p>
           <p>{preview.created} proposed assignments; {preview.replaced} existing assignments replaced</p>
-          <p className="font-semibold">Assignments added or moved</p>
-          {preview.added_assignments?.map(row => <p key={`${row.officer_id}:${row.bottleneck_id}:${row.start_time}`}>{row.officer_name} ({row.badge_number}) → {row.bottleneck_name}{row.start_time && row.end_time ? ` · ${operationalTime(row.start_time)}–${operationalTime(row.end_time)}` : ""}</p>)}
-          {!preview.added_assignments?.length && <p>None</p>}
-          <p className="font-semibold">Assignments removed or moved</p>
-          {preview.removed_assignments?.map(row => <p key={`${row.officer_id}:${row.bottleneck_id}:${row.start_time}`}>{row.officer_name} ({row.badge_number}) · {row.bottleneck_name}{row.start_time && row.end_time ? ` · ${operationalTime(row.start_time)}–${operationalTime(row.end_time)}` : ""}</p>)}
-          {preview.time_periods?.map(period=><p key={period.start_time}>{operationalTime(period.start_time)}–{operationalTime(period.end_time)}: {period.assigned_officers} assigned, {period.reserve_officers} available</p>)}
-          {!preview.removed_assignments?.length && <p>None</p>}
-          {preview.input_issues?.map(issue => <p key={issue} className="text-amber-800">{issue}</p>)}
+          <AssignmentChanges title="Assignments added or moved" rows={preview.added_assignments} />
+          <AssignmentChanges title="Assignments removed or moved" rows={preview.removed_assignments} />
+          {!!preview.time_periods?.length && <details className="rounded border p-3"><summary className="cursor-pointer font-medium">Staffing by time period ({preview.time_periods.length})</summary>
+            {preview.time_periods.map(period=><p key={period.start_time} className="mt-2">{operationalTime(period.start_time)}–{operationalTime(period.end_time)}: {period.assigned_officers} scheduled, {period.reserve_officers} available</p>)}
+          </details>}
+          {!!preview.input_issues?.length && <details className="rounded border border-amber-200 bg-amber-50 p-3 text-amber-900">
+            <summary className="cursor-pointer font-medium">Input warnings ({preview.input_issues.length})</summary>
+            <ul className="mt-2 list-disc space-y-1 pl-4">{preview.input_issues.map(issue => <li key={issue}>{issue}</li>)}</ul>
+          </details>}
         </div>}
         {!preview && !error && <p role="status">Checking assignments…</p>}
-        {error && <p role="alert" className="text-red-700">Cannot publish: {error}</p>}
+        {error && <p role="alert" className="break-words rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Cannot publish: {error}</p>}
         <details>
           <summary className="text-sm">Supervisor override for stale or unverified inputs</summary>
           <label className="grid gap-1 text-sm">Reason (at least 10 characters; recorded in the audit log)
@@ -111,7 +131,8 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
           </label>
           <button disabled={busy || overrideDraft.trim().length < 10} onClick={() => {setPreview(null); pending.current = null; setOverrideReason(overrideDraft.trim()); setAttempt(n => n + 1);}} className="mt-1 rounded border px-3 py-1 text-sm">Apply override and review</button>
         </details>
-        <div className="flex gap-2">
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2 border-t pt-3">
           <button disabled={busy} onClick={() => setOpen(false)} className="rounded border px-4 py-2">Cancel</button>
           {error && !preview && <button disabled={busy} onClick={() => setAttempt(n => n + 1)} className="rounded border px-4 py-2">Refresh preview</button>}
           <button disabled={(!preview && !pending.current) || busy} onClick={publish} className="rounded bg-blue-700 px-4 py-2 text-white disabled:opacity-50">{busy ? "Publishing…" : pending.current ? "Retry publication" : "Confirm publication"}</button>

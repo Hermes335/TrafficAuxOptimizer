@@ -64,7 +64,7 @@ export function useMapMarkers(options: UseMapMarkersOptions) {
       };
       for (const b of filteredBottlenecks) {
         upsert("b:" + b.id, b, JSON.stringify(b), getSeverityColor(getCongestionSeverity(b)), b.name,
-          () => popupCard(b.name, [b.id, `Area: ${b.area_name||"Ungrouped"}`, `Congestion: ${Math.round((b.tsi ?? 0) * 100)}%`, `Now: ${b.current_assigned??"—"} assigned / ${b.current_required??"—"} required`, ...(b.current_required===0?["No officers required now"]:[])]),
+          () => popupCard(b.name, [b.id, `Area: ${b.area_name||"Ungrouped"}`, `Congestion: ${getCongestionSeverity(b) === "unknown" ? "Unavailable" : Math.round(b.tsi! * 100) + "%"}`, `Now: ${b.current_assigned??"—"} scheduled / ${b.current_required??"—"} required`, ...(b.current_required===0?["No officers required now"]:[])]),
           () => { const current = callbacks.current.filteredBottlenecks.find(item => item.id === b.id); if(current) callbacks.current.onMarkerClick(current); });
       }
       for (const incident of incidents) {

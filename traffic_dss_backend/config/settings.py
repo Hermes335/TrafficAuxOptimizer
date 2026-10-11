@@ -31,6 +31,15 @@ if IS_PRODUCTION and DEBUG:
     raise ImproperlyConfigured("DEBUG must be False in production.")
 ALLOWED_HOSTS = env("ALLOWED_HOSTS")
 
+# Enable only when the hosting proxy strips client-supplied forwarded headers.
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https")
+    if env.bool("TRUST_PROXY_HTTPS", default=False) else None
+)
+SESSION_COOKIE_SECURE = IS_PRODUCTION
+CSRF_COOKIE_SECURE = IS_PRODUCTION
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=[])
+
 
 # Application definition
 
@@ -60,6 +69,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

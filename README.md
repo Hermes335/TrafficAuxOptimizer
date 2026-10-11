@@ -4,12 +4,16 @@ A Traffic Decision Support System (DSS) for the Iloilo City Traffic Management O
 
 ## Quick Start
 
+For the hosted web application, see [Vercel deployment](DEPLOYMENT_VERCEL.md). Vercel serves the frontend; the Django API, workers, scheduler, database, and Redis run on the backend host.
+
 ```bash
 npm install
 npm run dev:local
 ```
 
-Open http://127.0.0.1:8080/login and use one of the test accounts:
+Open http://127.0.0.1:8080/login and use one of the local test accounts below. Replace these credentials before exposing an existing development database publicly:
+
+Sign in with your account username or the exact badge number of an officer profile linked to your account, using the same account password. A roster entry alone does not create a login account. If a badge matches another account's username, that username takes priority; use your own username to sign in.
 
 | Role | Username | Password |
 |------|----------|----------|

@@ -9,6 +9,8 @@ interface QuickOptimizeCardProps {
   WeatherIndicatorIcon: ComponentType<{ className?: string }>;
   weatherStyle: { iconClass: string; chipClass: string };
   weatherLabel: string;
+  weatherAvailable: boolean;
+  weatherStale: boolean;
   selectedIncident: Incident | null;
 }
 
@@ -18,6 +20,8 @@ export function QuickOptimizeCard({
   WeatherIndicatorIcon,
   weatherStyle,
   weatherLabel,
+  weatherAvailable,
+  weatherStale,
   selectedIncident,
 }: QuickOptimizeCardProps) {
   return (
@@ -41,14 +45,14 @@ export function QuickOptimizeCard({
       </div>
       <div className="mb-4">
         <label className="mb-2 block text-xs font-medium text-gray-600">WEATHER MODE</label>
-        <div className="flex items-center gap-2 rounded-lg bg-white p-2">
+        <div className="flex flex-wrap items-center gap-2 rounded-lg bg-white p-2">
           <WeatherIndicatorIcon className={`h-4 w-4 ${weatherStyle.iconClass}`} />
-          <span className="flex-1 text-sm">Auto-detected</span>
-          <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${weatherStyle.chipClass}`}>{weatherLabel}</span>
+          <span className="flex-1 text-sm">{!weatherAvailable ? "No current reading" : weatherStale ? "Stale reading" : "Latest reading"}</span>
+          <span className={`max-w-full rounded-full px-2 py-0.5 text-xs font-medium ${!weatherAvailable ? "bg-slate-100 text-slate-600" : weatherStale ? "bg-amber-100 text-amber-800" : weatherStyle.chipClass}`}>{weatherAvailable ? weatherLabel : "Unavailable"}</span>
         </div>
       </div>
       <Link to={`/optimization?shift=${selectedShift.toLowerCase()}`} className="flex w-full items-center justify-center gap-2 rounded-lg bg-yellow-400 py-3 font-semibold text-gray-900 shadow-md transition-all hover:bg-yellow-500 hover:shadow-lg">
-        Run Optimization
+        Configure Optimization
       </Link>
       <p className="mt-3 text-center text-xs text-gray-600">
         {selectedIncident ? (

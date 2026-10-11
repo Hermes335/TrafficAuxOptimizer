@@ -1,5 +1,6 @@
 import { MapPin, X, User } from "lucide-react";
-import type { Bottleneck } from "../../../services/backend";
+import type { Bottleneck, TrafficReading } from "../../../services/backend";
+import { TrafficFreshness } from "../../../components/TrafficFreshness";
 import { ConfirmDialog } from "../../../components/ConfirmDialog";
 
 interface BottleneckDetailPanelProps {
@@ -8,6 +9,7 @@ interface BottleneckDetailPanelProps {
   onDelete: (id: string) => Promise<void>;
   deletingId: string | null;
   canManage: boolean;
+  trafficReading?: TrafficReading;
 }
 
 export function BottleneckDetailPanel({
@@ -16,8 +18,12 @@ export function BottleneckDetailPanel({
   onDelete,
   deletingId,
   canManage,
+  trafficReading,
 }: BottleneckDetailPanelProps) {
-  const tsiPercent = Math.round((bottleneck.tsi ?? 0) * 100);
+  const tsi = trafficReading ? trafficReading.traffic_severity_index : bottleneck.tsi;
+  const hasTraffic = typeof tsi === "number" && Number.isFinite(tsi) && tsi >= 0 && tsi <= 1
+    && trafficReading?.available !== false && trafficReading?.data_status !== "unavailable";
+  const tsiPercent = hasTraffic ? Math.round(tsi! * 100) : 0;
   const weatherImpact = bottleneck.weather_impact_factor;
   const assignedOfficers = bottleneck.current_assigned_officers ?? [];
   const deployedCount = bottleneck.current_assigned;
@@ -28,13 +34,13 @@ export function BottleneckDetailPanel({
   const officerColor = deployedCount==null||requiredCount==null?"text-gray-600":deployedCount >= requiredCount ? "text-green-600" : deployedCount > 0 ? "text-yellow-600" : "text-red-600";
 
   return (
-    <div className="rounded-lg border-2 border-blue-200 bg-blue-50 p-4">
+    <div className="break-words rounded-lg border-2 border-blue-200 bg-blue-50 p-4">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <MapPin className="h-5 w-5 text-blue-600" />
           <h3 className="font-semibold text-blue-900">Bottleneck Details</h3>
         </div>
-        <button aria-label="Close bottleneck details" onClick={onClose} className="text-gray-400 hover:text-gray-600">
+        <button aria-label="Close bottleneck details" onClick={onClose} className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-gray-600 hover:bg-blue-100 focus-visible:ring-2 focus-visible:ring-blue-600">
           <X className="h-4 w-4" />
         </button>
       </div>
@@ -60,11 +66,12 @@ export function BottleneckDetailPanel({
                 />
               </div>
             </div>
-            <span className={`font-bold ${tsiColor}`}>{tsiPercent}%</span>
+            <span className={`font-bold ${hasTraffic ? tsiColor : "text-gray-600"}`}>{hasTraffic ? `${tsiPercent}%` : "Unavailable"}</span>
           </div>
           <div className="mt-1 text-xs text-gray-500">
-            {tsiPercent >= 80 ? "Critical congestion" : tsiPercent >= 60 ? "Heavy congestion" : tsiPercent >= 40 ? "Moderate congestion" : "Free flow"}
+            {!hasTraffic ? "No traffic reading available" : tsiPercent >= 80 ? "Critical congestion" : tsiPercent >= 60 ? "Heavy congestion" : tsiPercent >= 40 ? "Moderate congestion" : "Free flow"}
           </div>
+          <TrafficFreshness reading={trafficReading} />
         </div>
 
         {/* Weather Impact Factor */}
@@ -82,7 +89,7 @@ export function BottleneckDetailPanel({
 
         {/* Officers */}
         <div>
-          <div className="text-xs font-semibold text-gray-600">ASSIGNED NOW</div>
+          <div className="text-xs font-semibold text-gray-600">SCHEDULED NOW</div>
           <div className="flex items-center gap-2">
             <span className={`text-2xl font-bold ${officerColor}`}>{deployedCount??"—"}</span>
             <span className="text-gray-500">/ {requiredCount??"—"} required</span>
@@ -110,7 +117,7 @@ export function BottleneckDetailPanel({
 
         {assignedOfficers.length === 0 && (
           <div className="rounded-lg bg-gray-100 p-3 text-center text-sm text-gray-500">
-            No officers currently deployed to this bottleneck
+            {deployedCount == null ? "Current schedule unavailable" : deployedCount === 0 ? "No officers scheduled here now" : "Officer names unavailable"}
           </div>
         )}
 

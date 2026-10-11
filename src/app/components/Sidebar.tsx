@@ -70,7 +70,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
 
   return (
     <aside
-      className={`flex flex-col border-r bg-white transition-all duration-300 ${
+      className={`flex shrink-0 flex-col border-r bg-white transition-all duration-300 ${
         collapsed ? "w-16" : "w-56"
       }`}
     >
