@@ -1,5 +1,7 @@
 .env
 .env.*
+.venv/
+venv/
 *.sqlite3
 *.sqlite3-*
 *.log

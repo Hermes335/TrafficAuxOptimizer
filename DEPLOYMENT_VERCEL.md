@@ -2,6 +2,11 @@
 
 This repository is configured to deploy the React frontend to Vercel and connect it to a separately hosted Django backend. End users only need a browser.
 
+For a concrete backend hosting setup and instructions for obtaining the
+`VITE_API_BASE_URL` value, see [Deploy the backend on Render](DEPLOYMENT_RENDER.md).
+For a free temporary demonstration using your computer and fictional sample data,
+see [Cloudflare demo setup](DEPLOYMENT_CLOUDFLARE.md).
+
 ## 1. Host the backend services
 
 | Service | Purpose |

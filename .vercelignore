@@ -12,6 +12,7 @@ electron/
 field_test/
 MDFILES/
 .local-backups/
+.cloudflare-demo/
 .agents/
 .codex/
 .aws/

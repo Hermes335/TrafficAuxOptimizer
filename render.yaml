@@ -1,0 +1,151 @@
+# Review the paid resources in Render before deploying. See DEPLOYMENT_RENDER.md.
+# No account credentials or local database records are included in this file.
+envVarGroups:
+  - name: trafficaux-backend
+    envVars:
+      - key: DJANGO_ENV
+        value: production
+      - key: DEBUG
+        value: "False"
+      - key: CORS_ALLOW_ALL_ORIGINS
+        value: "False"
+      # Render terminates HTTPS at its load balancer.
+      - key: TRUST_PROXY_HTTPS
+        value: "True"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: JWT_SECRET_KEY
+        generateValue: true
+
+databases:
+  - name: trafficaux-db
+    region: singapore
+    plan: 0.1c-256mb
+    postgresMajorVersion: "17"
+    databaseName: traffic_dss
+    user: trafficaux
+    diskSizeGB: 1
+    ipAllowList: []
+
+services:
+  - type: keyvalue
+    name: trafficaux-redis
+    region: singapore
+    plan: 256mb
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
+
+  - type: web
+    name: trafficaux-api
+    runtime: docker
+    region: singapore
+    plan: 0.5c-512mb
+    dockerfilePath: ./traffic_dss_backend/Dockerfile
+    dockerContext: ./traffic_dss_backend
+    autoDeployTrigger: "off"
+    preDeployCommand: python manage.py migrate --noinput
+    # Collect inside the serving container: pre-deploy files do not persist.
+    dockerCommand: >-
+      sh -c 'python manage.py collectstatic --noinput &&
+      exec daphne -b 0.0.0.0 -p "$PORT" config.asgi:application'
+    healthCheckPath: /api/health/
+    envVars:
+      - fromGroup: trafficaux-backend
+      - key: ALLOWED_HOSTS
+        fromService:
+          type: web
+          name: trafficaux-api
+          envVarKey: RENDER_EXTERNAL_HOSTNAME
+      - key: CORS_ALLOWED_ORIGINS
+        sync: false
+      - key: TOMTOM_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trafficaux-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: trafficaux-redis
+          property: connectionString
+
+  - type: worker
+    name: trafficaux-worker
+    runtime: docker
+    region: singapore
+    plan: 0.5c-512mb
+    dockerfilePath: ./traffic_dss_backend/Dockerfile
+    dockerContext: ./traffic_dss_backend
+    autoDeployTrigger: "off"
+    dockerCommand: celery -A config worker --loglevel=info --concurrency=1
+    envVars:
+      - fromGroup: trafficaux-backend
+      - key: ALLOWED_HOSTS
+        fromService:
+          type: web
+          name: trafficaux-api
+          envVarKey: ALLOWED_HOSTS
+      - key: CORS_ALLOWED_ORIGINS
+        fromService:
+          type: web
+          name: trafficaux-api
+          envVarKey: CORS_ALLOWED_ORIGINS
+      - key: TOMTOM_API_KEY
+        fromService:
+          type: web
+          name: trafficaux-api
+          envVarKey: TOMTOM_API_KEY
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trafficaux-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: trafficaux-redis
+          property: connectionString
+
+  - type: worker
+    name: trafficaux-beat
+    runtime: docker
+    region: singapore
+    plan: 0.5c-512mb
+    dockerfilePath: ./traffic_dss_backend/Dockerfile
+    dockerContext: ./traffic_dss_backend
+    autoDeployTrigger: "off"
+    numInstances: 1
+    dockerCommand: >-
+      celery -A config beat --loglevel=info
+      --schedule=/var/data/celerybeat-schedule
+    # A disk preserves the schedule and prevents overlapping rolling instances.
+    disk:
+      name: trafficaux-beat-schedule
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - fromGroup: trafficaux-backend
+      - key: ALLOWED_HOSTS
+        fromService:
+          type: web
+          name: trafficaux-api
+          envVarKey: ALLOWED_HOSTS
+      - key: CORS_ALLOWED_ORIGINS
+        fromService:
+          type: web
+          name: trafficaux-api
+          envVarKey: CORS_ALLOWED_ORIGINS
+      - key: TOMTOM_API_KEY
+        fromService:
+          type: web
+          name: trafficaux-api
+          envVarKey: TOMTOM_API_KEY
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trafficaux-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: trafficaux-redis
+          property: connectionString
