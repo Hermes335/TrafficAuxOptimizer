@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
-import { createBrowserRouter, Navigate } from "react-router";
+import { createBrowserRouter, Navigate, useLocation } from "react-router";
+import { PageStateScope } from "./contexts/PageStateContext";
 import { Layout } from "./components/Layout";
 import { LoadingState } from "./components/LoadingState";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
@@ -21,11 +22,14 @@ const Settings = lazy(() => import("./pages/Settings").then(m => ({ default: m.S
 const Login = lazy(() => import("./pages/Login").then(m => ({ default: m.Login })));
 
 // Wrapper to provide loading state for lazy-loaded components
-const PageLoader = ({ Component }: { Component: React.ComponentType }) => (
-  <Suspense fallback={<LoadingState label="Loading page..." />}>
-    <Component />
-  </Suspense>
-);
+const PageLoader = ({ Component }: { Component: React.ComponentType }) => {
+  const location = useLocation();
+  const runId = new URLSearchParams(location.search).get("run_id");
+  const scope = location.pathname + (runId ? `?run_id=${encodeURIComponent(runId)}` : "");
+  return <PageStateScope key={scope} name={scope}>
+    <Suspense fallback={<LoadingState label="Loading page..." />}><Component /></Suspense>
+  </PageStateScope>;
+};
 
 export const router = createBrowserRouter([
   // Public routes

@@ -1,3 +1,4 @@
+import { usePageState } from "../contexts/PageStateContext";
 import { operationalDate, operationalTime } from "../services/operationalTime";
 import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck, Clock3, FileText } from "lucide-react";
@@ -5,7 +6,7 @@ import { LoadingState, EmptyState } from "../components/LoadingState";
 import { fetchAuditLogs, type AuditLogRecord } from "../services/backend";
 
 export function AuditLogs() {
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePageState("audit.page", 1);
   const [count, setCount] = useState(0);
   const [logs, setLogs] = useState<AuditLogRecord[]>([]);
   const [loading, setLoading] = useState(true);

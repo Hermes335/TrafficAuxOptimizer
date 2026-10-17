@@ -1,3 +1,4 @@
+import { usePageState } from "../contexts/PageStateContext";
 import { ArrowLeft, Camera, Check, CheckCircle2, ClipboardList, Link2, MapPin, Send } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
@@ -19,40 +20,102 @@ const reviewedStatusLabels: Record<string, string> = {
   rejected: "Rejected", resolved: "Resolved", archived: "Archived", investigating: "Investigating",
 };
 
+interface IncidentFields {
+  incidentType: string;
+  severity: string;
+  description: string;
+  point: IncidentCoordinates | null;
+}
+type EditField = keyof IncidentFields;
+interface EditDraft {
+  values: IncidentFields;
+  baseline: IncidentFields;
+  conflicts: EditField[];
+}
+const editFieldLabels: Record<EditField, string> = {
+  incidentType: "incident type", severity: "severity", description: "description", point: "location",
+};
+
+function sameEditValue(field: EditField, first: IncidentFields[EditField], second: IncidentFields[EditField]) {
+  if (field !== "point") return first === second;
+  const left = first as IncidentCoordinates | null;
+  const right = second as IncidentCoordinates | null;
+  return left === right || !!left && !!right && left.latitude === right.latitude && left.longitude === right.longitude
+    && (left.bottleneck ?? null) === (right.bottleneck ?? null);
+}
+
+function refreshEditDraft(draft: EditDraft | null, latest: IncidentFields): EditDraft {
+  if (!draft) return {values: latest, baseline: latest, conflicts: []};
+  const conflicts: EditField[] = [];
+  const merge = <K extends EditField>(field: K): IncidentFields[K] => {
+    const value = sameEditValue(field, draft.values[field], draft.baseline[field]) ? latest[field] : draft.values[field];
+    if (!sameEditValue(field, value, latest[field]) && (draft.conflicts.includes(field)
+      || !sameEditValue(field, latest[field], draft.baseline[field]))) conflicts.push(field);
+    return value;
+  };
+  return {values: {incidentType: merge("incidentType"), severity: merge("severity"), description: merge("description"), point: merge("point")}, baseline: latest, conflicts};
+}
+
 export function IncidentReport() {
   const { id: editId } = useParams<{ id?: string }>();
   const { isAuthenticated } = useAuth();
   const isEditing = !!editId;
-  const [incidentType, setIncidentType] = useState("collision");
-  const [severity, setSeverity] = useState("major");
-  const [description, setDescription] = useState("");
-  const [point, setPoint] = useState<IncidentCoordinates | null>(null);
+  const [newIncidentType, setNewIncidentType] = usePageState(`incident.${editId ?? "new"}.incidentType`, "collision");
+  const [newSeverity, setNewSeverity] = usePageState(`incident.${editId ?? "new"}.severity`, "major");
+  const [newDescription, setNewDescription] = usePageState(`incident.${editId ?? "new"}.description`, "");
+  const [newPoint, setNewPoint] = usePageState<IncidentCoordinates | null>(`incident.${editId ?? "new"}.point`, null);
+  const [editDraft, setEditDraft] = usePageState<EditDraft | null>(`incident.${editId ?? "new"}.editDraft`, null);
+  const incidentType = isEditing ? editDraft?.values.incidentType ?? "collision" : newIncidentType;
+  const severity = isEditing ? editDraft?.values.severity ?? "major" : newSeverity;
+  const description = isEditing ? editDraft?.values.description ?? "" : newDescription;
+  const point = isEditing ? editDraft?.values.point ?? null : newPoint;
+  const changeEditField = <K extends EditField>(field: K, value: IncidentFields[K]) => {
+    setEditDraft(draft => draft ? {...draft, values: {...draft.values, [field]: value}} : draft);
+  };
+  const setIncidentType = (value: string) => isEditing ? changeEditField("incidentType", value) : setNewIncidentType(value);
+  const setSeverity = (value: string) => isEditing ? changeEditField("severity", value) : setNewSeverity(value);
+  const setDescription = (value: string) => isEditing ? changeEditField("description", value) : setNewDescription(value);
+  const setPoint = (value: IncidentCoordinates | null) => isEditing ? changeEditField("point", value) : setNewPoint(value);
   const [locations, setLocations] = useState<ReportLocation[]>([]);
   const [incidentTypes, setIncidentTypes] = useState<Array<{value: string; label: string}>>([]);
   const [severities, setSeverities] = useState<Array<{value: string; label: string}>>([]);
-  const [photo, setPhoto] = useState<File | null>(null);
+  const [photo, setPhoto] = usePageState<File | null>(`incident.${editId ?? "new"}.photo`, null);
   const [existingPhoto, setExistingPhoto] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
+  const [saving, setSaving] = usePageState(`incident.${editId ?? "new"}.saving`, false);
+  const [savingRef] = usePageState(`incident.${editId ?? "new"}.savingRef`, () => ({current: false}));
+  const [waitingForSave, setWaitingForSave] = useState(() => isEditing && savingRef.current);
+  const deferredSaveRefresh = useRef(waitingForSave);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [loadAttempt, setLoadAttempt] = useState(0);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = usePageState<string | null>(`incident.${editId ?? "new"}.error`, null);
   const [warning, setWarning] = useState<string | null>(null);
   const [updated, setUpdated] = useState(false);
-  const [receipt, setReceipt] = useState<ReportReceipt | null>(null);
-  const [uncertain, setUncertain] = useState(false);
-  const [editedAfterRetry, setEditedAfterRetry] = useState(false);
+  const [receipt, setReceipt] = usePageState<ReportReceipt | null>(`incident.${editId ?? "new"}.receipt`, null);
+  const [uncertain, setUncertain] = usePageState(`incident.${editId ?? "new"}.uncertain`, false);
+  const [editedAfterRetry, setEditedAfterRetry] = usePageState(`incident.${editId ?? "new"}.editedAfterRetry`, false);
   const [linkCopied, setLinkCopied] = useState(false);
-  const attemptedPayload = useRef<ReportPayload | null>(null);
-  const key = useRef(submissionKey());
+  const [attemptedPayload] = usePageState(`incident.${editId ?? "new"}.attempt`, () => ({current: null as ReportPayload | null}));
+  const [key] = usePageState(`incident.${editId ?? "new"}.key`, () => ({current: submissionKey()}));
+  const [initialized] = usePageState(`incident.${editId ?? "new"}.initialized`, () => ({current: false}));
   const resultRef = useRef<HTMLDivElement>(null);
   const busy = saving || loading || !loaded || uncertain;
 
   useEffect(() => {
+    if (waitingForSave && !saving) setWaitingForSave(false);
+  }, [saving, waitingForSave]);
+
+  useEffect(() => {
+    // A returning editor must read the server after its pending update completes.
+    // An earlier read could otherwise restore data from before that update.
+    if (waitingForSave) return;
     let active = true;
     let photoUrl: string | null = null;
-    setLoading(true); setLoaded(false); setError(null); setWarning(null); setUpdated(false); setExistingPhoto(null);
+    setLoading(true); setLoaded(false);
+    // Refreshing after a pending update must keep any failure from that update visible.
+    if (!uncertain && !deferredSaveRefresh.current) setError(null);
+    deferredSaveRefresh.current = false;
+    setWarning(null); setUpdated(false); setExistingPhoto(null);
     const id = editId ? Number(editId) : null;
     if (id !== null && (!Number.isSafeInteger(id) || id < 1)) { setError("This incident link is invalid."); setLoading(false); return; }
     Promise.all([
@@ -67,28 +130,31 @@ export function IncidentReport() {
       setLocations(rows.filter(row => validCoordinates({ latitude: Number(row.latitude), longitude: Number(row.longitude) })));
       setIncidentTypes(meta.incident_types); setSeverities(meta.severities);
       if (incident) {
-        setIncidentType(incident.incident_type); setSeverity(incident.severity); setDescription(incident.description);
         const knownLocation = rows.find(row => row.id === incident.bottleneck);
         const coords = incident.latitude === null || incident.longitude === null
           ? knownLocation ? { latitude: Number(knownLocation.latitude), longitude: Number(knownLocation.longitude) } : null
           : { latitude: Number(incident.latitude), longitude: Number(incident.longitude) };
-        setPoint(validCoordinates(coords) ? { ...coords, ...(incident.bottleneck ? { bottleneck: incident.bottleneck } : {}) } : null);
+        setEditDraft(draft => refreshEditDraft(draft, {
+          incidentType: incident.incident_type, severity: incident.severity, description: incident.description,
+          point: validCoordinates(coords) ? { ...coords, ...(incident.bottleneck ? { bottleneck: incident.bottleneck } : {}) } : null,
+        }));
         if (incident.photo_url) {
           void fetchIncidentPhoto(incident.id).then(blob => {
             if (!active) return;
             photoUrl = URL.createObjectURL(blob); setExistingPhoto(photoUrl);
           }).catch(() => { if (active) setWarning("The existing photo could not load. You can still update the incident details."); });
         }
-      } else {
+      } else if (!initialized.current) {
         setIncidentType(meta.incident_types[0]?.value ?? "collision");
         setSeverity(meta.severities.find(item => item.value === "major")?.value ?? meta.severities[0]?.value ?? "major");
       }
       if (!meta.incident_types.length || !meta.severities.length) throw new Error("Report options are unavailable. Please retry loading.");
+      initialized.current = true;
       setLoaded(true);
     }).catch((failure: unknown) => { if (active) setError(failure instanceof Error ? failure.message : "The report form could not load."); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; if (photoUrl) URL.revokeObjectURL(photoUrl); };
-  }, [editId, loadAttempt]);
+  }, [editId, loadAttempt, waitingForSave]);
 
   useEffect(() => {
     if (error || receipt || updated) { resultRef.current?.focus(); resultRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }); }
@@ -96,6 +162,7 @@ export function IncidentReport() {
 
   const onSubmit = async () => {
     if (!loaded || loading || savingRef.current) return;
+    if (isEditing && editDraft?.conflicts.length) { setError("Choose which changes to keep before updating this report."); return; }
     if (!validCoordinates(point)) { setError("Choose the incident location by placing a pin, using your location, or entering coordinates."); return; }
     if (!description.trim()) { setError("Please enter a description of the incident."); return; }
     const payload: ReportPayload = uncertain && attemptedPayload.current ? attemptedPayload.current : {
@@ -109,6 +176,9 @@ export function IncidentReport() {
           latitude: payload.latitude, longitude: payload.longitude, ...(payload.bottleneck ? { bottleneck: payload.bottleneck } : {}), incident_type: payload.incident_type,
           severity: payload.severity, description: payload.description,
         });
+        const saved: IncidentFields = {incidentType: payload.incident_type, severity: payload.severity, description: payload.description,
+          point: {latitude: payload.latitude, longitude: payload.longitude, ...(payload.bottleneck ? {bottleneck: payload.bottleneck} : {})}};
+        setEditDraft({values: saved, baseline: saved, conflicts: []});
         setUpdated(true);
       } else {
         attemptedPayload.current = payload;
@@ -125,6 +195,21 @@ export function IncidentReport() {
       setError(mayHaveArrived ? `${message} We could not confirm receipt. Retry the same report to check safely.` : message);
       if (!mayHaveArrived && !isEditing) { attemptedPayload.current = null; key.current = submissionKey(); }
     } finally { savingRef.current = false; setSaving(false); }
+  };
+
+  const resolveConflict = (field: EditField, useLatest: boolean) => {
+    setEditDraft(draft => draft ? {...draft,
+      values: useLatest ? {...draft.values, [field]: draft.baseline[field]} : draft.values,
+      conflicts: draft.conflicts.filter(conflict => conflict !== field),
+    } : draft);
+    setError(null);
+  };
+  const latestFieldValue = (field: EditField) => {
+    const values = editDraft!.baseline;
+    if (field === "point") return values.point ? `${values.point.latitude.toFixed(6)}, ${values.point.longitude.toFixed(6)}` : "No location selected";
+    if (field === "incidentType") return incidentTypes.find(type => type.value === values.incidentType)?.label ?? values.incidentType;
+    if (field === "severity") return severities.find(level => level.value === values.severity)?.label ?? values.severity;
+    return values.description;
   };
 
   return <main className="min-h-screen bg-slate-50 text-slate-900">
@@ -177,6 +262,17 @@ export function IncidentReport() {
             <div ref={resultRef} tabIndex={-1}>
               {loading && <p role="status" className="mb-4 text-sm text-slate-600">Loading report form...</p>}
               {warning && <p role="status" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{warning}</p>}
+              {!!editDraft?.conflicts.length && <div role="alert" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-950">
+                <p className="font-semibold">This report changed while you were away. Review these fields before updating.</p>
+                {editDraft.conflicts.map(field => <div key={field} className="mt-3 border-t border-amber-200 pt-3">
+                  <p className="font-semibold capitalize">{editFieldLabels[field]}</p>
+                  <p className="mt-1 whitespace-pre-wrap break-words">Latest saved value: {latestFieldValue(field)}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button type="button" disabled={saving || loading} aria-label={`Keep my ${editFieldLabels[field]}`} onClick={() => resolveConflict(field, false)} className="min-h-11 rounded-lg border border-amber-300 bg-white px-3 font-semibold">Keep my change</button>
+                    <button type="button" disabled={saving || loading} aria-label={`Use latest ${editFieldLabels[field]}`} onClick={() => resolveConflict(field, true)} className="min-h-11 rounded-lg border border-amber-300 bg-white px-3 font-semibold">Use latest</button>
+                  </div>
+                </div>)}
+              </div>}
               {error && <p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm leading-relaxed text-red-800">{error}</p>}
               {updated && <p role="status" className="mb-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800">Incident updated successfully.</p>}
             </div>
@@ -184,7 +280,7 @@ export function IncidentReport() {
             {editedAfterRetry && <p className="mb-4 text-sm text-amber-800">The earlier report may already have arrived. Sending a changed report could create a duplicate.</p>}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="max-w-xl text-xs leading-relaxed text-slate-500">{isEditing ? "Changes update the incident location and details for the operations team." : isAuthenticated ? "You are reporting as staff. Your incident will become active immediately." : "No account needed. Public reports are reviewed by staff before becoming active incidents."}</p>
-              <button type="submit" disabled={saving || loading || !loaded} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-400 px-6 text-sm font-bold text-slate-950 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"><Send size={17} />{saving ? "Sending..." : isEditing ? "Update report" : uncertain ? "Retry same report" : "Submit report"}</button>
+              <button type="submit" disabled={saving || loading || !loaded || !!editDraft?.conflicts.length} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-400 px-6 text-sm font-bold text-slate-950 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"><Send size={17} />{saving ? "Sending..." : isEditing ? "Update report" : uncertain ? "Retry same report" : "Submit report"}</button>
             </div>
             {uncertain && <button type="button" disabled={saving} onClick={() => { setUncertain(false); setEditedAfterRetry(true); attemptedPayload.current = null; key.current = submissionKey(); setError(null); }} className="mt-4 min-h-11 text-sm font-semibold text-slate-600 underline underline-offset-4">Edit report before trying again</button>}
           </div>

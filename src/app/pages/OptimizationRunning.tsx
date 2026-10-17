@@ -1,3 +1,4 @@
+import { RememberedDetails } from "../components/RememberedDetails";
 import { operationalTime } from "../services/operationalTime";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TrendingUp, Users, AlertCircle, Target, Clock, Activity, CheckCircle2, XCircle, ChevronLeft, AlertTriangle } from "lucide-react";
@@ -234,7 +235,7 @@ export function OptimizationRunning() {
           <h3 className="mb-4 font-semibold">ENGINE CONFIGURATION</h3>
 
           <div className="space-y-4">
-            <details open className="group">
+            <RememberedDetails stateKey="progress.chart" open className="group">
               <summary className="flex cursor-pointer items-center justify-between rounded-lg bg-gray-50 p-3">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-gray-600" />
@@ -272,9 +273,9 @@ export function OptimizationRunning() {
                   </div>
                 </div>
               </div>
-            </details>
+            </RememberedDetails>
 
-            <details open className="group">
+            <RememberedDetails stateKey="progress.events" open className="group">
               <summary className="flex cursor-pointer items-center justify-between rounded-lg bg-gray-50 p-3">
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-gray-600" />
@@ -325,7 +326,7 @@ export function OptimizationRunning() {
                   </div>
                 </div>
               </div>
-            </details>
+            </RememberedDetails>
           </div>
         </div>
 

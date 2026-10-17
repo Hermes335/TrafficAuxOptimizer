@@ -1,9 +1,11 @@
+import { RememberedDetails } from "../components/RememberedDetails";
+import { usePageState } from "../contexts/PageStateContext";
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
 import { RecommendationExportButton } from "../components/RecommendationExportButton";
 import { operationalDate, operationalTime, operationalShift } from "../services/operationalTime";
 import { useEffect, useMemo, useState } from "react";
 import { Clock, Target, Zap, TrendingUp, Users, RefreshCw, ChevronLeft, ChevronRight, ArrowUpRight } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   fetchOptimizationConfig,
   fetchOptimizationHistory,
@@ -34,22 +36,24 @@ function compactRunId(runId: string) {
 }
 
 export function Optimization() {
+  const location = useLocation();
+  const requestedShift = new URLSearchParams(location.search).get("shift");
   const navigate = useNavigate();
-  const [selectedShift, setSelectedShift] = useState<"morning" | "afternoon">(() => new URLSearchParams(window.location.search).get("shift") === "morning" ? "morning" : operationalShift());
-  const [populationSize, setPopulationSize] = useState(DEFAULT_PARAMS.populationSize);
-  const [runDay, setRunDay] = useState(operationalDate());
-  const [mode, setMode] = useState<"operational" | "shadow">("operational");
-  const [sessionId, setSessionId] = useState("");
-  const [generationLimit, setGenerationLimit] = useState(DEFAULT_PARAMS.generationLimit);
-  const [crossoverRate, setCrossoverRate] = useState(DEFAULT_PARAMS.crossoverRate);
-  const [mutationRate, setMutationRate] = useState(DEFAULT_PARAMS.mutationRate);
-  const [elitismCount, setElitismCount] = useState(DEFAULT_PARAMS.elitismCount);
-  const [tsiWeight, setTsiWeight] = useState(DEFAULT_PARAMS.tsiWeight);
-  const [wifWeight, setWifWeight] = useState(DEFAULT_PARAMS.wifWeight);
-  const [rpwWeight, setRpwWeight] = useState(DEFAULT_PARAMS.rpwWeight);
-  const [resourceUtilizationWeight, setResourceUtilizationWeight] = useState(DEFAULT_PARAMS.resourceUtilizationWeight);
-  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
-  const [historyPage, setHistoryPage] = useState(1);
+  const [selectedShift, setSelectedShift] = usePageState<"morning" | "afternoon">("optimization.selectedShift", () => new URLSearchParams(window.location.search).get("shift") === "morning" ? "morning" : operationalShift());
+  const [populationSize, setPopulationSize] = usePageState("optimization.populationSize", DEFAULT_PARAMS.populationSize);
+  const [runDay, setRunDay] = usePageState("optimization.runDay", operationalDate());
+  const [mode, setMode] = usePageState<"operational" | "shadow">("optimization.mode", "operational");
+  const [sessionId, setSessionId] = usePageState("optimization.sessionId", "");
+  const [generationLimit, setGenerationLimit] = usePageState("optimization.generationLimit", DEFAULT_PARAMS.generationLimit);
+  const [crossoverRate, setCrossoverRate] = usePageState("optimization.crossoverRate", DEFAULT_PARAMS.crossoverRate);
+  const [mutationRate, setMutationRate] = usePageState("optimization.mutationRate", DEFAULT_PARAMS.mutationRate);
+  const [elitismCount, setElitismCount] = usePageState("optimization.elitismCount", DEFAULT_PARAMS.elitismCount);
+  const [tsiWeight, setTsiWeight] = usePageState("optimization.tsiWeight", DEFAULT_PARAMS.tsiWeight);
+  const [wifWeight, setWifWeight] = usePageState("optimization.wifWeight", DEFAULT_PARAMS.wifWeight);
+  const [rpwWeight, setRpwWeight] = usePageState("optimization.rpwWeight", DEFAULT_PARAMS.rpwWeight);
+  const [resourceUtilizationWeight, setResourceUtilizationWeight] = usePageState("optimization.resourceUtilizationWeight", DEFAULT_PARAMS.resourceUtilizationWeight);
+  const [selectedPreset, setSelectedPreset] = usePageState<string | null>("optimization.selectedPreset", null);
+  const [historyPage, setHistoryPage] = usePageState("optimization.historyPage", 1);
   const [historyCount, setHistoryCount] = useState(0);
   const [history, setHistory] = useState<OptimizationHistoryItem[]>([]);
   const [validation, setValidation] = useState<OptimizationConfigResponse | null>(null);
@@ -60,6 +64,11 @@ export function Optimization() {
   const [loadingAutoSuggestion, setLoadingAutoSuggestion] = useState(false);
   const [activePois, setActivePois] = useState<POI[]>([]);
   const [activeIncidents, setActiveIncidents] = useState<Array<{ type: string }>>([]);
+
+  // Explicit links can select a shift while leaving the other saved settings intact.
+  useEffect(() => {
+    if (requestedShift === "morning" || requestedShift === "afternoon") setSelectedShift(requestedShift);
+  }, [requestedShift, setSelectedShift]);
 
   // Fetch dashboard data, POIs, and compute auto-weight suggestion
   useEffect(() => {
@@ -348,7 +357,7 @@ export function Optimization() {
           </button>
         </div>
 
-        <details className="mb-4 rounded-xl border border-slate-200 p-3">
+        <RememberedDetails stateKey="optimization.advanced" className="mb-4 rounded-xl border border-slate-200 p-3">
           <summary className="cursor-pointer font-semibold">Advanced settings</summary>
           <p className="my-3 text-sm text-slate-600">Adjust algorithm parameters and objective weights when needed. Current values are used even when this section is closed.</p>
         <div className="mb-5">
@@ -575,7 +584,7 @@ export function Optimization() {
           </div>
         </div>
 
-        </details>
+        </RememberedDetails>
 
         <div className="border-t border-slate-200 pt-3">
           <button

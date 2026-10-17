@@ -16,6 +16,7 @@ interface UseMapMarkersOptions {
   selectedBottleneckId?: string | null;
   onMarkerClick: (bottleneck: Bottleneck) => void;
   onIncidentRemove?: (id: number) => Promise<void>;
+  onIncidentEdit?: (id: number) => void;
   onPoiUpdated?: (poi: POI) => void;
   onIncidentUpdated?: (id: number) => void;
 }
@@ -71,7 +72,13 @@ export function useMapMarkers(options: UseMapMarkersOptions) {
         upsert("i:" + incident.id, incident, JSON.stringify(incident), "#dc2626", incident.text, () => {
           const content = popupCard(incident.text, [`Incident severity: ${incident.type}`]);
           const edit = document.createElement("a");
-          edit.href = "/incident-report/" + encodeURIComponent(incident.id); edit.textContent = "Edit incident"; content.append(edit);
+          edit.href = "/incident-report/" + encodeURIComponent(incident.id); edit.textContent = "Edit incident";
+          edit.addEventListener("click", event => {
+            if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.defaultPrevented || !callbacks.current.onIncidentEdit) return;
+            event.preventDefault();
+            callbacks.current.onIncidentEdit(incident.id);
+          });
+          content.append(edit);
           if (callbacks.current.onIncidentRemove) {
             const button = document.createElement("button");
             button.textContent = "Resolve"; button.className = "ml-2 rounded border p-1";

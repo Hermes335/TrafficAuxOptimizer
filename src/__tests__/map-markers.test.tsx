@@ -17,6 +17,21 @@ vi.mock("maplibre-gl",()=>({
   },
 }));
 beforeEach(()=>{stubs.markers.length=0;});
+it("opens incident editing through app navigation while preserving modified-click behavior",()=>{
+  const onEdit=vi.fn();
+  renderHook(()=>useMapMarkers({mapRef:{current:{fitBounds:vi.fn()}} as any,markersRef:{current:[]},hasFittedRef:{current:true},
+    filteredBottlenecks:[],incidents:[{id:42,text:"Incident",type:"major",latitude:10.72,longitude:122.56}],onMarkerClick:vi.fn(),onIncidentEdit:onEdit}));
+  const link=stubs.markers[0].getPopup().content.querySelector('a') as HTMLAnchorElement;
+  expect(link.getAttribute("href")).toBe("/incident-report/42");
+  const click=new MouseEvent("click",{bubbles:true,cancelable:true,button:0});
+  link.dispatchEvent(click);
+  expect(click.defaultPrevented).toBe(true);expect(onEdit).toHaveBeenCalledWith(42);
+  // jsdom supports hash navigation for the unhandled browser-default click.
+  link.href="#incident-42";
+  const modifiedClick=new MouseEvent("click",{bubbles:true,cancelable:true,button:0,ctrlKey:true});
+  link.dispatchEvent(modifiedClick);
+  expect(modifiedClick.defaultPrevented).toBe(false);expect(onEdit).toHaveBeenCalledTimes(1);
+});
 it("reuses markers by ID and preserves an open popup across unrelated renders and filtering",()=>{
   const map={isStyleLoaded:()=>true,once:vi.fn(),off:vi.fn(),fitBounds:vi.fn()};
   const node={id:"A",name:"Saved",status:"normal" as const,latitude:0,longitude:0,tsi:0.1};

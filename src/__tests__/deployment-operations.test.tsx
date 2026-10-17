@@ -4,11 +4,37 @@ import { OperationsPanel } from "../app/pages/GanttChart/OperationsPanel";
 import { GanttTimeline } from "../app/pages/GanttChart/GanttTimeline";
 import { AreaFilter, inArea } from "../app/components/AreaFilter";
 import * as backend from "../app/services/backend";
+import { PageStateProvider } from "../app/contexts/PageStateContext";
+import { useState } from "react";
 
 vi.mock("../app/services/backend",async original=>({...await original<typeof import("../app/services/backend")>(),deploymentOperation:vi.fn()}));
 const nodes=[{id:"A",name:"Intersection A",area_name:"Prime State"}];
 const officers:backend.DashboardOfficerRecord[]=[{id:1,name:"Officer Alpha",badge_number:"ALPHA",shift:"morning",status:"available",skills:[]}];
 const blocks:backend.OfficerTimeBlock[]=[{id:1,officer:1,officer_name:"Officer Alpha",badge_number:"ALPHA",kind:"break",start_time:"2099-01-01T08:00:00+08:00",end_time:"2099-01-01T09:00:00+08:00",note:"Meal"}];
+it("restores operation disclosures and unfinished reservations across page unmounts, then clears saved drafts",async()=>{
+  const onBlocks=vi.fn(),onChanged=vi.fn();
+  function Harness(){const [away,setAway]=useState(false);return <PageStateProvider>
+    <button onClick={()=>setAway(value=>!value)}>Navigate</button>
+    {!away&&<OperationsPanel day="2099-01-01" shift="morning" area="" nodes={nodes} officers={officers} canManage refreshKey={0} onBlocks={onBlocks} onChanged={onChanged}/>}
+  </PageStateProvider>;}
+  render(<Harness/>);await screen.findByText(/Schedule needs review/);
+  fireEvent.click(screen.getByRole("button",{name:"Operations & feedback"}));
+  const details=screen.getByText(/Breaks and travel reservations/).closest("details")!;
+  details.open=true;fireEvent(details,new Event("toggle"));
+  fireEvent.change(screen.getByLabelText("Officer"),{target:{value:"1"}});
+  fireEvent.change(screen.getByLabelText("Starts"),{target:{value:"08:00"}});
+  fireEvent.change(screen.getByLabelText("Ends"),{target:{value:"09:00"}});
+  fireEvent.change(screen.getByLabelText("Note"),{target:{value:"Unfinished note"}});
+  fireEvent.click(screen.getByText("Navigate"));fireEvent.click(screen.getByText("Navigate"));
+  expect(screen.getByRole("button",{name:"Operations & feedback"}).getAttribute("aria-expanded")).toBe("true");
+  expect(screen.getByText(/Breaks and travel reservations/).closest("details")).toHaveProperty("open",true);
+  expect(screen.getByLabelText("Officer")).toHaveProperty("value","1");
+  expect(screen.getByLabelText("Note")).toHaveProperty("value","Unfinished note");
+  fireEvent.click(screen.getByText("Reserve time"));await waitFor(()=>expect(onChanged).toHaveBeenCalled());
+  fireEvent.click(screen.getByText("Navigate"));fireEvent.click(screen.getByText("Navigate"));
+  expect(screen.getByLabelText("Note")).toHaveProperty("value","");
+  expect(screen.getByLabelText("Officer")).toHaveProperty("value","");
+});
 beforeEach(()=>{vi.resetAllMocks();vi.mocked(backend.deploymentOperation).mockImplementation(async(path,payload)=>payload?{}:path.startsWith("review/")?{needs_review:true,scope:"Remaining schedule",issues:[{bottleneck:"A",reason:"Officer no longer eligible",assignment_ids:[8]}]}:path.startsWith("time-blocks/")?blocks:[]);});
 
 it("uses exact area names and supports ungrouped intersections",()=>{

@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { usePageState } from "../contexts/PageStateContext";
+import { useLayoutEffect, useState } from "react";
 import { staffingProfile } from "../components/StaffingProfileFields";
 import {
   deleteDashboardBottleneck,
@@ -21,42 +22,54 @@ export function useBottleneckActions({
   setBottleneckActionNotice,
   setDeletingBottleneckId,
 }: UseBottleneckActionsOptions) {
-  const [addMode, setAddMode] = useState<"bottleneck" | "poi" | null>(null);
+  const [addMode, setAddMode] = usePageState<"bottleneck" | "poi" | null>("bottleneckForm.addMode", null);
   const [showAddMenu, setShowAddMenu] = useState(false);
-  const [pendingPoint, setPendingPoint] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [editingBottleneckId, setEditingBottleneckId] = useState<string | null>(null);
-  const [editBottleneckName, setEditBottleneckName] = useState("");
-  const [editBottleneckDistrict, setEditBottleneckDistrict] = useState("Iloilo City");
-  const [editBottleneckType, setEditBottleneckType] = useState("intersection");
-  const [editBottleneckWeight, setEditBottleneckWeight] = useState("1.0");
-  const [editLatitude, setEditLatitude] = useState("");
-  const [editLongitude, setEditLongitude] = useState("");
-  const [editStaffing, setEditStaffing] = useState(staffingProfile({}));
+  const [pendingPoint, setPendingPoint] = usePageState<{ latitude: number; longitude: number } | null>("bottleneckForm.pendingPoint", null);
+  const [editingBottleneckId, setEditingBottleneckId] = usePageState<string | null>("bottleneckForm.editingBottleneckId", null);
+  const [editBottleneckName, setEditBottleneckName] = usePageState("bottleneckForm.editBottleneckName", "");
+  const [editBottleneckDistrict, setEditBottleneckDistrict] = usePageState("bottleneckForm.editBottleneckDistrict", "Iloilo City");
+  const [editBottleneckType, setEditBottleneckType] = usePageState("bottleneckForm.editBottleneckType", "intersection");
+  const [editBottleneckWeight, setEditBottleneckWeight] = usePageState("bottleneckForm.editBottleneckWeight", "1.0");
+  const [editLatitude, setEditLatitude] = usePageState("bottleneckForm.editLatitude", "");
+  const [editLongitude, setEditLongitude] = usePageState("bottleneckForm.editLongitude", "");
+  const [editStaffing, setEditStaffing] = usePageState("bottleneckForm.editStaffing", staffingProfile({}));
   const [editPickFromMap, setEditPickFromMap] = useState(false);
-  const [savingEditBottleneck, setSavingEditBottleneck] = useState(false);
-  const [selectedBottleneckId, setSelectedBottleneckId] = useState<string | null>(null);
+  const [savingEditBottleneck, setSavingEditBottleneck] = usePageState("bottleneckForm.savingEditBottleneck", false);
+  const [selectedBottleneckId, setSelectedBottleneckId] = usePageState<string | null>("bottleneckForm.selectedBottleneckId", null);
+  const [operation] = usePageState("bottleneckForm.operation", () => ({
+    pending: false, reload: null as (() => Promise<void>) | null,
+  }));
+  useLayoutEffect(() => {
+    operation.reload = reloadDashboard;
+    return () => { if (operation.reload === reloadDashboard) operation.reload = null; };
+  }, [operation, reloadDashboard]);
 
   const getSelectedBottleneck = () => {
     return dashboardSnapshot.bottlenecks.find((b) => b.id === selectedBottleneckId) || null;
   };
 
   const onDeleteBottleneck = async (bottleneckId: string) => {
+    if (operation.pending) return;
+    operation.pending = true;
     setDeletingBottleneckId(bottleneckId);
     setBottleneckActionError(null);
     setBottleneckActionNotice(null);
     try {
       await deleteDashboardBottleneck(bottleneckId);
-      await reloadDashboard();
       setBottleneckActionNotice(`${bottleneckId} removed.`);
-      setSelectedBottleneckId(null);
+      setSelectedBottleneckId(current => current === bottleneckId ? null : current);
+      try { await operation.reload?.(); }
+      catch { setBottleneckActionError("Bottleneck removed, but the dashboard could not be refreshed. Use Refresh to reload it."); }
     } catch (actionError: unknown) {
       setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to remove bottleneck.");
     } finally {
+      operation.pending = false;
       setDeletingBottleneckId(null);
     }
   };
 
   const startEditingBottleneck = (bottleneckId: string) => {
+    if (operation.pending) return;
     const target = dashboardSnapshot.bottlenecks.find((item) => item.id === bottleneckId);
     if (!target) return;
     setEditingBottleneckId(target.id);
@@ -74,6 +87,7 @@ export function useBottleneckActions({
   };
 
   const onSaveEditedBottleneck = async () => {
+    if (operation.pending) return;
     if (!editingBottleneckId) return;
     if (!editBottleneckName.trim()) {
       setBottleneckActionError("Bottleneck name is required.");
@@ -90,7 +104,9 @@ export function useBottleneckActions({
       setBottleneckActionError("Priority weight must be zero or greater.");
       return;
     }
+    operation.pending = true;
     setSavingEditBottleneck(true);
+    setEditPickFromMap(false);
     setBottleneckActionError(null);
     setBottleneckActionNotice(null);
     try {
@@ -103,30 +119,32 @@ export function useBottleneckActions({
         longitude: lonVal,
         ...editStaffing,
       });
-      await reloadDashboard();
       setEditingBottleneckId(null);
       setEditPickFromMap(false);
       setBottleneckActionNotice("Bottleneck updated successfully.");
+      try { await operation.reload?.(); }
+      catch { setBottleneckActionError("Bottleneck updated, but the dashboard could not be refreshed. Use Refresh to reload it."); }
     } catch (actionError: unknown) {
       setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to update bottleneck.");
     } finally {
+      operation.pending = false;
       setSavingEditBottleneck(false);
     }
   };
 
   return {
-    addMode, setAddMode,
+    addMode, setAddMode: (...args: Parameters<typeof setAddMode>) => { if (!operation.pending) setAddMode(...args); },
     showAddMenu, setShowAddMenu,
     pendingPoint, setPendingPoint,
-    editingBottleneckId, setEditingBottleneckId,
+    editingBottleneckId, setEditingBottleneckId: (...args: Parameters<typeof setEditingBottleneckId>) => { if (!operation.pending) setEditingBottleneckId(...args); },
     editBottleneckName, setEditBottleneckName,
     editBottleneckDistrict, setEditBottleneckDistrict,
     editBottleneckType, setEditBottleneckType,
     editBottleneckWeight, setEditBottleneckWeight,
-    editLatitude, setEditLatitude,
-    editLongitude, setEditLongitude,
+    editLatitude, setEditLatitude: (...args: Parameters<typeof setEditLatitude>) => { if (!operation.pending) setEditLatitude(...args); },
+    editLongitude, setEditLongitude: (...args: Parameters<typeof setEditLongitude>) => { if (!operation.pending) setEditLongitude(...args); },
     editStaffing, setEditStaffing,
-    editPickFromMap, setEditPickFromMap,
+    editPickFromMap, setEditPickFromMap: (...args: Parameters<typeof setEditPickFromMap>) => { if (!operation.pending) setEditPickFromMap(...args); },
     savingEditBottleneck,
     selectedBottleneckId, setSelectedBottleneckId,
     onDeleteBottleneck,

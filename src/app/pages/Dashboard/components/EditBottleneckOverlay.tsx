@@ -39,9 +39,9 @@ export function EditBottleneckOverlay({
     <div role="region" aria-label="Edit bottleneck" className="absolute left-4 top-20 z-30 max-h-[calc(100%-6rem)] w-[min(28rem,calc(100%-2rem))] overflow-y-auto rounded-lg border bg-white p-4 shadow-xl">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold">Edit Bottleneck</h3>
-        <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close"><X className="h-4 w-4" /></button>
+        <button onClick={onClose} disabled={savingEditBottleneck} className="text-gray-400 hover:text-gray-600 disabled:cursor-not-allowed disabled:opacity-50" aria-label="Close"><X className="h-4 w-4" /></button>
       </div>
-      <div className="space-y-3">
+      <fieldset disabled={savingEditBottleneck} className="space-y-3">
         <div>
           <label htmlFor="node-name" className="block text-xs font-medium text-gray-600">Name</label>
           <input autoFocus type="text" id="node-name" value={editBottleneckName} onChange={(e) => setEditBottleneckName(e.target.value)} className="mt-1 w-full rounded border px-2 py-1.5 text-sm" />
@@ -87,7 +87,7 @@ export function EditBottleneckOverlay({
             {savingEditBottleneck ? "Saving..." : "Update"}
           </button>
         </div>
-      </div>
+      </fieldset>
     </div>
   );
 }

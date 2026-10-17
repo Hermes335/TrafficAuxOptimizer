@@ -1,3 +1,4 @@
+import { usePageState } from "../contexts/PageStateContext";
 import { useEffect, useState } from "react";
 import { Pencil, Search, Trash2, UserRound, UserPlus } from "lucide-react";
 import { useOfficerManagement } from "../hooks/useOfficerManagement";
@@ -9,14 +10,14 @@ function formatStatusLabel(status: string): string {
 
 export function OfficerManagement() {
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
-  const [page, setPage] = useState(1);
+  const [page, setPage] = usePageState("roster.page", 1);
   const [count, setCount] = useState(0);
   const [refreshKey, setRefreshKey] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "available" | "deployed" | "off_duty" | "unavailable">("all");
-  const [shiftFilter, setShiftFilter] = useState<"all" | "morning" | "afternoon">("all");
+  const [search, setSearch] = usePageState("roster.search", "");
+  const [statusFilter, setStatusFilter] = usePageState<"all" | "available" | "deployed" | "off_duty" | "unavailable">("roster.statusFilter", "all");
+  const [shiftFilter, setShiftFilter] = usePageState<"all" | "morning" | "afternoon">("roster.shiftFilter", "all");
 
   const reloadOfficers = async () => {
     const result = await fetchOfficersPage(page, search, statusFilter, shiftFilter);
@@ -60,6 +61,7 @@ export function OfficerManagement() {
           <h1 className="text-xl font-bold tracking-tight text-gray-900">Roster</h1>
         </div>
         <button
+          disabled={officerMgmt.savingOfficer || officerMgmt.deletingOfficerId !== null}
           onClick={() => {
             officerMgmt.setAddingOfficer((current) => !current);
             officerMgmt.setEditingOfficerId(null);
@@ -104,12 +106,12 @@ export function OfficerManagement() {
         <button disabled={page * 25 >= count || loading} onClick={() => setPage(p => p + 1)}>Next</button>
         <button onClick={() => setRefreshKey(k => k + 1)} className="underline">Refresh</button>
       </div>
-      {officerMgmt.officerError && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{officerMgmt.officerError}</p>}
-      {officerMgmt.officerNotice && <p className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{officerMgmt.officerNotice}</p>}
+      {officerMgmt.officerError && <p role="alert" className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{officerMgmt.officerError}</p>}
+      {officerMgmt.officerNotice && <p role="status" className="rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{officerMgmt.officerNotice}</p>}
       {error && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
       {(officerMgmt.addingOfficer || officerMgmt.editingOfficerId !== null) && (
-        <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+        <fieldset disabled={officerMgmt.savingOfficer || officerMgmt.deletingOfficerId !== null} className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <h2 className="mb-3 text-lg font-semibold text-gray-900">{officerMgmt.editingOfficerId !== null ? "Edit Officer" : "Add New Officer"}</h2>
           <div className="grid gap-3 md:grid-cols-2">
             <input
@@ -171,7 +173,7 @@ export function OfficerManagement() {
               {officerMgmt.savingOfficer ? "Saving..." : officerMgmt.editingOfficerId !== null ? "Update Officer" : "Create Officer"}
             </button>
           </div>
-        </div>
+        </fieldset>
       )}
 
       <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
@@ -250,6 +252,7 @@ export function OfficerManagement() {
                   <div className="flex items-center gap-3 md:justify-end">
                     <button
                       onClick={() => officerMgmt.startEditingOfficer(officer)}
+                      disabled={officerMgmt.savingOfficer || officerMgmt.deletingOfficerId !== null}
                       className="inline-flex items-center gap-2 rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
                     >
                       <Pencil className="h-4 w-4" />
@@ -257,7 +260,7 @@ export function OfficerManagement() {
                     </button>
                     <button
                       onClick={() => officerMgmt.onDeleteOfficer(officer.id, officer.badge_number)}
-                      disabled={officerMgmt.deletingOfficerId === officer.id}
+                      disabled={officerMgmt.savingOfficer || officerMgmt.deletingOfficerId !== null}
                       className="inline-flex items-center gap-2 rounded-md border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Trash2 className="h-4 w-4" />

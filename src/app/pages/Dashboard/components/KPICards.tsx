@@ -1,3 +1,4 @@
+import { RememberedDetails } from "../../../components/RememberedDetails";
 import type { DashboardSnapshot, WeatherCurrentSnapshot } from "../../../services/backend";
 
 interface KPICardsProps {
@@ -18,7 +19,7 @@ export function KPICards({ metrics, weather, weatherLoading = false, deployedOff
   const weatherDetail = weatherLoading && !hasFactor ? "Checking Iloilo City weather."
     : !currentWeather ? hasFactor ? `Last observed factor ${factorLabel}. Current weather impact is unavailable.` : "No current weather impact reading."
     : hasFactor ? `Latest observation · ${source}${weatherLoading ? " · refreshing" : ""}` : "The latest weather observation has no impact factor.";
-  return <details className="max-h-[45vh] shrink-0 overflow-y-auto border-b border-slate-200 bg-white px-4 py-2">
+  return <RememberedDetails stateKey="dashboard.metrics" className="max-h-[45vh] shrink-0 overflow-y-auto border-b border-slate-200 bg-white px-4 py-2">
     <summary className="cursor-pointer rounded text-sm font-medium text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500">Staffing &amp; weather details</summary>
     <div className="grid grid-cols-1 gap-3 pb-1 pt-3 sm:grid-cols-2 xl:grid-cols-4">
       <section className="rounded-lg border border-slate-200 p-3"><h2 className="text-sm font-medium text-slate-600">Shift staffing coverage</h2>
@@ -38,5 +39,5 @@ export function KPICards({ metrics, weather, weatherLoading = false, deployedOff
         <p className="text-xs leading-relaxed text-slate-600">{weatherDetail}</p>
       </section>
     </div>
-  </details>;
+  </RememberedDetails>;
 }

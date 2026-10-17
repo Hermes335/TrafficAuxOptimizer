@@ -1,3 +1,4 @@
+import { RememberedDetails } from "../components/RememberedDetails";
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
 import { RecommendationExportButton } from "../components/RecommendationExportButton";
 import { operationalTime } from "../services/operationalTime";
@@ -272,11 +273,11 @@ export function OptimizationEngine() {
               {bestSolution.time_periods.map(period=><div key={period.start_time} className="border-t py-3 text-sm">
                 <strong>{operationalTime(period.start_time)}–{operationalTime(period.end_time)}</strong>
                 <p>{period.assigned_officers} assigned · {period.reserve_officers} available</p>
-                <details className="mt-1 text-xs"><summary className="cursor-pointer">Requirements and reasons</summary>{period.requirements.map(r=><p key={r.bottleneck_id} className="mt-1">{r.bottleneck_id}: {r.required} required · {r.reason}</p>)}</details>
+                <RememberedDetails stateKey={`results.period.${runId}.${period.start_time}`} className="mt-1 text-xs"><summary className="cursor-pointer">Requirements and reasons</summary>{period.requirements.map(r=><p key={r.bottleneck_id} className="mt-1">{r.bottleneck_id}: {r.required} required · {r.reason}</p>)}</RememberedDetails>
               </div>)}
             </div> : null}
 
-            {results?.input_snapshot && <details className="rounded-xl bg-white p-4">
+            {results?.input_snapshot && <RememberedDetails stateKey={`results.sources.${runId}`} className="rounded-xl bg-white p-4">
               <summary className="cursor-pointer font-semibold">Input sources and freshness</summary>
               <p className="mt-2 text-xs">Captured: {results.input_snapshot.captured_at}</p>
               <p className="text-sm">Weather: {results.input_snapshot.weather.source} · {results.input_snapshot.weather.data_status}
@@ -289,7 +290,7 @@ export function OptimizationEngine() {
                 {b.provenance.is_stale ? " · stale" : ""}{b.provenance.is_synthetic ? " · simulated" : ""}
                 {b.provenance.observed_at ? ` · observed ${b.provenance.observed_at}` : " · observation time unavailable"}
               </li>)}</ul>
-            </details>}
+            </RememberedDetails>}
             {/* Pareto Front Visualization */}
             {results?.pareto_curve_data && results.pareto_curve_data.length > 0 && (
               <div className="rounded-xl bg-white p-6 shadow-sm">

@@ -1,3 +1,4 @@
+import { usePageState } from "../contexts/PageStateContext";
 import { Outlet } from "react-router";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
@@ -5,7 +6,7 @@ import { useEffect, useState } from "react";
 import { WeatherProvider } from "../contexts/WeatherContext";
 
 export function Layout() {
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 1536);
+  const [sidebarCollapsed, setSidebarCollapsed] = usePageState("layout.sidebarCollapsed", () => window.innerWidth < 1536);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   useEffect(() => {
     const query = window.matchMedia("(max-width: 1535px)");

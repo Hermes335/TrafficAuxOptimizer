@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import { getApiBaseUrl } from "../services/backend";
+import { usePageState } from "../contexts/PageStateContext";
 
 export function mapRequest(url: string) {
   const parsed = new URL(url, window.location.href);
@@ -59,6 +60,8 @@ export function createMapStyle(tomTomTrafficTileUrl: string): maplibregl.StyleSp
 }
 
 export function useMapIntegration({ selectedView, tomTomTrafficTileUrl }: UseMapIntegrationOptions) {
+  const [viewport, setViewport] = usePageState<{center: [number, number]; zoom: number; bearing: number; pitch: number} | null>("dashboard.viewport", null);
+  const initialViewport = useRef(viewport);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null);
@@ -67,19 +70,26 @@ export function useMapIntegration({ selectedView, tomTomTrafficTileUrl }: UseMap
   const retryTrafficRef = useRef<() => void>(() => {});
   const retryTraffic = useCallback(() => retryTrafficRef.current(), []);
   const markersRef = useRef<maplibregl.Marker[]>([]);
-  const hasFittedRef = useRef(false);
+  const hasFittedRef = useRef(Boolean(viewport));
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
 
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      center: mapCenter,
-      zoom: 12.6,
+      center: initialViewport.current?.center ?? mapCenter,
+      zoom: initialViewport.current?.zoom ?? 12.6,
+      bearing: initialViewport.current?.bearing ?? 0,
+      pitch: initialViewport.current?.pitch ?? 0,
       attributionControl: false,
       transformRequest: mapRequest,
       style: createMapStyle(tomTomTrafficTileUrl),
     });
+    const rememberViewport = () => {
+      const center = map.getCenter();
+      setViewport({center: [center.lng, center.lat], zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch()});
+    };
+    map.on("moveend", rememberViewport);
     const failedTiles = new Set<string>();
     let hasLoadedTraffic = false;
     const reloadTrafficSource = () => {
@@ -131,6 +141,7 @@ export function useMapIntegration({ selectedView, tomTomTrafficTileUrl }: UseMap
     setMapInstance(map);
 
     return () => {
+      map.off("moveend", rememberViewport);
       retryTrafficRef.current = () => {};
       markersRef.current.forEach((marker) => marker.remove());
       markersRef.current = [];

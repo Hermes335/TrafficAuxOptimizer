@@ -220,10 +220,18 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     `});
     const auth=role=>`localStorage.setItem("auth_token","test-only");localStorage.setItem("refresh_token","test-refresh");localStorage.setItem("auth_user",JSON.stringify({id:1,username:"Browser fixture",role:"${role}",permissions:[],shift:"morning"}));`;
     const authScript=await call("Page.addScriptToEvaluateOnNewDocument",{source:auth("supervisor")});
-    const evaluate=async expression=>(await call("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true})).result?.value;
+    const evaluate=async expression=>{
+      const result=await call("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true});
+      if(result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description || result.exceptionDetails.text);
+      return result.result?.value;
+    };
     const waitFor=async (expression, timeoutMs=10000)=>{
       const deadline=Date.now()+timeoutMs;
-      while(Date.now()<deadline){if(await evaluate(`Boolean(${expression})`))return;await delay(100);}
+      while(Date.now()<deadline){
+        // Predicates can briefly reference DOM nodes not mounted yet.
+        try { if(await evaluate(`Boolean(${expression})`))return; } catch {}
+        await delay(100);
+      }
       throw Error("Timed out: "+expression+"\n"+await evaluate("document.body.innerText"));
     };
     const clickText=text=>evaluate(`[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)})?.click()`);
@@ -488,6 +496,59 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       await call("Page.navigate",{url:origin+oldRoute});
       await waitFor("location.pathname === '/' && document.body.innerText.includes('2 avg. unfilled posts')");
     }
+    // Exercise actual SPA navigation: full Page.navigate calls intentionally
+    // create a fresh app session and cannot test retention between pages.
+    await call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await call("Page.navigate",{url:origin+"/"});
+    await waitFor("document.body.innerText.includes('2 avg. unfilled posts')");
+    const inputValue=(selector,value)=>evaluate(`(() => {const el=document.querySelector(${JSON.stringify(selector)});Object.getOwnPropertyDescriptor(el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event('input',{bubbles:true}));el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+    const spa=async href=>{await evaluate(`document.querySelector('[aria-label="Primary navigation"] a[href="${href}"]').click()`);await waitFor(`location.pathname === '${href}'`);};
+    await evaluate("document.querySelector('[aria-controls=\"dashboard-details\"]').click();document.querySelector('#dashboard-bottlenecks details summary').click()");
+    await inputValue('[aria-label="Filter bottlenecks by name or ID"]',"Test");
+    await spa("/optimization");
+    await waitFor("document.querySelector('[aria-label=\"Population size\"]')");
+    await evaluate("document.querySelector('main details summary').click()");
+    await inputValue('[aria-label="Population size"]',"250");
+    await inputValue('input[maxlength="80"]',"Navigation draft");
+    await spa("/");await waitFor("document.body.innerText.includes('2 avg. unfilled posts')");
+    assert.equal(await evaluate("document.querySelector('[aria-controls=\"dashboard-details\"]').getAttribute('aria-expanded')"),"true");
+    assert.equal(await evaluate("document.querySelector('#dashboard-bottlenecks details').open"),true);
+    assert.equal(await evaluate("document.querySelector('[aria-label=\"Filter bottlenecks by name or ID\"]').value"),"Test");
+    await evaluate("document.querySelector('#dashboard-bottlenecks [role=\"button\"]').click()");
+    await waitFor("document.querySelector('#dashboard-bottlenecks [data-selected=\"true\"]')");
+    await evaluate("document.querySelector('[aria-controls=\"dashboard-details\"]').click()");
+    await waitFor("document.querySelector('[aria-controls=\"dashboard-details\"]').getAttribute('aria-expanded')==='false'");
+    await spa("/optimization");await waitFor("document.querySelector('[aria-label=\"Population size\"]')");
+    assert.equal(await evaluate("document.querySelector('[aria-label=\"Population size\"]').value"),"250");
+    assert.equal(await evaluate("document.querySelector('input[maxlength=\"80\"]').value"),"Navigation draft");
+    assert.equal(await evaluate("document.querySelector('main details').open"),true);
+    await spa("/");await waitFor("document.body.innerText.includes('2 avg. unfilled posts')");
+    assert.equal(await evaluate("document.querySelector('[aria-controls=\"dashboard-details\"]').getAttribute('aria-expanded')"),"false","A previously selected bottleneck must not reopen details after navigation");
+    await spa("/gantt-chart");await waitFor("document.querySelector('[aria-controls=\"schedule-tools\"]')");
+    await evaluate("(() => {const button=document.querySelector('[aria-controls=\"schedule-tools\"]');if(button.getAttribute('aria-expanded')==='false')button.click();})()");
+    await clickText("Operations & feedback");
+    await evaluate("[...document.querySelectorAll('summary')].find(el=>el.textContent.includes('Breaks and travel')).click()");
+    await inputValue('input[name="note"]',"Unfinished reservation");
+    await inputValue('[aria-label="Search schedule"]',"Navigation filter");
+    await spa("/optimization");await waitFor("document.querySelector('[aria-label=\"Population size\"]')");
+    await spa("/gantt-chart");await waitFor("document.querySelector('input[name=\"note\"]')");
+    assert.equal(await evaluate("document.querySelector('[aria-controls=\"schedule-tools\"]').getAttribute('aria-expanded')"),"true");
+    assert.equal(await evaluate("document.querySelector('[aria-controls=\"schedule-operations\"]').getAttribute('aria-expanded')"),"true");
+    assert.equal(await evaluate("document.querySelector('input[name=\"note\"]').closest('details').open"),true);
+    assert.equal(await evaluate("document.querySelector('input[name=\"note\"]').value"),"Unfinished reservation");
+    assert.equal(await evaluate("document.querySelector('[aria-label=\"Search schedule\"]').value"),"Navigation filter");
+    await spa("/incident-report");await waitFor("document.querySelector('#incident-description') && !document.querySelector('#incident-description').disabled");
+    await inputValue('#incident-description',"Unfinished report across navigation");
+    await evaluate("[...document.querySelectorAll('a')].find(el=>el.getAttribute('href')==='/' && el.textContent.includes('Dashboard')).click()");
+    await waitFor("location.pathname==='/'");await spa("/incident-report");
+    await waitFor("document.querySelector('#incident-description') && !document.querySelector('#incident-description').disabled");
+    assert.equal(await evaluate("document.querySelector('#incident-description').value"),"Unfinished report across navigation");
+    await evaluate("history.back()");await waitFor("location.pathname==='/'");
+    await evaluate("history.forward()");await waitFor("location.pathname==='/incident-report' && !!document.querySelector('#incident-description')");
+    assert.equal(await evaluate("document.querySelector('#incident-description').value"),"Unfinished report across navigation");
+    console.log("Navigation state PASS: dashboard disclosures and filters, optimization settings, schedule tools and reservation drafts, report drafts, browser back/forward.");
+    await evaluate("[...document.querySelectorAll('a')].find(el=>el.getAttribute('href')==='/' && el.textContent.includes('Dashboard')).click()");
+    await waitFor("location.pathname==='/'");
     await evaluate(auth("dispatcher")+"window.dispatchEvent(new Event('auth-session-changed'));");
     await waitFor("![...document.querySelectorAll('a')].some(e=>e.getAttribute('href')==='/optimization')");
     await call("Page.removeScriptToEvaluateOnNewDocument",{identifier:authScript.identifier});

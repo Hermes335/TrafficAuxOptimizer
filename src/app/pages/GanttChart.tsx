@@ -1,3 +1,5 @@
+import { RememberedDetails } from "../components/RememberedDetails";
+import { usePageState } from "../contexts/PageStateContext";
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
 import { ScheduleHistory } from "../components/ScheduleHistory";
 import { RecommendationExportButton } from "../components/RecommendationExportButton";
@@ -29,7 +31,7 @@ import {
 export function GanttChart() {
   const { user } = useAuth();
   const canManage = user?.role === "supervisor" || user?.role === "administrator";
-  const [day, setDay] = useState(operationalDate());
+  const [day, setDay] = usePageState("schedule.day", operationalDate());
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,31 +44,31 @@ export function GanttChart() {
   const [schedule, setSchedule] = useState<DeploymentScheduleItem[]>([]);
   const [bottlenecks, setBottlenecks] = useState<BottleneckOption[]>([]);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
-  const [query, setQuery] = useState("");
-  const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [area,setArea]=useState("");
+  const [query, setQuery] = usePageState("schedule.query", "");
+  const [filtersExpanded, setFiltersExpanded] = usePageState("schedule.filtersExpanded", false);
+  const [area,setArea]=usePageState("schedule.area", "");
   const [blocks,setBlocks]=useState<OfficerTimeBlock[]>([]);
-  const [shiftFilter, setShiftFilter] = useState<string>("all");
+  const [shiftFilter, setShiftFilter] = usePageState<string>("schedule.shiftFilter", "all");
   const [error, setError] = useState<string | null>(null);
-  const [runPage, setRunPage] = useState(1);
+  const [runPage, setRunPage] = usePageState("schedule.runPage", 1);
   const [runCount, setRunCount] = useState(0);
   const [completedRuns, setCompletedRuns] = useState<OptimizationHistoryItem[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState("");
+  const [selectedRunId, setSelectedRunId] = usePageState("schedule.selectedRunId", "");
   const selectedRun = completedRuns.find(run => run.run_id === selectedRunId);
   const selectedRunSyntheticSources = selectedRun?.result_data?.synthetic_data_used;
   const [clearingSchedule, setClearingSchedule] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishNotice, setPublishNotice] = useState<string | null>(null);
-  const [ganttViewMode, setGanttViewMode] = useState<"officer" | "bottleneck">("officer");
-  const [editingAssignment,setEditingAssignment] = useState<DeploymentScheduleItem|null|undefined>(undefined);
-  const [editingStaffing,setEditingStaffing] = useState(false);
-  const [topCollapsed, setTopCollapsed] = useState<boolean>(() => {
+  const [ganttViewMode, setGanttViewMode] = usePageState<"officer" | "bottleneck">("schedule.ganttViewMode", "officer");
+  const [editingAssignment,setEditingAssignment] = usePageState<DeploymentScheduleItem|null|undefined>("schedule.editingAssignment", undefined);
+  const [editingStaffing,setEditingStaffing] = usePageState("schedule.editingStaffing", false);
+  const [topCollapsed, setTopCollapsed] = usePageState<boolean>("schedule.topCollapsed", () => {
     if (typeof window === "undefined") {
       return true;
     }
     return window.localStorage.getItem(topCollapseStorageKey) !== "false";
   });
-  const [bottomCollapsed, setBottomCollapsed] = useState<boolean>(() => {
+  const [bottomCollapsed, setBottomCollapsed] = usePageState<boolean>("schedule.bottomCollapsed", () => {
     if (typeof window === "undefined") {
       return true;
     }
@@ -363,7 +365,7 @@ export function GanttChart() {
             </div>
             <div className="grid gap-3 lg:grid-cols-2">
               <ScheduleHistory day={day} refreshKey={refreshKey} />
-              <details className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+              <RememberedDetails stateKey="schedule.staffingSummary" className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
                 <summary className="cursor-pointer font-medium">Staffing summary · {coverageAvailable ? `${coverage.covered}/${coverage.total} intersections covered` : loading ? "Loading…" : "Unavailable"}</summary>
                 <div className="mt-3 space-y-3 text-sm text-slate-600">
                   <p>Coverage counts intersections meeting staffing requirements. Zero required is valid coverage.</p>
@@ -380,7 +382,7 @@ export function GanttChart() {
                     </div>
                   </div>
                 </div>
-              </details>
+              </RememberedDetails>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
               <p className="text-xs text-slate-600">Clear assignments for the selected date and shift.</p>
@@ -539,8 +541,8 @@ export function GanttChart() {
           </aside>
         </div>
       )}
-      {canManage && editingAssignment !== undefined && <AssignmentEditor assignment={editingAssignment} day={day} initialShift={shiftFilter} officers={officers} nodes={bottlenecks} onClose={()=>setEditingAssignment(undefined)} onSaved={reloadSchedule}/>}
-      {canManage && editingStaffing && <StaffingEditor nodes={bottlenecks} onClose={()=>setEditingStaffing(false)} onSaved={reloadSchedule}/>}
+      {canManage && locationsLoaded && officersLoaded && editingAssignment !== undefined && <AssignmentEditor assignment={editingAssignment} day={day} initialShift={shiftFilter} officers={officers} nodes={bottlenecks} onClose={()=>setEditingAssignment(undefined)} onSaved={reloadSchedule}/>}
+      {canManage && locationsLoaded && editingStaffing && <StaffingEditor nodes={bottlenecks} onClose={()=>setEditingStaffing(false)} onSaved={reloadSchedule}/>}
     </div>
   );
 }

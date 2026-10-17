@@ -1,3 +1,5 @@
+import { RememberedDetails } from "../../components/RememberedDetails";
+import { usePageState } from "../../contexts/PageStateContext";
 import { Crosshair, MapPin } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -27,8 +29,9 @@ export function IncidentLocationPicker({ value, onChange, locations, disabled = 
   const [mapFailed, setMapFailed] = useState(false);
   const [locating, setLocating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [latitude, setLatitude] = useState("");
-  const [longitude, setLongitude] = useState("");
+  const [latitude, setLatitude] = usePageState("incident.latitudeInput", value?.latitude.toFixed(6) ?? "");
+  const [longitude, setLongitude] = usePageState("incident.longitudeInput", value?.longitude.toFixed(6) ?? "");
+  const [syncedPoint] = usePageState("incident.syncedPoint", () => ({current: value}));
   changeRef.current = next => {
     locationRequest.current += 1;
     setLocating(false);
@@ -72,9 +75,16 @@ export function IncidentLocationPicker({ value, onChange, locations, disabled = 
   }, []);
 
   useEffect(() => {
-    if (!value) { marker.current?.remove(); marker.current = null; setLatitude(""); setLongitude(""); return; }
-    setLatitude(value.latitude.toFixed(6));
-    setLongitude(value.longitude.toFixed(6));
+    const previous = syncedPoint.current;
+    // A refreshed incident can contain the same location in a new object.
+    // Keep unfinished coordinate input unless the selected location changed.
+    if (value?.latitude !== previous?.latitude || value?.longitude !== previous?.longitude
+      || (value?.bottleneck ?? null) !== (previous?.bottleneck ?? null)) {
+      setLatitude(value?.latitude.toFixed(6) ?? "");
+      setLongitude(value?.longitude.toFixed(6) ?? "");
+    }
+    syncedPoint.current = value;
+    if (!value) { marker.current?.remove(); marker.current = null; return; }
     if (!map.current) return;
     if (!marker.current) {
       marker.current = new maplibregl.Marker({ color: "#d97706", draggable: !disabled })
@@ -129,7 +139,7 @@ export function IncidentLocationPicker({ value, onChange, locations, disabled = 
         {locations.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
       </select>
     </div>
-    <details className="rounded-xl border border-slate-200 px-4 py-3">
+    <RememberedDetails stateKey="incident.manualCoordinates" className="rounded-xl border border-slate-200 px-4 py-3">
       <summary className="cursor-pointer text-sm font-medium text-slate-700">Enter coordinates manually</summary>
       <div className="mt-4 grid grid-cols-2 gap-3">
         <label className="text-sm text-slate-700">Latitude<input aria-label="Latitude" type="number" inputMode="decimal" min="-90" max="90" step="any" value={latitude} disabled={disabled} onChange={event => setLatitude(event.target.value)} placeholder="10.720200" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-2" /></label>
@@ -140,7 +150,7 @@ export function IncidentLocationPicker({ value, onChange, locations, disabled = 
         if (!latitude.trim() || !longitude.trim() || !validCoordinates(point)) { setError("Enter valid latitude (-90 to 90) and longitude (-180 to 180)."); return; }
         changeRef.current(point);
       }} className="mt-3 min-h-11 rounded-lg bg-slate-100 px-4 text-sm font-semibold text-slate-800 hover:bg-slate-200">Use these coordinates</button>
-    </details>
+    </RememberedDetails>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
   </div>;
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { usePageState } from "../contexts/PageStateContext";
 import { useWeather } from "../contexts/WeatherContext";
 import { isDeploymentActive } from "../services/operationalTime";
 import {
@@ -25,9 +26,9 @@ export function useDashboardData(shift = "afternoon") {
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [bottleneckActionError, setBottleneckActionError] = useState<string | null>(null);
-  const [bottleneckActionNotice, setBottleneckActionNotice] = useState<string | null>(null);
-  const [deletingBottleneckId, setDeletingBottleneckId] = useState<string | null>(null);
+  const [bottleneckActionError, setBottleneckActionError] = usePageState<string | null>("bottleneckForm.error", null);
+  const [bottleneckActionNotice, setBottleneckActionNotice] = usePageState<string | null>("bottleneckForm.notice", null);
+  const [deletingBottleneckId, setDeletingBottleneckId] = usePageState<string | null>("bottleneckForm.deletingId", null);
   const generation = useRef(0);
   const inFlight = useRef<Promise<void> | null>(null);
   const pendingRefresh = useRef(false);
