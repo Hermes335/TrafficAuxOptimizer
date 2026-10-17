@@ -1,6 +1,7 @@
 import { SESSION_EVENT, sessionChanged, clearSession } from "../services/session";
-import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { getApiBaseUrl } from "../services/backend";
+import { LoginError } from "../services/loginErrors";
 
 export type UserRole = "dispatcher" | "supervisor" | "administrator";
 
@@ -51,7 +52,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     setError(null);
-    setIsLoading(true);
+    // Session loading gates the whole route. The form owns its submitting state
+    // so a pending or failed sign-in must not unmount it.
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 15000);
 
     try {
       const response = await fetch(`${getApiBaseUrl()}/api/auth/login/`, {
@@ -60,14 +64,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ username, password }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || data.message || "Invalid credentials");
+        const data = await response.json().catch(() => ({}));
+        const credentialsRejected = response.status === 400 || response.status === 401;
+        const fallback = credentialsRejected ? "Invalid credentials." :
+          response.status === 429 ? "Too many sign-in requests. Please wait before trying again." :
+          "The sign-in service is unavailable. Please try again shortly.";
+        throw new LoginError(data.detail || data.message || fallback,
+          credentialsRejected ? "credentials" : "server");
       }
 
       const data = await response.json();
+      if (!(data.token || data.access) || !data.user) {
+        throw new LoginError("The sign-in service returned an invalid response. Please try again.", "server");
+      }
 
       // Store token and user
       setToken(data.token || data.access);
@@ -83,11 +96,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Establish WebSocket connection after login
       // This will be handled by the dashboard components
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Login failed";
-      setError(message);
-      throw err;
+      const failure = err instanceof LoginError ? err : new LoginError(
+        err instanceof Error && err.name === "AbortError"
+          ? "The server took too long to respond. Please try again."
+          : err instanceof TypeError
+            ? "Cannot reach the server. Please check your connection and try again."
+            : "Sign-in could not be completed. Please try again.",
+        err instanceof TypeError || (err instanceof Error && err.name === "AbortError") ? "connection" : "server",
+      );
+      setError(failure.message);
+      throw failure;
     } finally {
-      setIsLoading(false);
+      window.clearTimeout(timeout);
     }
   };
 
@@ -116,7 +136,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const clearError = () => setError(null);
+  const clearError = useCallback(() => setError(null), []);
 
   return (
     <AuthContext.Provider

@@ -4,7 +4,7 @@ import { Layout } from "./components/Layout";
 import { LoadingState } from "./components/LoadingState";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { ProtectedRoute } from "./components/ProtectedRoute";
-import { useAuth } from "./contexts/AuthContext";
+import { AuthRedirect } from "./components/AuthRedirect";
 
 // Lazy load all pages for better startup performance
 const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
@@ -25,21 +25,6 @@ const PageLoader = ({ Component }: { Component: React.ComponentType }) => (
     <Component />
   </Suspense>
 );
-
-// Wrapper component to handle auth-based redirect
-const AuthRedirect = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <LoadingState label="Checking session..." />;
-  }
-
-  if (isAuthenticated) {
-    return <Navigate to="/" replace />;
-  }
-
-  return <>{children}</>;
-};
 
 export const router = createBrowserRouter([
   // Public routes

@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { LoadingState } from "../components/LoadingState";
 import { Eye, EyeOff, Shield, AlertTriangle, LogIn, MapPin, CheckCircle2 } from "lucide-react";
 import { fetchDashboardKpis, fetchDashboardSnapshot } from "../services/backend";
+import { LoginError } from "../services/loginErrors";
 
 type LoginStats = {
   deployedOfficers: number | null;
@@ -136,7 +137,11 @@ export function Login() {
     try {
       await login(username.trim(), password);
       navigate("/");
-    } catch {
+    } catch (failure) {
+      if (!(failure instanceof LoginError) || failure.kind !== "credentials") {
+        setLocalError(failure instanceof Error ? failure.message : "Sign-in failed. Please try again.");
+        return;
+      }
       const newAttempts = loginAttempts + 1;
       setLoginAttempts(newAttempts);
 
