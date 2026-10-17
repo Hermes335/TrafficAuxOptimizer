@@ -206,7 +206,7 @@ async function tryRefreshToken(): Promise<string | null> {
   finally { refreshPromise = null; }
 }
 
-async function fetchWithTimeout(
+export async function fetchWithTimeout(
   url: string,
   options: RequestInit & { timeout?: number } = {}
 ): Promise<Response> {

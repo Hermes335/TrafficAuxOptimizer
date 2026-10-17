@@ -4,7 +4,7 @@ import { StaffingProfileFields, staffingProfile } from "../../components/Staffin
 import { saveDeploymentAssignment, updateDashboardBottleneck, type BottleneckOption, type DashboardOfficerRecord,
   type DeploymentAssignmentPayload, type DeploymentScheduleItem } from "../../services/backend";
 
-const inputClass="w-full rounded border px-3 py-2 text-sm";
+const inputClass="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm";
 function localTime(value:string) {
   return new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Manila",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).format(new Date(value));
 }
@@ -40,7 +40,7 @@ export function AssignmentEditor({assignment, day, initialShift, officers, nodes
       <label className="grid gap-1 text-sm">Override reason<textarea value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} disabled={busy} className={inputClass} placeholder="Required when adding excess staffing or reducing staffing below the requirement."/></label>
       {assignment?.override_reason&&<p className="text-xs text-slate-500">Previous reason: {assignment.override_reason}</p>}
       {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}
-      <div className="flex flex-wrap gap-2"><button type="submit" disabled={busy} className="rounded bg-yellow-400 px-4 py-2 text-sm font-medium">{busy?"Saving…":"Save assignment"}</button><button type="button" disabled={busy} onClick={onClose} className="rounded border px-4 py-2 text-sm">Close</button>{assignment&&<button type="button" disabled={busy} onClick={()=>void submit(true)} className="rounded border border-red-200 px-4 py-2 text-sm text-red-700">End / cancel assignment</button>}</div>
+      <div className="flex flex-wrap gap-2"><button type="submit" disabled={busy} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-500">{busy?"Saving…":"Save assignment"}</button><button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Close</button>{assignment&&<button type="button" disabled={busy} onClick={()=>void submit(true)} className="rounded-lg border border-red-200 px-4 py-2 text-sm text-red-700">End / cancel assignment</button>}</div>
     </form>
   </DialogContent></Dialog>;
 }
@@ -54,7 +54,7 @@ export function StaffingEditor({nodes,onClose,onSaved}:{nodes:BottleneckOption[]
       <label className="grid gap-1 text-sm">Intersection<select value={id} required disabled={busy} onChange={e=>{setId(e.target.value);setProfile(staffingProfile(nodes.find(n=>n.id===e.target.value)??{}));setError(null);}} className={inputClass}>{nodes.map(n=><option key={n.id} value={n.id}>{n.area_name?n.area_name+" / ":""}{n.name}</option>)}</select></label>
       <fieldset disabled={busy}><StaffingProfileFields value={profile} onChange={setProfile}/></fieldset>
       {error&&<p role="alert" className="text-sm text-red-700">{error}</p>}
-      <div className="flex gap-2"><button disabled={busy||!id} className="rounded bg-yellow-400 px-4 py-2 text-sm font-medium">{busy?"Saving…":"Save staffing"}</button><button type="button" disabled={busy} onClick={onClose} className="rounded border px-4 py-2 text-sm">Cancel</button></div>
+      <div className="flex gap-2"><button disabled={busy||!id} className="rounded-lg bg-amber-400 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-500">{busy?"Saving…":"Save staffing"}</button><button type="button" disabled={busy} onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm">Cancel</button></div>
     </form>
   </DialogContent></Dialog>;
 }

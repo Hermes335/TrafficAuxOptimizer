@@ -50,21 +50,21 @@ export function GanttTimeline({deployments, viewMode, day=operationalDate(), shi
     }).sort((a,b)=>a.area.localeCompare(b.area)||a.label.localeCompare(b.label));
   },[deployments,viewMode,bottlenecks,officers,shift,rangeStart,rangeEnd]);
   const now = Date.now();
-  return <section aria-label="Deployment Gantt timeline" className="overflow-hidden rounded-xl border bg-white shadow-sm">
-    <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-      <h3 className="font-semibold">Deployment Gantt by {viewMode === "officer" ? "Officer" : "Intersection"}</h3>
-      <p className="text-xs text-slate-500">Asia/Manila · {onSelect ? "Select a bar to edit its time or location" : "Assignment times"}</p>
+  return <section aria-label="Deployment Gantt timeline" className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div className="flex flex-wrap items-center justify-between gap-1 border-b border-slate-200 px-3 py-2 sm:px-4">
+      <h3 className="text-sm font-semibold">Deployment Gantt by {viewMode === "officer" ? "Officer" : "Intersection"}</h3>
+      <p className="text-xs text-slate-600">{onSelect ? "Select a bar to edit · " : ""}Scroll to explore the day</p>
     </div>
     <div className="max-h-[65vh] overflow-auto" tabIndex={0} aria-label="Scroll deployment timeline">
       <div style={{minWidth:240+(endHour-startHour)*76}}>
         <div className="sticky top-0 z-20 flex h-11 border-b bg-slate-50">
-          <div className="sticky left-0 z-20 w-60 shrink-0 border-r bg-slate-50 px-4 py-3 text-xs font-semibold">{viewMode === "officer" ? "Officer / shift" : "Area / intersection"}</div>
+          <div className="sticky left-0 z-20 w-44 shrink-0 border-r bg-slate-50 px-3 py-3 text-xs font-semibold sm:w-60 sm:px-4">{viewMode === "officer" ? "Officer / shift" : "Area / intersection"}</div>
           <div className="relative flex-1">{hours.map((hour,i)=><span key={hour} className="absolute top-3 text-xs text-slate-600" style={{left:`${100*i/(hours.length-1)}%`,transform:i===hours.length-1?"translateX(-100%)":i?"translateX(-50%)":"none"}}>{String(hour).padStart(2,"0")}:00</span>)}</div>
         </div>
         {!rows.length && <p className="p-8 text-sm text-slate-500">No assignments or locations match this view. Create an assignment or publish a recommendation.</p>}
         {rows.map(row=><div key={row.id} className="flex border-b last:border-b-0" style={{minHeight:row.lanes*36+36}}>
-          <div className="sticky left-0 z-10 flex w-60 shrink-0 flex-col justify-center border-r bg-white px-4 py-2">
-            <span className="text-xs text-slate-500">{row.area}</span><span className="truncate text-sm font-medium" title={row.label}>{row.label}</span>
+          <div className="sticky left-0 z-10 flex w-44 shrink-0 flex-col justify-center border-r bg-white px-3 py-2 sm:w-60 sm:px-4">
+            <span className="text-xs text-slate-600">{row.area}</span><span className="truncate text-sm font-medium" title={row.label}>{row.label}</span>
           </div>
           <div className="relative flex-1 bg-slate-50/40">
             {viewMode==="officer"&&<div className="absolute inset-0 bg-slate-50" title="Unassigned time outside recorded assignments, breaks and travel"/>}
@@ -74,7 +74,7 @@ export function GanttTimeline({deployments, viewMode, day=operationalDate(), shi
               const position=timelinePosition(window.start_time,window.end_time,rangeStart,rangeEnd);
               return position && <div key={window.start_time} style={{...position,bottom:0}} className={`absolute h-6 truncate border-r px-1 py-1 text-[10px] ${window.required===0?"bg-emerald-50 text-emerald-800":"bg-slate-100 text-slate-600"}`} title={`${operationalTime(window.start_time)}–${operationalTime(window.end_time)}: ${window.required} required · ${window.reason}`}>{window.required===0?"0 required · free":"Required: "+window.required}</div>;
             })}
-            {!row.bars.length && <span className="absolute left-3 top-3 text-xs text-slate-400">{row.node?.staffing_windows?.every(w=>w.required===0) ? "No officers required" : "Unassigned"}</span>}
+            {!row.bars.length && <span className="absolute left-3 top-3 text-xs text-slate-600">{row.node?.staffing_windows?.every(w=>w.required===0) ? "No officers required" : "Unassigned"}</span>}
             {row.bars.map(({item,lane})=>{
               const position=timelinePosition(item.start_time,item.end_time,rangeStart,rangeEnd)!;
               const label=viewMode === "officer" ? item.bottleneck_name ?? item.bottleneck : `${item.officer} · ${item.officer_name}`;

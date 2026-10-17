@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+import uuid
 
 
 class TimeStampedSoftDeleteModel(models.Model):
@@ -95,6 +96,8 @@ class Incident(TimeStampedSoftDeleteModel):
 		("minor", "Minor"),
 	]
 	STATUSES = [
+		("pending", "Pending review"),
+		("rejected", "Rejected"),
 		("active", "Active"),
 		("investigating", "Investigating"),
 		("resolved", "Resolved"),
@@ -106,7 +109,14 @@ class Incident(TimeStampedSoftDeleteModel):
 	severity = models.CharField(max_length=20, choices=SEVERITIES)
 	description = models.TextField()
 	photo_url = models.URLField(blank=True)
-	reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="reported_incidents")
+	photo_path = models.CharField(max_length=255, blank=True)
+	reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="reported_incidents", null=True, blank=True)
+	source = models.CharField(max_length=12, choices=[("staff", "Staff"), ("public", "Public")], default="staff")
+	reference = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+	submission_key = models.UUIDField(null=True, blank=True, unique=True, editable=False)
+	submission_fingerprint = models.CharField(max_length=64, blank=True, editable=False)
+	reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="reviewed_incidents", null=True, blank=True)
+	reviewed_at = models.DateTimeField(null=True, blank=True)
 	timestamp = models.DateTimeField(db_index=True)
 	status = models.CharField(max_length=20, choices=STATUSES, default="active", db_index=True)
 	resolved_time = models.DateTimeField(null=True, blank=True)

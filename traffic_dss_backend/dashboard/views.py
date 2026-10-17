@@ -43,7 +43,7 @@ def _generate_next_bottleneck_id() -> str:
 
 
 class DashboardKPIsView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request):
@@ -75,7 +75,7 @@ class DashboardKPIsView(APIView):
 
 
 class DashboardBottlenecksView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_scope = "public_dashboard"
 
 	def get(self, request):
@@ -367,7 +367,7 @@ class DashboardOfficerManageView(APIView):
 
 
 class ActiveIncidentsView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request):
@@ -400,7 +400,7 @@ class ActiveIncidentsView(APIView):
 
 
 class IncidentListCreateView(APIView):
-	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def get(self, request):
 		status_filter = request.query_params.get("status", "active")
@@ -424,7 +424,7 @@ class IncidentListCreateView(APIView):
 
 
 class IncidentDetailView(APIView):
-	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+	permission_classes = [permissions.IsAuthenticated]
 
 	def get(self, request, incident_id):
 		incident = Incident.objects.filter(id=incident_id, is_deleted=False).select_related("bottleneck", "reported_by").first()
@@ -446,7 +446,7 @@ class IncidentDetailView(APIView):
 
 
 class POIListView(APIView):
-	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request):
@@ -470,7 +470,7 @@ class POIListView(APIView):
 
 
 class POIDetailView(APIView):
-	permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+	permission_classes = [permissions.IsAuthenticated]
 
 	@transaction.atomic
 	def put(self, request, poi_id):
@@ -507,7 +507,7 @@ def _haversine_distance(lat1, lon1, lat2, lon2):
 
 
 class TrafficSampleView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request):
@@ -547,7 +547,7 @@ class TrafficSampleView(APIView):
 
 
 class DashboardMapDataView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request):

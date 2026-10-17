@@ -22,8 +22,13 @@ def test_current_map_counts_exclude_future_assignments_and_protect_names(schedul
         assert node["current_assigned"] == 0 and node["current_required"] == 1
         assert node["deployed_officers"] == .75
     with patch("dashboard.views.timezone.now", return_value=s.start+timedelta(hours=2)):
-        node = APIClient().get(f"/api/dashboard/bottlenecks/?date={s.day}&shift=morning").data["results"][0]
-        assert node["current_assigned"] == 1 and node["current_assigned_officers"] == []
+        anonymous = APIClient().get(f"/api/dashboard/bottlenecks/?date={s.day}&shift=morning")
+        assert anonymous.status_code == 401 and "results" not in anonymous.data
+        response = s.client.get(f"/api/dashboard/bottlenecks/?date={s.day}&shift=morning")
+        assert response.status_code == 200
+        node = response.data["results"][0]
+        assert node["current_assigned"] == 1
+        assert node["current_assigned_officers"] == [{"name": s.officers[0].name, "badge_number": s.officers[0].badge_number}]
 
 
 def test_manual_excess_and_shortage_need_audited_reasons(schedule):

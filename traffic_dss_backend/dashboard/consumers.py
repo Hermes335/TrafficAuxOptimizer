@@ -2,21 +2,23 @@ from time import monotonic
 
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 
-from core.realtime import broadcast
-
-
 class DashboardConsumer(AsyncJsonWebsocketConsumer):
     group_name = "dashboard_live"
 
     async def connect(self):
+        if not self.scope.get("user") or not self.scope["user"].is_authenticated:
+            await self.close(code=4401)
+            return
         self._message_window_started = monotonic()
         self._message_count = 0
         await self.channel_layer.group_add(self.group_name, self.channel_name)
+        self._joined_group = True
         await self.accept()
         await self.send_json({"event": "connected", "scope": "dashboard"})
 
     async def disconnect(self, close_code):
-        await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if getattr(self, "_joined_group", False):
+            await self.channel_layer.group_discard(self.group_name, self.channel_name)
 
     async def receive_json(self, content, **kwargs):
         now = monotonic()

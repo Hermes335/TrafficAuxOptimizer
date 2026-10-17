@@ -14,6 +14,7 @@ const OptimizationEngine = lazy(() => import("./pages/OptimizationEngine").then(
 const OptimizationRunning = lazy(() => import("./pages/OptimizationRunning").then(m => ({ default: m.OptimizationRunning })));
 const ComponentLibrary = lazy(() => import("./pages/ComponentLibrary").then(m => ({ default: m.ComponentLibrary })));
 const IncidentReport = lazy(() => import("./pages/IncidentReport").then(m => ({ default: m.IncidentReport })));
+const IncidentReview = lazy(() => import("./pages/IncidentReview").then(m => ({ default: m.IncidentReview })));
 const AuditLogs = lazy(() => import("./pages/AuditLogs").then(m => ({ default: m.AuditLogs })));
 const OfficerManagement = lazy(() => import("./pages/OfficerManagement").then(m => ({ default: m.OfficerManagement })));
 const Settings = lazy(() => import("./pages/Settings").then(m => ({ default: m.Settings })));
@@ -28,6 +29,11 @@ const PageLoader = ({ Component }: { Component: React.ComponentType }) => (
 
 export const router = createBrowserRouter([
   // Public routes
+  {
+    path: "/incident-report",
+    element: <PageLoader Component={IncidentReport} />,
+    errorElement: <RouteErrorBoundary />,
+  },
   {
     path: "/login",
     element: (
@@ -53,7 +59,7 @@ export const router = createBrowserRouter([
       { path: "optimization-engine", Component: () => <PageLoader Component={OptimizationEngine} /> },
       { path: "optimization-running", Component: () => <ProtectedRoute allowedRoles={["supervisor", "administrator"]}><PageLoader Component={OptimizationRunning} /></ProtectedRoute> },
       { path: "component-library", Component: () => <PageLoader Component={ComponentLibrary} /> },
-      { path: "incident-report", Component: () => <PageLoader Component={IncidentReport} /> },
+      { path: "incident-review", Component: () => <PageLoader Component={IncidentReview} /> },
       { path: "incident-report/:id", Component: () => <PageLoader Component={IncidentReport} /> },
       { path: "officer-management", Component: () => <ProtectedRoute allowedRoles={["supervisor", "administrator"]}><PageLoader Component={OfficerManagement} /></ProtectedRoute> },
       { path: "audit-logs", Component: () => <ProtectedRoute allowedRoles={["administrator"]}><PageLoader Component={AuditLogs} /></ProtectedRoute> },

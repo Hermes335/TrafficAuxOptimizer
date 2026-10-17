@@ -2,7 +2,7 @@ import { PublishScheduleButton } from "../components/PublishScheduleButton";
 import { RecommendationExportButton } from "../components/RecommendationExportButton";
 import { operationalDate, operationalTime, operationalShift } from "../services/operationalTime";
 import { useEffect, useMemo, useState } from "react";
-import { Clock, Target, Zap, TrendingUp, Users, RefreshCw } from "lucide-react";
+import { Clock, Target, Zap, TrendingUp, Users, RefreshCw, ChevronLeft, ChevronRight, ArrowUpRight } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import {
   fetchOptimizationConfig,
@@ -28,6 +28,10 @@ const DEFAULT_PARAMS = {
   rpwWeight: 25,
   resourceUtilizationWeight: 15,
 };
+
+function compactRunId(runId: string) {
+  return runId.length > 22 ? `${runId.slice(0, 12)}…${runId.slice(-6)}` : runId;
+}
 
 export function Optimization() {
   const navigate = useNavigate();
@@ -216,108 +220,114 @@ export function Optimization() {
   const weightsValid = weightTotal > 0;
 
   return (
-    <div className="flex h-full min-w-0 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
-      <div className="w-full shrink-0 border-r bg-white p-4 sm:p-6 xl:w-80 xl:overflow-y-auto">
-        <div className="mb-6">
-          <h1 className="mb-2 text-2xl font-bold">Optimization Interface</h1>
-          <p className="text-sm text-gray-600">
-            Choose the date, shift, and recommendation mode, then run optimization.
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto text-slate-900 xl:flex-row xl:overflow-hidden">
+      <div className="w-full min-w-0 shrink-0 border-b border-slate-200 bg-white p-4 sm:p-5 xl:w-80 xl:overflow-y-auto xl:border-r xl:border-b-0">
+        <div className="mb-5">
+          <h1 className="mb-1 text-xl font-semibold tracking-tight">Optimization</h1>
+          <p className="text-sm leading-relaxed text-slate-600">
+            Configure a run to recommend staffing for your next shift.
           </p>
         </div>
 
-        <div className="mb-6 space-y-3 rounded-xl border p-4">
+        <div className="mb-5 space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
           <label className="grid gap-1 text-sm">Operational date (Asia/Manila)
-            <input type="date" min={operationalDate()} value={runDay} onChange={e => setRunDay(e.target.value)} className="rounded border p-2" />
+            <input type="date" min={operationalDate()} value={runDay} onChange={e => setRunDay(e.target.value)} className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
           </label>
           <label className="grid gap-1 text-sm">Recommendation mode
-            <select value={mode} onChange={e => setMode(e.target.value as "operational" | "shadow")} className="rounded border p-2">
+            <select value={mode} onChange={e => setMode(e.target.value as "operational" | "shadow")} className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-2">
               <option value="operational">Operational deployment</option><option value="shadow">Shadow field comparison</option>
             </select>
           </label>
           <label className="grid gap-1 text-sm">Field session {mode === "shadow" ? "(required)" : "(optional)"}
-            <input value={sessionId} maxLength={80} onChange={e => setSessionId(e.target.value)} className="rounded border p-2" />
+            <input value={sessionId} maxLength={80} onChange={e => setSessionId(e.target.value)} className="min-w-0 w-full rounded-lg border border-slate-300 bg-white px-3 py-2" />
           </label>
           {mode === "shadow" && <p role="status" className="text-sm text-amber-800">Shadow mode records recommendations for comparison. Manual assignments remain authoritative; publication is disabled.</p>}
         </div>
 
-        <div className="mb-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Clock className="h-5 w-5 text-yellow-500" />
-            <h2 className="font-semibold">SHIFT PERIOD</h2>
+        <div className="mb-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-amber-600" />
+            <h2 className="text-sm font-semibold">Shift period</h2>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedShift === "morning" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                selectedShift === "morning" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={() => setSelectedShift("morning")}
+              aria-pressed={selectedShift === "morning"}
             >
-              Morning (6AM - 2PM)
+              Morning <span className="mt-0.5 block text-xs font-normal">6 AM – 2 PM</span>
             </button>
             <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedShift === "afternoon" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                selectedShift === "afternoon" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={() => setSelectedShift("afternoon")}
+              aria-pressed={selectedShift === "afternoon"}
             >
-              Afternoon (2PM - 10PM)
+              Afternoon <span className="mt-0.5 block text-xs font-normal">2 PM – 10 PM</span>
             </button>
           </div>
         </div>
 
-        <div className="mb-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Target className="h-5 w-5 text-yellow-500" />
-            <h2 className="font-semibold">PARAMETER PRESETS</h2>
+        <div className="mb-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Target className="h-5 w-5 text-amber-600" />
+            <h2 className="text-sm font-semibold">Parameter presets</h2>
           </div>
 
           <div className="grid grid-cols-2 gap-2">
             <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "normal" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                selectedPreset === "normal" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={() => applyPreset("normal")}
+              aria-pressed={selectedPreset === "normal"}
             >
               Normal
             </button>
             <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "typhoon" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                selectedPreset === "typhoon" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={() => applyPreset("typhoon")}
+              aria-pressed={selectedPreset === "typhoon"}
             >
               Typhoon
             </button>
             <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "special_event" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                selectedPreset === "special_event" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={() => applyPreset("special_event")}
+              aria-pressed={selectedPreset === "special_event"}
             >
               Special Event
             </button>
             <button
-              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
-                selectedPreset === "balanced" ? "border-yellow-400 bg-yellow-400 text-gray-900" : "hover:bg-gray-50"
+              className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
+                selectedPreset === "balanced" ? "border-amber-300 bg-amber-50 text-amber-900" : "border-slate-300 text-slate-700 hover:bg-slate-50"
               }`}
               onClick={() => applyPreset("balanced")}
+              aria-pressed={selectedPreset === "balanced"}
             >
               Balanced
             </button>
           </div>
         </div>
 
-        <div className="mb-6 rounded-xl border bg-gray-50 p-4">
+        <div className="mb-5 rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="mb-2 flex items-center gap-2">
-            <Zap className="h-5 w-5 text-yellow-500" />
-            <h2 className="font-semibold">CURRENT VALIDATION</h2>
+            <Zap className="h-5 w-5 text-amber-600" />
+            <h2 className="text-sm font-semibold">Ready to run?</h2>
           </div>
           {validationLoading ? (
-            <p className="text-sm text-gray-500">Validating parameters...</p>
+            <p className="text-sm text-slate-600">Validating parameters...</p>
           ) : weightsValidation ? (
             <ErrorFeedback error={weightsValidation} onDismiss={() => {}} />
           ) : currentValidation ? (
-            <p className="text-sm font-medium text-green-700">Parameters are valid for backend execution.</p>
+            <p className="text-sm font-medium text-green-700">Parameters validated. Ready to optimize.</p>
           ) : (
             <div className="space-y-2 text-sm text-red-600">
               <p>Current parameters need adjustment.</p>
@@ -328,15 +338,23 @@ export function Optimization() {
               ))}
             </div>
           )}
+          <button
+            disabled={!weightsValid || !currentValidation}
+            onClick={() => navigate("/optimization-running?" + new URLSearchParams({shift: selectedShift, ...Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v)]))}))}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-amber-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+          >
+            <Zap className="h-4 w-4" aria-hidden="true" />
+            Run Optimization
+          </button>
         </div>
 
-        <details className="mb-6 rounded-xl border p-4">
+        <details className="mb-4 rounded-xl border border-slate-200 p-3">
           <summary className="cursor-pointer font-semibold">Advanced settings</summary>
           <p className="my-3 text-sm text-slate-600">Adjust algorithm parameters and objective weights when needed. Current values are used even when this section is closed.</p>
-        <div className="mb-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Zap className="h-5 w-5 text-yellow-500" />
-            <h2 className="font-semibold">ALGORITHM SPECS</h2>
+        <div className="mb-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Zap className="h-5 w-5 text-amber-600" />
+            <h2 className="text-sm font-semibold">Algorithm parameters</h2>
           </div>
 
           <div className="space-y-4">
@@ -345,7 +363,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Population Size</label>
                 <span className="text-amber-700">{populationSize}</span>
               </div>
-              <div className="text-xs text-gray-500">INITIAL CHROMOSOME POOL</div>
+              <div className="text-xs text-slate-600">Initial chromosome pool</div>
               <input
                 type="range"
                 min="50"
@@ -353,7 +371,7 @@ export function Optimization() {
                 aria-label="Population size"
                 value={populationSize}
                 onChange={(e) => setPopulationSize(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
 
@@ -362,7 +380,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Generation Limit</label>
                 <span className="text-amber-700">{generationLimit}</span>
               </div>
-              <div className="text-xs text-gray-500">MAX GENERATIONS PER STAFFING PERIOD</div>
+              <div className="text-xs text-slate-600">Maximum generations per staffing period</div>
               <input
                 type="range"
                 min="50"
@@ -370,7 +388,7 @@ export function Optimization() {
                 aria-label="Generation limit"
                 value={generationLimit}
                 onChange={(e) => setGenerationLimit(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
 
@@ -379,7 +397,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Crossover Rate</label>
                 <span className="text-amber-700">{crossoverRate}%</span>
               </div>
-              <div className="text-xs text-gray-500">GENETIC RECOMBINATION PROBABILITY</div>
+              <div className="text-xs text-slate-600">Genetic recombination probability</div>
               <input
                 type="range"
                 min="50"
@@ -387,7 +405,7 @@ export function Optimization() {
                 aria-label="Crossover rate"
                 value={crossoverRate}
                 onChange={(e) => setCrossoverRate(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
 
@@ -396,7 +414,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Mutation Rate</label>
                 <span className="text-amber-700">{mutationRate}%</span>
               </div>
-              <div className="text-xs text-gray-500">RANDOM VARIATION FACTOR</div>
+              <div className="text-xs text-slate-600">Random variation factor</div>
               <input
                 type="range"
                 min="1"
@@ -404,7 +422,7 @@ export function Optimization() {
                 aria-label="Mutation rate"
                 value={mutationRate}
                 onChange={(e) => setMutationRate(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
 
@@ -413,7 +431,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Elitism Count</label>
                 <span className="text-amber-700">{elitismCount} individuals</span>
               </div>
-              <div className="text-xs text-gray-500">BEST INDIVIDUALS PRESERVED</div>
+              <div className="text-xs text-slate-600">Best individuals preserved</div>
               <input
                 type="range"
                 min="1"
@@ -421,16 +439,16 @@ export function Optimization() {
                 aria-label="Elitism count"
                 value={elitismCount}
                 onChange={(e) => setElitismCount(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
           </div>
         </div>
 
-        <div className="mb-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Target className="h-5 w-5 text-yellow-500" />
-            <h2 className="font-semibold">FITNESS WEIGHTS</h2>
+        <div className="mb-5">
+          <div className="mb-3 flex items-center gap-2">
+            <Target className="h-5 w-5 text-amber-600" />
+            <h2 className="text-sm font-semibold">Objective weights</h2>
           </div>
 
           {/* Auto-Suggest Weights */}
@@ -457,7 +475,7 @@ export function Optimization() {
                   </span>
                 )}
                 {activePois.length === 0 && activeIncidents.length === 0 && (
-                  <span className="text-gray-500">No active POIs or incidents affecting optimization</span>
+                  <span className="text-slate-600">No active POIs or incidents affecting optimization</span>
                 )}
               </div>
 
@@ -474,7 +492,7 @@ export function Optimization() {
               </div>
               <button
                 onClick={applyAutoSuggestion}
-                className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                className="rounded-lg bg-blue-700 px-3 py-2 text-xs font-medium text-white hover:bg-blue-800"
               >
                 Apply Suggestion
               </button>
@@ -487,7 +505,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Traffic Severity Index (TSI)</label>
                 <span className="text-amber-700">{tsiWeight}%</span>
               </div>
-              <div className="text-xs text-gray-500">CONGESTION, SPEED, QUEUE LENGTH</div>
+              <div className="text-xs text-slate-600">Congestion, speed, and queue length</div>
               <input
                 type="range"
                 min="0"
@@ -495,7 +513,7 @@ export function Optimization() {
                 aria-label="Traffic severity weight"
                 value={tsiWeight}
                 onChange={(e) => setTsiWeight(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
 
@@ -504,7 +522,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Weather Impact Factor (WIF)</label>
                 <span className="text-amber-700">{wifWeight}%</span>
               </div>
-              <div className="text-xs text-gray-500">RAINFALL CAPACITY REDUCTION</div>
+              <div className="text-xs text-slate-600">Rainfall capacity reduction</div>
               <input
                 type="range"
                 min="0"
@@ -512,7 +530,7 @@ export function Optimization() {
                 aria-label="Weather impact weight"
                 value={wifWeight}
                 onChange={(e) => setWifWeight(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
 
@@ -521,7 +539,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Road Priority Weight (RPW)</label>
                 <span className="text-amber-700">{rpwWeight}%</span>
               </div>
-              <div className="text-xs text-gray-500">VOLUME, ECONOMIC IMPORTANCE, INFRASTRUCTURE</div>
+              <div className="text-xs text-slate-600">Volume, economic importance, and infrastructure</div>
               <input
                 type="range"
                 min="0"
@@ -529,7 +547,7 @@ export function Optimization() {
                 aria-label="Road priority weight"
                 value={rpwWeight}
                 onChange={(e) => setRpwWeight(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
 
@@ -538,7 +556,7 @@ export function Optimization() {
                 <label className="text-sm font-medium">Staffing Efficiency</label>
                 <span className="text-amber-700">{resourceUtilizationWeight}%</span>
               </div>
-              <div className="text-xs text-gray-500">MEET STAFFING TARGETS; KEEP SURPLUS AVAILABLE</div>
+              <div className="text-xs text-slate-600">Meet staffing targets; keep surplus available</div>
               <input
                 type="range"
                 min="0"
@@ -546,7 +564,7 @@ export function Optimization() {
                 aria-label="Resource utilization weight"
                 value={resourceUtilizationWeight}
                 onChange={(e) => setResourceUtilizationWeight(Number(e.target.value))}
-                className="w-full accent-yellow-400"
+                className="w-full accent-amber-500"
               />
             </div>
 
@@ -559,9 +577,9 @@ export function Optimization() {
 
         </details>
 
-        <div className="sticky bottom-0 flex flex-wrap gap-3 border-t bg-white py-3">
+        <div className="border-t border-slate-200 pt-3">
           <button
-            className="flex-1 rounded-lg border px-4 py-2.5 font-medium hover:bg-gray-50"
+            className="w-full rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
             onClick={() => {
               setPopulationSize(DEFAULT_PARAMS.populationSize);
               setGenerationLimit(DEFAULT_PARAMS.generationLimit);
@@ -577,158 +595,157 @@ export function Optimization() {
           >
             Reset Defaults
           </button>
-          <button
-            disabled={!weightsValid || !currentValidation}
-            onClick={() => navigate("/optimization-running?" + new URLSearchParams({shift: selectedShift, ...Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v)]))}))}
-            className="flex-1 rounded-lg bg-yellow-400 px-4 py-2.5 font-medium text-gray-900 disabled:bg-gray-200 disabled:text-gray-500"
-          >Run Optimization</button>
         </div>
       </div>
 
-      <div className="min-w-0 shrink-0 bg-gray-50 p-4 sm:p-6 xl:flex-1 xl:overflow-y-auto">
-        <div className="rounded-lg bg-white p-6">
+      <div className="min-w-0 shrink-0 bg-slate-50 p-4 sm:p-6 xl:flex-1 xl:overflow-y-auto">
+        <div className="mx-auto max-w-6xl">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="mb-1 text-lg font-semibold">Optimization Overview</h2>
-              <p className="text-sm text-gray-600">Live backend history and configuration summary</p>
+              <h2 className="mb-1 text-lg font-semibold tracking-tight">Run overview</h2>
+              <p className="text-sm text-slate-600">Review saved results and your current configuration.</p>
             </div>
-            <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
-              Backend: {error ? "Unavailable" : "Connected"}
+            <span role="status" className={`rounded-full px-3 py-1 text-xs font-medium ${error ? "bg-red-100 text-red-800" : loadingHistory ? "bg-slate-200 text-slate-700" : "bg-green-100 text-green-800"}`}>
+              History: {error ? "Unavailable" : loadingHistory ? "Loading" : "Connected"}
             </span>
           </div>
 
-          <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 2xl:grid-cols-4">
-            <div className="rounded-lg border bg-white p-3">
-              <div className="mb-1 text-xs text-gray-600">ACTIVE POPULATION</div>
+          <div className="mb-5 grid grid-cols-2 gap-3 2xl:grid-cols-4">
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-1 text-xs text-slate-600">Population size</div>
               <div className="mb-1 text-2xl font-bold">{populationSize}</div>
-              <div className="text-xs text-gray-600">Configured chromosome pool</div>
+              <div className="text-xs text-slate-600">Configured chromosome pool</div>
             </div>
-            <div className="rounded-lg border bg-white p-3">
-              <div className="mb-1 text-xs text-gray-600">GENERATION LIMIT</div>
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-1 text-xs text-slate-600">Generation limit</div>
               <div className="mb-1 text-2xl font-bold">{generationLimit}</div>
-              <div className="text-xs text-gray-600">Backend validation applied</div>
+              <div className="text-xs text-slate-600">Backend validation applied</div>
             </div>
-            <div className="rounded-lg border bg-white p-3">
-              <div className="mb-1 text-xs text-gray-600">COMPLETED ON PAGE</div>
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-1 text-xs text-slate-600">Completed on page</div>
               <div className="mb-1 text-2xl font-bold">{recentCompleted.length}</div>
-              <div className="text-xs text-gray-600">Runs in history window</div>
+              <div className="text-xs text-slate-600">Runs in history window</div>
             </div>
-            <div className="rounded-lg border bg-white p-3">
-              <div className="mb-1 text-xs text-gray-600">LATEST SCORE ON PAGE</div>
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <div className="mb-1 text-xs text-slate-600">Latest score on page</div>
               <div className="mb-1 text-2xl font-bold">
                 {bestRun ? Number(Number(bestRun.result_data?.best_fitness ?? 0).toFixed(4)) : 0}
               </div>
-              <div className="text-xs text-gray-600">Latest completed run</div>
+              <div className="text-xs text-slate-600">Latest completed run</div>
             </div>
           </div>
 
-          <div className="mb-6 rounded-lg border bg-white p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
-              <TrendingUp className="h-4 w-4 text-yellow-500" />
-              Recent Optimization Runs
+          <section className="mb-5 min-w-0 rounded-xl border border-slate-200 bg-white" aria-labelledby="recent-runs-title">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
+              <h3 id="recent-runs-title" className="flex items-center gap-2 text-sm font-semibold">
+                <TrendingUp className="h-4 w-4 text-amber-600" aria-hidden="true" />
+                Recent optimization runs
+              </h3>
+              <span className="text-xs text-slate-600">{historyCount} total · Times in Asia/Manila</span>
             </div>
 
-
-            <div className="mb-3 flex items-center gap-3 text-sm">
-              <button disabled={historyPage === 1 || loadingHistory} onClick={() => setHistoryPage(p => p - 1)}>Previous runs</button>
-              <span>Page {historyPage} of {Math.max(1, Math.ceil(historyCount / 10))}</span>
-              <button disabled={historyPage * 10 >= historyCount || loadingHistory} onClick={() => setHistoryPage(p => p + 1)}>Older runs</button>
-            </div>
-            {loadingHistory && <p className="text-sm text-gray-500">Loading run history...</p>}
-            {!loadingHistory && error && <p className="text-sm text-red-600">{error}</p>}
+            {loadingHistory && <p role="status" className="p-4 text-sm text-slate-600">Loading run history...</p>}
+            {!loadingHistory && error && <p role="alert" className="p-4 text-sm text-red-700">{error}</p>}
             {!loadingHistory && !error && history.length === 0 && (
-              <p className="text-sm text-gray-500">No optimization runs available yet.</p>
+              <p className="p-4 text-sm text-slate-600">No optimization runs yet. Configure your first run to get started.</p>
             )}
             {!loadingHistory && !error && history.length > 0 && (
-              <div className="overflow-auto">
-                <table className="w-full min-w-[980px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
-                      <th className="px-3 py-2">Run ID</th>
-                      <th className="px-3 py-2">Status</th>
-                      <th className="px-3 py-2">Started</th>
-                      <th className="px-3 py-2">Fitness</th>
-                      <th className="px-3 py-2">Generations</th>
-                      <th className="px-3 py-2">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {history.slice(0, 10).map((run, runIndex) => {
-                      const bestFitness = typeof run.result_data?.best_fitness === "number" ? run.result_data.best_fitness : null;
-                      const generationCount = run.generations_completed ?? 0;
-                      const prevFitness = runIndex < history.length - 1
-                        ? (typeof history[runIndex + 1].result_data.best_fitness === "number" ? history[runIndex + 1].result_data.best_fitness as number : null)
-                        : null;
-                      const trend = bestFitness !== null && prevFitness !== null ? bestFitness - prevFitness : null;
-                      return (
-                        <tr key={run.id} className="border-b last:border-b-0 hover:bg-gray-50">
-                          <td className="px-3 py-2 font-medium text-gray-900"><Link to={`/optimization-engine?run_id=${encodeURIComponent(run.run_id)}`} className="underline">{run.run_id}</Link></td>
-                          <td className="px-3 py-2">
-                            <span className={`rounded px-2 py-0.5 text-xs font-medium ${
-                              run.status === "completed" ? "bg-green-100 text-green-800" :
-                              run.status === "failed" ? "bg-red-100 text-red-800" :
-                              run.status === "cancelled" ? "bg-gray-100 text-gray-800" :
-                              run.status === "running" ? "bg-blue-100 text-blue-800" :
-                              "bg-yellow-100 text-yellow-800"
-                            }`}>
-                              {run.status}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div className="flex items-center gap-1">
-                              <Clock className="h-3.5 w-3.5 text-gray-400" />
-                              {operationalTime(run.timestamp)}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">
-                            <div className="flex items-center gap-1">
-                              {bestFitness !== null ? bestFitness.toFixed(4) : "-"}
+              <ol className="divide-y divide-slate-200" aria-label="Optimization run history">
+                {history.slice(0, 10).map((run, runIndex) => {
+                  const bestFitness = typeof run.result_data?.best_fitness === "number" ? run.result_data.best_fitness : null;
+                  const generationCount = run.generations_completed ?? 0;
+                  const prevFitness = runIndex < history.length - 1
+                    ? (typeof history[runIndex + 1].result_data.best_fitness === "number" ? history[runIndex + 1].result_data.best_fitness as number : null)
+                    : null;
+                  const trend = bestFitness !== null && prevFitness !== null ? bestFitness - prevFitness : null;
+                  return (
+                    <li key={run.id} className="min-w-0 space-y-3 px-4 py-4 transition-colors hover:bg-slate-50/70">
+                      <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                        <Link
+                          to={`/optimization-engine?run_id=${encodeURIComponent(run.run_id)}`}
+                          title={run.run_id}
+                          aria-label={`View run ${run.run_id}`}
+                          className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded text-sm font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:decoration-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+                        >
+                          <span className="truncate font-mono">{compactRunId(run.run_id)}</span>
+                          <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden="true" />
+                        </Link>
+                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${
+                          run.status === "completed" ? "bg-green-100 text-green-800" :
+                          run.status === "failed" ? "bg-red-100 text-red-800" :
+                          run.status === "cancelled" ? "bg-slate-100 text-slate-700" :
+                          run.status === "running" ? "bg-blue-100 text-blue-800" :
+                          "bg-amber-100 text-amber-900"
+                        }`}>
+                          {run.status}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-end justify-between gap-x-5 gap-y-3">
+                        <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+                          <div>
+                            <dt className="mb-1 text-xs text-slate-600">Started</dt>
+                            <dd className="text-slate-800">
+                              <time dateTime={run.timestamp}>{operationalDate(new Date(run.timestamp))} <span className="text-slate-600">{operationalTime(run.timestamp)}</span></time>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="mb-1 text-xs text-slate-600">Fitness</dt>
+                            <dd className="flex items-center gap-1.5 font-medium tabular-nums text-slate-800">
+                              {bestFitness !== null ? bestFitness.toFixed(4) : "—"}
                               {trend !== null && trend !== 0 && (
-                                <span className={`text-xs ${trend > 0 ? "text-green-600" : "text-red-600"}`}>
+                                <span title="Change from the previous run on this page" className={`text-xs font-normal ${trend > 0 ? "text-green-700" : "text-red-700"}`}>
                                   {trend > 0 ? "↑" : "↓"}{Math.abs(trend).toFixed(2)}
                                 </span>
                               )}
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-gray-700">{generationCount}</td>
-                          <td className="px-3 py-2">
-                            {run.status === "completed" ? (
-                              <div role="group" aria-label={`Actions for ${run.run_id}`} className="flex items-start gap-2">
-                                <PublishScheduleButton compact runId={run.run_id} date={String(run.parameters.operational_date ?? operationalDate())}
-                                mode={String(run.parameters.mode ?? "operational")}
-                                syntheticSources={Array.isArray(run.result_data.synthetic_data_used) ? run.result_data.synthetic_data_used : null} />
-                                <RecommendationExportButton compact runId={run.run_id} />
-                              </div>
-                            ) : (
-                              <span className="text-xs text-gray-400">-</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="mb-1 text-xs text-slate-600">Generations</dt>
+                            <dd className="font-medium tabular-nums text-slate-800">{generationCount}</dd>
+                          </div>
+                        </dl>
+                        {run.status === "completed" && (
+                          <div role="group" aria-label={`Actions for ${run.run_id}`} className="flex max-w-full flex-wrap items-start gap-2">
+                            <PublishScheduleButton compact runId={run.run_id} date={String(run.parameters.operational_date ?? operationalDate())}
+                              mode={String(run.parameters.mode ?? "operational")}
+                              syntheticSources={Array.isArray(run.result_data.synthetic_data_used) ? run.result_data.synthetic_data_used : null} />
+                            <RecommendationExportButton compact runId={run.run_id} />
+                          </div>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
             )}
-          </div>
+            <nav aria-label="Run history pages" className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 px-3 py-3 text-sm">
+              <button disabled={historyPage === 1 || loadingHistory} onClick={() => setHistoryPage(p => p - 1)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" /> Newer
+              </button>
+              <span className="text-xs tabular-nums text-slate-600">Page {historyPage} of {Math.max(1, Math.ceil(historyCount / 10))}</span>
+              <button disabled={historyPage * 10 >= historyCount || loadingHistory} onClick={() => setHistoryPage(p => p + 1)} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 py-2 font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                Older <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </nav>
+          </section>
 
-          <div className="rounded-lg border bg-white p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
-              <Users className="h-4 w-4 text-yellow-500" />
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-700">
+              <Users className="h-4 w-4 text-amber-600" />
               Configuration Summary
             </div>
             <div className="space-y-2 text-xs">
-              <div className="flex justify-between"><span className="text-gray-500">Population Size</span><span className="font-medium">{params.population_size}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Generations</span><span className="font-medium">{params.generations}</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Crossover Rate</span><span className="font-medium">{crossoverRate}%</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Mutation Rate</span><span className="font-medium">{mutationRate}%</span></div>
-              <div className="flex justify-between"><span className="text-gray-500">Elitism</span><span className="font-medium">{elitismCount} individuals</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Population Size</span><span className="font-medium">{params.population_size}</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Generations</span><span className="font-medium">{params.generations}</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Crossover Rate</span><span className="font-medium">{crossoverRate}%</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Mutation Rate</span><span className="font-medium">{mutationRate}%</span></div>
+              <div className="flex justify-between"><span className="text-slate-600">Elitism</span><span className="font-medium">{elitismCount} individuals</span></div>
               <div className="border-t pt-2 mt-2">
-                <div className="mb-1 text-gray-500 font-semibold">Objective Weights</div>
-                <div className="flex justify-between"><span className="text-gray-500">TSI Weight</span><span className="font-medium">{tsiWeight}%</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">WIF Weight</span><span className="font-medium">{wifWeight}%</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">RPW Weight</span><span className="font-medium">{rpwWeight}%</span></div>
-                <div className="flex justify-between"><span className="text-gray-500">Staffing Efficiency Weight</span><span className="font-medium">{resourceUtilizationWeight}%</span></div>
+                <div className="mb-1 text-slate-600 font-semibold">Objective Weights</div>
+                <div className="flex justify-between"><span className="text-slate-600">TSI Weight</span><span className="font-medium">{tsiWeight}%</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">WIF Weight</span><span className="font-medium">{wifWeight}%</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">RPW Weight</span><span className="font-medium">{rpwWeight}%</span></div>
+                <div className="flex justify-between"><span className="text-slate-600">Staffing Efficiency Weight</span><span className="font-medium">{resourceUtilizationWeight}%</span></div>
               </div>
             </div>
           </div>

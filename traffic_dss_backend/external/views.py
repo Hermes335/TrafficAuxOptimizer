@@ -20,7 +20,7 @@ TRAFFIC_TILE_TTL = 120
 def _traffic_png(content, fetched_at):
 	response = HttpResponse(content, content_type="image/png")
 	remaining = max(0, TRAFFIC_TILE_TTL - int((timezone.now() - fetched_at).total_seconds()))
-	response["Cache-Control"] = f"public, max-age={remaining}"
+	response["Cache-Control"] = f"private, max-age={remaining}"
 	return response
 
 
@@ -54,7 +54,7 @@ def _unavailable(source="none"):
 
 
 class WeatherCurrentView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request):
@@ -71,7 +71,7 @@ class WeatherCurrentView(APIView):
 
 
 class TrafficRealtimeView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request):
@@ -102,7 +102,7 @@ class TrafficRealtimeView(APIView):
 
 
 class TomTomTileProxyView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request, z: int, x: int, y: int):
@@ -126,12 +126,12 @@ class TomTomTileProxyView(APIView):
 
 		content_type = response.headers.get("Content-Type", "image/png")
 		proxy_response = HttpResponse(response.content, content_type=content_type)
-		proxy_response["Cache-Control"] = "public, max-age=300"
+		proxy_response["Cache-Control"] = "private, max-age=300"
 		return proxy_response
 
 
 class TomTomTrafficTileProxyView(APIView):
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request, z: int, x: int, y: int):
@@ -189,7 +189,7 @@ class TomTomTrafficTileProxyView(APIView):
 
 class TomTomTrafficVectorTileProxyView(APIView):
 	"""Proxy detailed flow geometry without exposing the provider API key."""
-	permission_classes = [permissions.AllowAny]
+	permission_classes = [permissions.IsAuthenticated]
 	throttle_classes = []
 
 	def get(self, request, z: int, x: int, y: int):
@@ -213,7 +213,7 @@ class TomTomTrafficVectorTileProxyView(APIView):
 		if response.status_code != 200:
 			return Response({"detail": "TomTom traffic tile provider error."}, status=response.status_code)
 		proxy_response = HttpResponse(response.content, content_type="application/x-protobuf")
-		proxy_response["Cache-Control"] = "public, max-age=60"
+		proxy_response["Cache-Control"] = "private, max-age=60"
 		# Requests already decompresses response.content. Forwarding Content-Encoding
 		# would make the browser try to decompress the plain protobuf a second time.
 		return proxy_response

@@ -24,6 +24,7 @@ services:
       - .env.example
     volumes:
       - .:/app
+      - incident_photos:/var/incident-photos
     depends_on:
       - postgres
       - redis
@@ -63,3 +64,4 @@ services:
 
 volumes:
   postgres_data:
+  incident_photos:

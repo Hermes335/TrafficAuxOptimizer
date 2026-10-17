@@ -26,6 +26,8 @@ it("renders explicit break reservations on the officer timeline",()=>{
 it("shows affected assignments and sends zero actual headcount in field feedback",async()=>{
   const changed=vi.fn(),onBlocks=vi.fn();render(<OperationsPanel day="2099-01-01" shift="morning" area="" nodes={nodes} officers={officers} canManage refreshKey={0} onBlocks={onBlocks} onChanged={changed}/>);
   expect(await screen.findByText(/Schedule needs review/)).toBeTruthy();expect(screen.getByText(/assignments 8/)).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Operations & feedback"}));
+  fireEvent.click(screen.getByText(/Field observations/));
   fireEvent.change(screen.getByLabelText("Observed intersection"),{target:{value:"A"}});fireEvent.change(screen.getByLabelText("Observed time"),{target:{value:"07:30"}});fireEvent.change(screen.getByLabelText("Officers present"),{target:{value:"0"}});
   fireEvent.click(screen.getByText("Save observation"));
   await waitFor(()=>expect(changed).toHaveBeenCalled());expect(backend.deploymentOperation).toHaveBeenCalledWith("observations/",expect.objectContaining({actual_officers:0,observed_at:"2099-01-01T07:30:00+08:00",bottleneck:"A",traffic:"free"}));
@@ -35,6 +37,12 @@ it("preserves reservation form values and displays an overlap error",async()=>{
   vi.mocked(backend.deploymentOperation).mockImplementation(async(path,payload)=>{if(payload)throw new Error("Officer has overlapping assignment");return path.startsWith("review/")?{needs_review:false,scope:"Remaining schedule",issues:[]}:[];});
   render(<OperationsPanel day="2099-01-01" shift="morning" area="" nodes={nodes} officers={officers} canManage refreshKey={0} onBlocks={vi.fn()} onChanged={vi.fn()}/>);
   await screen.findByText(/no issues detected/);
+  fireEvent.click(screen.getByRole("button", {name: "Operations & feedback"}));
+  fireEvent.click(screen.getByText(/Breaks and travel reservations/));
   fireEvent.change(screen.getByLabelText("Officer"),{target:{value:"1"}});fireEvent.change(screen.getByLabelText("Starts"),{target:{value:"08:00"}});fireEvent.change(screen.getByLabelText("Ends"),{target:{value:"09:00"}});
+  fireEvent.click(screen.getByRole("button", {name: "Operations & feedback"}));
+  fireEvent.click(screen.getByRole("button", {name: "Operations & feedback"}));
+  expect(screen.getByLabelText("Starts")).toHaveProperty("value", "08:00");
+  expect(screen.getByLabelText("Ends")).toHaveProperty("value", "09:00");
   fireEvent.click(screen.getByText("Reserve time"));expect(await screen.findByRole("alert")).toHaveProperty("textContent",expect.stringContaining("overlapping"));expect(screen.getByLabelText("Starts")).toHaveProperty("value","08:00");
 });

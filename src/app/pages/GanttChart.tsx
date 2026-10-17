@@ -3,7 +3,7 @@ import { ScheduleHistory } from "../components/ScheduleHistory";
 import { RecommendationExportButton } from "../components/RecommendationExportButton";
 import { useAuth } from "../contexts/AuthContext";
 import { operationalDate, operationalTime } from "../services/operationalTime";
-import { BarChart3, CalendarDays, ChevronDown, ChevronLeft, ChevronUp, Download, XCircle } from "lucide-react";
+import { BarChart3, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Filter, RefreshCw, XCircle } from "lucide-react";
 import { GanttTimeline } from "./GanttChart/GanttTimeline";
 import { AssignmentEditor, StaffingEditor } from "./GanttChart/ScheduleEditors";
 import { OperationsPanel } from "./GanttChart/OperationsPanel";
@@ -32,14 +32,18 @@ export function GanttChart() {
   const [day, setDay] = useState(operationalDate());
   const [refreshKey, setRefreshKey] = useState(0);
   const [lastRefresh, setLastRefresh] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [locationsLoaded, setLocationsLoaded] = useState(false);
+  const [officersLoaded, setOfficersLoaded] = useState(false);
   const [connection, setConnection] = useState("connecting");
-  const topCollapseStorageKey = "gantt-chart-top-collapsed";
+  const topCollapseStorageKey = "gantt-chart-tools-collapsed";
   const bottomCollapseStorageKey = "gantt-chart-bottom-collapsed";
 
   const [schedule, setSchedule] = useState<DeploymentScheduleItem[]>([]);
   const [bottlenecks, setBottlenecks] = useState<BottleneckOption[]>([]);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
   const [query, setQuery] = useState("");
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const [area,setArea]=useState("");
   const [blocks,setBlocks]=useState<OfficerTimeBlock[]>([]);
   const [shiftFilter, setShiftFilter] = useState<string>("all");
@@ -58,19 +62,20 @@ export function GanttChart() {
   const [editingStaffing,setEditingStaffing] = useState(false);
   const [topCollapsed, setTopCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") {
-      return false;
+      return true;
     }
-    return window.localStorage.getItem(topCollapseStorageKey) === "true";
+    return window.localStorage.getItem(topCollapseStorageKey) !== "false";
   });
   const [bottomCollapsed, setBottomCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") {
-      return false;
+      return true;
     }
-    return window.localStorage.getItem(bottomCollapseStorageKey) === "true";
+    return window.localStorage.getItem(bottomCollapseStorageKey) !== "false";
   });
 
   useEffect(() => {
     let active = true;
+    setLoading(true);
 
     Promise.allSettled([fetchDeploymentSchedule(day), fetchBottlenecks(day,shiftFilter), fetchDashboardOfficers(), fetchOptimizationHistory(runPage, "completed")])
       .then(([deployments, bottleneckRows, officerRows, optimizationRuns]) => {
@@ -80,14 +85,15 @@ export function GanttChart() {
         const failures = [deployments, bottleneckRows, officerRows, optimizationRuns].flatMap((row, i) => row.status === "rejected" ? [`${["Schedule", "Locations", "Officers", "Run history"][i]}: ${row.reason instanceof Error ? row.reason.message : "Refresh failed"}`] : []);
         setError(failures.join(" · ") || null);
         if (deployments.status === "fulfilled") { setSchedule(deployments.value); setLastRefresh(new Date().toISOString()); }
-        if (bottleneckRows.status === "fulfilled") setBottlenecks(bottleneckRows.value);
-        if (officerRows.status === "fulfilled") setOfficers(officerRows.value);
+        if (bottleneckRows.status === "fulfilled") { setBottlenecks(bottleneckRows.value); setLocationsLoaded(true); }
+        if (officerRows.status === "fulfilled") { setOfficers(officerRows.value); setOfficersLoaded(true); }
         if (optimizationRuns.status === "fulfilled") {
           setRunCount(optimizationRuns.value.count);
           const completed = optimizationRuns.value.results.filter(run => run.status === "completed");
           setCompletedRuns(completed);
           setSelectedRunId(previous => completed.some(run => run.run_id === previous) ? previous : completed[0]?.run_id ?? "");
         }
+        setLoading(false);
       })
       .catch((loadError: unknown) => {
         if (!active) {
@@ -95,6 +101,7 @@ export function GanttChart() {
         }
         const message = loadError instanceof Error ? loadError.message : "Failed to load schedule";
         setError(message);
+        setLoading(false);
       });
 
     return () => {
@@ -197,7 +204,7 @@ export function GanttChart() {
   }, [bottlenecks, schedule, shiftFilter, hourSlots, day, area]);
 
   const matrixLegend = [
-    { label: "Requirement met", className: "bg-yellow-400" },
+    { label: "Requirement met", className: "bg-amber-400" },
     { label: "No officers required", className: "bg-emerald-100" },
     { label: "Below requirement", className: "bg-rose-100" },
     { label: "Requirement unavailable", className: "bg-slate-100" },
@@ -206,6 +213,7 @@ export function GanttChart() {
   const reloadSchedule = async () => {
     const rows = await fetchDeploymentSchedule(day);
     setSchedule(rows);
+    setLastRefresh(new Date().toISOString());
     setRefreshKey(k=>k+1);
   };
 
@@ -248,261 +256,228 @@ export function GanttChart() {
     URL.revokeObjectURL(url);
   };
 
-  const formattedToday = day + " · Asia/Manila";
-
-  const selectedShiftLabel = shiftFilter === "all" ? "All Shifts" : `Shift ${shiftFilter[0].toUpperCase()}${shiftFilter.slice(1)}`;
+  const activeFilterCount = Number(Boolean(area)) + Number(Boolean(query.trim()));
+  const coverageAvailable = Boolean(lastRefresh) && locationsLoaded;
+  const officerPoolAvailable = Boolean(lastRefresh) && officersLoaded;
 
   return (
-    <div className="flex h-full flex-col overflow-auto bg-gray-50">
-      <div className="border-b bg-white px-6 py-4">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            {!topCollapsed && (
-              <div className="mb-2 flex items-center gap-2">
-                <Link
-                  to="/optimization"
-                  className="inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                >
-                  <ChevronLeft className="h-3.5 w-3.5" />
-                  Back
-                </Link>
-              </div>
-            )}
-            <h1 className="text-2xl font-bold">Deployment Schedule</h1>
-            {!topCollapsed && <p className="text-sm text-gray-600">Gantt schedule · timed assignments and staffing requirements</p>}
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto overflow-x-hidden bg-slate-50 text-slate-900">
+      <header className="shrink-0 space-y-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <Link to="/optimization" title="Back to optimization" aria-label="Back to optimization"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+              <ChevronLeft className="h-4 w-4" />
+            </Link>
+            <div>
+              <h1 className="text-lg font-semibold tracking-tight sm:text-xl">Deployment Schedule</h1>
+              <p className="text-xs text-slate-600">Assignment times in Asia/Manila</p>
+            </div>
           </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            {!topCollapsed && (
-              <>
-                <button onClick={onExport} className="flex items-center gap-2 rounded-lg border px-4 py-2 hover:bg-gray-50">
-                  <Download className="h-4 w-4" />
-                  Export
-                </button>
-                <ConfirmDialog
-                  title="Clear Schedule?"
-                  description={`This will cancel assignments for ${day}, ${shiftFilter} shift(s). Republishing a valid run creates a new schedule.`}
-                  confirmText="Clear Schedule"
-                  cancelText="Cancel"
-                  isDangerous
-                  requiresTypedConfirmation="CLEAR_SCHEDULE"
-                  onConfirm={clearScheduleConfirmed}
-                  onCancel={() => setPublishError("Clear schedule cancelled. Type CLEAR_SCHEDULE next time to confirm the reset.")}
-                  trigger={
-                    <button
-                      disabled={!canManage || clearingSchedule || activeAssignments === 0}
-                      className="flex items-center gap-2 rounded-lg border border-red-200 px-4 py-2 text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <XCircle className="h-4 w-4" />
-                      {clearingSchedule ? "Clearing..." : "Clear Schedule"}
-                    </button>
-                  }
-                  disabled={!canManage || clearingSchedule || activeAssignments === 0}
-                />
-                <div className="flex items-center gap-2">
-                  <select
-                    aria-label="Completed optimization run"
-                    value={selectedRunId}
-                    onChange={(event) => setSelectedRunId(event.target.value)}
-                    className="rounded-lg border px-3 py-2 text-sm"
-                  >
-                    {completedRuns.length === 0 && <option value="">No completed runs</option>}
-                    {completedRuns.map((run) => (
-                      <option key={run.run_id} value={run.run_id}>
-                        {run.run_id}
-                      </option>
-                    ))}
-                  </select>
-                  <button aria-label="Previous run page" disabled={runPage === 1} onClick={() => setRunPage(p => p - 1)}>‹</button>
-                  <button aria-label="Older run page" disabled={runPage * 10 >= runCount} onClick={() => setRunPage(p => p + 1)}>›</button>
-                  {canManage && <PublishScheduleButton runId={selectedRunId} date={day} onPublished={reloadSchedule}
-                    mode={String(selectedRun?.parameters.mode ?? "operational")}
-                    syntheticSources={Array.isArray(selectedRunSyntheticSources) ? selectedRunSyntheticSources : null} />}
-                  <RecommendationExportButton runId={selectedRunId} />
-                </div>
-              </>
-            )}
-            <button
-              onClick={() => setTopCollapsed((current) => !current)}
-              className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-              aria-label={topCollapsed ? "Expand top controls" : "Collapse top controls"}
-            >
+          <div className="flex items-center gap-2">
+            <button onClick={onExport} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium hover:bg-slate-50">
+              <Download className="h-4 w-4" /> Export
+            </button>
+            <button onClick={() => setTopCollapsed(current => !current)} aria-expanded={!topCollapsed} aria-controls="schedule-tools"
+              className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${topCollapsed ? "border-slate-200 hover:bg-slate-50" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+              Schedule tools
               {topCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-              {topCollapsed ? "Expand top" : "Collapse top"}
             </button>
           </div>
         </div>
 
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="grid min-w-0 flex-1 gap-1 text-xs font-medium text-slate-600 sm:flex-none">
+            Operational date
+            <input type="date" value={day} onChange={e => { if (e.target.value && e.target.value !== day) { setSchedule([]); setLastRefresh(null); setLocationsLoaded(false); setLoading(true); setDay(e.target.value); } }}
+              className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900" />
+          </label>
+          <label className="grid min-w-0 flex-1 gap-1 text-xs font-medium text-slate-600 sm:flex-none">
+            Shift
+            <select aria-label="Viewing shift" value={shiftFilter} onChange={event => { setLocationsLoaded(false); setShiftFilter(event.target.value); }}
+              className="h-10 min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900">
+              <option value="all">All shifts</option>
+              <option value="morning">Morning (6AM–2PM)</option>
+              <option value="afternoon">Afternoon (2PM–10PM)</option>
+            </select>
+          </label>
+          <button onClick={() => setFiltersExpanded(current => !current)} aria-expanded={filtersExpanded} aria-controls="schedule-filters"
+            className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-slate-200 px-3 text-sm font-medium md:hidden">
+            <Filter className="h-4 w-4" /> Filters{activeFilterCount > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-xs text-amber-900">{activeFilterCount}</span>}
+          </button>
+          <div id="schedule-filters" className={`${filtersExpanded ? "flex" : "hidden"} w-full min-w-0 flex-wrap items-center gap-2 md:flex md:w-auto md:flex-1`}>
+            <div className="max-w-full [&_label]:flex-wrap [&_select]:min-w-0 [&_select]:max-w-full [&_select]:rounded-lg [&_select]:border-slate-200">
+              <AreaFilter nodes={bottlenecks} value={area} onChange={setArea} />
+            </div>
+            <input aria-label="Search schedule" value={query} onChange={event => setQuery(event.target.value)}
+              placeholder="Search officers or intersections…"
+              className="h-10 min-w-0 flex-1 basis-52 rounded-lg border border-slate-200 px-3 text-sm placeholder:text-slate-600" />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-slate-600">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            <span><strong className="font-semibold text-slate-900">{lastRefresh ? activeAssignments : "—"}</strong> assignments</span>
+            <span><strong className="font-semibold text-slate-900">{coverageAvailable ? `${coverage.percent}%` : "—"}</strong> coverage</span>
+            <span><strong className="font-semibold text-slate-900">{officerPoolAvailable ? availableOfficerPool.length : "—"}</strong> unassigned officers</span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <p role="status" className="inline-flex items-center gap-1.5">
+              <span className={`h-1.5 w-1.5 rounded-full ${connection === "live" ? "bg-emerald-500" : "bg-amber-500"}`} aria-hidden="true" />
+              <span className="capitalize">{connection}</span>
+              <span>· {lastRefresh ? `Updated ${operationalTime(lastRefresh)}${loading ? " · Refreshing…" : ""}` : loading ? "Loading schedule…" : "Schedule unavailable"}</span>
+            </p>
+            <button onClick={() => setRefreshKey(k => k + 1)} title="Refresh schedule" aria-label="Refresh schedule"
+              className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"><RefreshCw className={`h-3.5 w-3.5 ${loading ? "motion-safe:animate-spin" : ""}`} /></button>
+          </div>
+        </div>
+
+        {publishNotice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{publishNotice}</div>}
+        {publishError && <ErrorFeedback error={publishError} onDismiss={() => setPublishError(null)} />}
+        {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
+
         {!topCollapsed && (
-          <>
-            {publishNotice && <div className="mb-3 rounded border border-green-200 bg-green-50 px-3 py-2 text-sm text-green-700">{publishNotice}</div>}
-            {publishError && (
-              <div className="mb-3">
-                <ErrorFeedback
-                  error={publishError}
-                  onDismiss={() => setPublishError(null)}
-                />
+          <div id="schedule-tools" className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="grid min-w-0 flex-1 basis-64 gap-1.5 text-xs font-medium text-slate-600">
+                Completed optimization run
+                <select aria-label="Completed optimization run" value={selectedRunId} title={selectedRunId}
+                  onChange={event => setSelectedRunId(event.target.value)}
+                  className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900">
+                  {completedRuns.length === 0 && <option value="">{loading ? "Loading completed runs…" : "No completed runs"}</option>}
+                  {completedRuns.map(run => <option key={run.run_id} value={run.run_id} title={run.run_id}>
+                    {run.run_id.length > 30 ? `${run.run_id.slice(0, 18)}…${run.run_id.slice(-8)}` : run.run_id}
+                  </option>)}
+                </select>
+              </label>
+              <div className="flex items-center gap-1">
+                <button aria-label="Previous run page" disabled={runPage === 1} onClick={() => setRunPage(p => p - 1)}
+                  className="inline-flex h-10 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+                <button aria-label="Older run page" disabled={runPage * 10 >= runCount} onClick={() => setRunPage(p => p + 1)}
+                  className="inline-flex h-10 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
               </div>
-            )}
-
-
-            <div className="mb-3">
+              {canManage && <PublishScheduleButton runId={selectedRunId} date={day} onPublished={reloadSchedule}
+                mode={String(selectedRun?.parameters.mode ?? "operational")}
+                syntheticSources={Array.isArray(selectedRunSyntheticSources) ? selectedRunSyntheticSources : null} />}
+              <RecommendationExportButton runId={selectedRunId} />
+            </div>
+            <div className="grid gap-3 lg:grid-cols-2">
               <ScheduleHistory day={day} refreshKey={refreshKey} />
-              <div className="text-3xl font-bold text-gray-900">{formattedToday}</div>
-              <div className="text-sm text-gray-600">{selectedShiftLabel}</div>
-              <label>Operational date <input type="date" value={day} onChange={e => { setSchedule([]); setDay(e.target.value); }} /></label>
-              <p role="status">{connection} · Last successful refresh: {lastRefresh ? operationalTime(lastRefresh) : "Not loaded"}</p>
-              <button onClick={() => setRefreshKey(k => k + 1)} className="underline">Refresh schedule</button>
-            </div>
-
-            <details className="rounded-lg border border-slate-200 bg-white p-3">
-            <summary className="cursor-pointer text-sm font-medium">Staffing summary · {activeAssignments} scheduled assignments · {coverage.percent}% coverage</summary>
-            <div className="mt-3 rounded-lg border border-yellow-100 bg-yellow-50 px-4 py-3">
-              <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase text-yellow-800">
-                <CalendarDays className="h-4 w-4" />
-                Officers without scheduled assignments
-                <span className="text-yellow-700">{availableOfficerPool.length} Officers Unassigned</span>
-              </div>
-              <p className="mb-2 text-xs text-yellow-800">These officers have no scheduled posts in the selected shift. Gaps in each officer's Gantt row show additional availability.</p>
-              <div className="flex flex-wrap items-center gap-2">
-                {availableOfficerPool.slice(0, 10).map((officer) => (
-                  <div key={officer.id} className="flex items-center gap-1 rounded-full border border-yellow-200 bg-white px-2 py-1 text-xs">
-                    <div className="flex h-6 w-6 items-center justify-center rounded-full bg-yellow-300 font-semibold text-yellow-900">
-                      {officer.name
-                        .split(" ")
-                        .map((part) => part[0])
-                        .join("")
-                        .slice(0, 2)
-                        .toUpperCase()}
-                    </div>
-                    <span className="font-medium text-gray-700">{officer.badge_number}</span>
+              <details className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
+                <summary className="cursor-pointer font-medium">Staffing summary · {coverageAvailable ? `${coverage.covered}/${coverage.total} intersections covered` : loading ? "Loading…" : "Unavailable"}</summary>
+                <div className="mt-3 space-y-3 text-sm text-slate-600">
+                  <p>Coverage counts intersections meeting staffing requirements. Zero required is valid coverage.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg bg-slate-50 p-2">Morning <strong className="ml-1 text-slate-900">{lastRefresh ? activeScope.filter(d => d.shift === "morning").length : "—"}</strong></div>
+                    <div className="rounded-lg bg-slate-50 p-2">Afternoon <strong className="ml-1 text-slate-900">{lastRefresh ? activeScope.filter(d => d.shift === "afternoon").length : "—"}</strong></div>
                   </div>
-                ))}
-                {availableOfficerPool.length === 0 && <span className="text-xs text-yellow-800">No unassigned officers for current filter.</span>}
-              </div>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-900">
+                    <p className="font-medium">{officerPoolAvailable ? availableOfficerPool.length : "—"} officers without scheduled assignments</p>
+                    <p className="mt-1 text-xs">No scheduled posts in the selected shift. Gaps in each Gantt row show additional availability.</p>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {officerPoolAvailable && availableOfficerPool.slice(0, 10).map(officer => <span key={officer.id} title={officer.name} className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs font-medium">{officer.badge_number}</span>)}
+                      {officerPoolAvailable && availableOfficerPool.length > 10 && <span className="px-1 py-1 text-xs">+{availableOfficerPool.length - 10} more</span>}
+                    </div>
+                  </div>
+                </div>
+              </details>
             </div>
-
-            <div className="rounded-lg bg-yellow-50 p-3 text-sm text-yellow-800">
-              Coverage: {coverage.covered}/{coverage.total} intersections meeting staffing requirements ({coverage.percent}%)
-              <span className="ml-2 text-xs">Zero required is valid coverage. The timeline shows availability within the day.</span>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-200 pt-3">
+              <p className="text-xs text-slate-600">Clear assignments for the selected date and shift.</p>
+              <ConfirmDialog title="Clear Schedule?"
+                description={`This will cancel assignments for ${day}, ${shiftFilter} shift(s). Republishing a valid run creates a new schedule.`}
+                confirmText="Clear Schedule" cancelText="Cancel" isDangerous requiresTypedConfirmation="CLEAR_SCHEDULE"
+                onConfirm={clearScheduleConfirmed}
+                onCancel={() => setPublishError("Clear schedule cancelled. Type CLEAR_SCHEDULE next time to confirm the reset.")}
+                trigger={<button disabled={!canManage || clearingSchedule || activeAssignments === 0}
+                  className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50">
+                  <XCircle className="h-4 w-4" />{clearingSchedule ? "Clearing…" : "Clear schedule"}
+                </button>}
+                disabled={!canManage || clearingSchedule || activeAssignments === 0} />
             </div>
-
-            <div className="mt-3 grid grid-cols-4 gap-3 text-sm">
-              <div className="rounded-lg border bg-white px-3 py-2">
-                <div className="text-xs text-gray-500">Active Assignments</div>
-                <div className="font-semibold">{activeAssignments}</div>
-              </div>
-              <div className="rounded-lg border bg-white px-3 py-2">
-                <div className="text-xs text-gray-500">Morning Shift</div>
-                <div className="font-semibold">{activeScope.filter(d => d.shift === "morning").length}</div>
-              </div>
-              <div className="rounded-lg border bg-white px-3 py-2">
-                <div className="text-xs text-gray-500">Afternoon Shift</div>
-                <div className="font-semibold">{activeScope.filter(d => d.shift === "afternoon").length}</div>
-              </div>
-              <div className="rounded-lg border bg-white px-3 py-2">
-                <div className="text-xs text-gray-500">Coverage</div>
-                <div className="font-semibold">{coverage.percent}%</div>
-              </div>
-            </div>
-
-            </details>
-            <div className="mt-3 flex flex-col gap-3 md:flex-row">
-              <AreaFilter nodes={bottlenecks} value={area} onChange={setArea}/>
-              <input
-                aria-label="Search schedule"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search officer, bottleneck, type, status..."
-                className="w-full rounded-lg border px-3 py-2 text-sm md:flex-1"
-              />
-              <select
-                aria-label="Viewing shift"
-                value={shiftFilter}
-                onChange={(event) => setShiftFilter(event.target.value)}
-                className="rounded-lg border px-3 py-2 text-sm md:w-48"
-              >
-                <option value="all">All shifts</option>
-                <option value="morning">Morning (6AM-2PM)</option>
-                <option value="afternoon">Afternoon (2PM-10PM)</option>
-              </select>
-            </div>
-          </>
+          </div>
         )}
-      </div>
+      </header>
 
       <OperationsPanel day={day} shift={shiftFilter} area={area} nodes={bottlenecks} officers={officers} canManage={canManage} refreshKey={refreshKey} onBlocks={setBlocks} onChanged={()=>setRefreshKey(k=>k+1)}/>
       {/* Deployment Board */}
       {(
-        <div className="px-4 pt-4">
-          <div className="mb-2 flex items-center gap-2">
-            <BarChart3 className="h-4 w-4 text-yellow-500" />
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Deployment Gantt</span>
-            <div className="ml-auto flex flex-wrap gap-2">
-              {canManage && <><button onClick={()=>setEditingAssignment(null)} className="rounded bg-yellow-400 px-3 py-1.5 text-xs font-medium">Add assignment</button><button onClick={()=>setEditingStaffing(true)} className="rounded border px-3 py-1.5 text-xs font-medium">Staffing periods</button></>}
+        <div className="min-w-0 shrink-0 px-4 py-3 sm:px-6">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <BarChart3 className="h-4 w-4 text-amber-600" />
+            <span className="text-sm font-semibold text-slate-700">Timeline</span>
+            <div className="ml-auto flex items-center gap-1 rounded-lg bg-slate-100 p-1" role="group" aria-label="Timeline grouping">
               <button
                 onClick={() => setGanttViewMode("officer")}
-                className={`rounded px-2 py-1 text-xs font-medium ${ganttViewMode === "officer" ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                aria-pressed={ganttViewMode === "officer"}
+                className={`rounded-md px-2.5 py-1.5 text-xs font-medium ${ganttViewMode === "officer" ? "bg-amber-50 text-amber-900 shadow-sm" : "text-slate-600 hover:bg-slate-200"}`}
               >
                 By Officer
               </button>
               <button
                 onClick={() => setGanttViewMode("bottleneck")}
-                className={`rounded px-2 py-1 text-xs font-medium ${ganttViewMode === "bottleneck" ? "bg-yellow-400 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+                aria-pressed={ganttViewMode === "bottleneck"}
+                className={`rounded-md px-2.5 py-1.5 text-xs font-medium ${ganttViewMode === "bottleneck" ? "bg-amber-50 text-amber-900 shadow-sm" : "text-slate-600 hover:bg-slate-200"}`}
               >
                 By Intersection
               </button>
             </div>
+            {canManage && <div className="flex w-full gap-2 sm:w-auto">
+              <button onClick={()=>setEditingAssignment(null)} className="rounded-lg bg-amber-400 px-3 py-2 text-xs font-semibold text-slate-950 hover:bg-amber-500">Add assignment</button>
+              <button onClick={()=>setEditingStaffing(true)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium hover:bg-slate-50">Staffing periods</button>
+            </div>}
           </div>
-          <GanttTimeline deployments={filteredSchedule} viewMode={ganttViewMode} day={day} shift={shiftFilter} blocks={blocks}
+          {!lastRefresh ? <section aria-label="Deployment Gantt timeline" aria-busy={loading} className="flex min-h-48 items-center justify-center rounded-xl border border-slate-200 bg-white p-6">
+            <p role="status" className="flex items-center gap-2 text-sm text-slate-600">{loading && <RefreshCw className="h-4 w-4 motion-safe:animate-spin" />}{loading ? "Loading deployment schedule…" : "Schedule could not be loaded. Refresh to try again."}</p>
+          </section> : <GanttTimeline deployments={filteredSchedule} viewMode={ganttViewMode} day={day} shift={shiftFilter} blocks={blocks}
             bottlenecks={bottlenecks.filter(n=>inArea(n,area)&&(!query.trim()||`${n.name} ${n.id} ${n.area_name??""}`.toLowerCase().includes(query.toLowerCase())))}
             officers={officers.filter(o=>(!area||filteredSchedule.some(d=>d.officer===o.badge_number))&&(!query.trim()||`${o.name} ${o.badge_number}`.toLowerCase().includes(query.toLowerCase())))}
-            onSelect={canManage?setEditingAssignment:undefined}/>
+            onSelect={canManage?setEditingAssignment:undefined}/>}
         </div>
       )}
 
-      <div className="border-b border-gray-200 bg-white px-6 py-2">
-        <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Schedule Workspace</div>
+      <div className="shrink-0 px-4 pb-3 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+          <div className="text-sm font-medium text-slate-700">Assignment list & coverage <span className="ml-1 text-xs font-normal text-slate-600">({lastRefresh ? `${filteredSchedule.length} records` : loading ? "Loading…" : "Unavailable"})</span></div>
           <button
             onClick={() => setBottomCollapsed((current) => !current)}
-            className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-            aria-label={bottomCollapsed ? "Expand schedule content" : "Collapse schedule content"}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+            aria-expanded={!bottomCollapsed}
+            aria-controls="schedule-records"
+            aria-label={bottomCollapsed ? "Show assignment list and coverage" : "Hide assignment list and coverage"}
           >
             {bottomCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
-            {bottomCollapsed ? "Expand bottom" : "Collapse bottom"}
+            {bottomCollapsed ? "Show details" : "Hide details"}
           </button>
         </div>
       </div>
 
-      {error && <div className="px-6 py-4 text-sm text-red-600">{error}</div>}
-
-      {!bottomCollapsed ? (
-        <div className="flex flex-1 gap-4 overflow-hidden p-4">
-          <div className="flex-1 overflow-auto rounded-xl border bg-white">
-            <table className="min-w-full divide-y divide-gray-200 text-sm">
-              <thead className="bg-gray-50">
+      {!bottomCollapsed && (
+        <div id="schedule-records" className="flex min-w-0 shrink-0 flex-col gap-4 px-4 pb-4 sm:px-6 xl:flex-row">
+          <div className="min-w-0 flex-1 overflow-auto rounded-xl border border-slate-200 bg-white">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50">
                 <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Bottleneck</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Officer</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Shift</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Start</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">End</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Type</th>
-                  <th className="px-4 py-3 text-left font-semibold text-gray-700">Status</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Bottleneck</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Officer</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Shift</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Start</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">End</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Type</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-700">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-100 bg-white">
+              <tbody className="divide-y divide-slate-100 bg-white">
                 {filteredSchedule.length === 0 && (
                   <tr>
-                    <td className="px-4 py-6 text-gray-500" colSpan={7}>
-                      No deployments match the current filters.
+                    <td className="px-4 py-6 text-slate-600" colSpan={7}>
+                      {lastRefresh ? "No deployments match the current filters." : loading ? "Loading deployments…" : "Schedule unavailable."}
                     </td>
                   </tr>
                 )}
                 {filteredSchedule.map((item) => (
                   <tr key={item.id}>
-                    <td className="px-4 py-3">{item.area_name&&<div className="text-xs text-slate-500">{item.area_name}</div>}{item.bottleneck_name??item.bottleneck}</td>
+                    <td className="px-4 py-3">{item.area_name&&<div className="text-xs text-slate-600">{item.area_name}</div>}{item.bottleneck_name??item.bottleneck}</td>
                     <td className="px-4 py-3">{item.officer} - {item.officer_name}</td>
                     <td className="px-4 py-3 capitalize">{item.shift}</td>
                     <td className="px-4 py-3">{operationalTime(item.start_time)}</td>
@@ -512,8 +487,8 @@ export function GanttChart() {
                       <span className={`rounded px-2 py-1 text-xs font-medium capitalize ${
                         item.status === "assigned" ? "bg-blue-100 text-blue-700" :
                         item.status === "published" ? "bg-green-100 text-green-700" :
-                        item.status === "completed" ? "bg-gray-100 text-gray-700" :
-                        "bg-yellow-100 text-yellow-700"
+                        item.status === "completed" ? "bg-slate-100 text-slate-700" :
+                        "bg-amber-100 text-amber-900"
                       }`}>
                         {item.status}
                       </span>
@@ -524,13 +499,13 @@ export function GanttChart() {
             </table>
           </div>
 
-          <aside className="w-full space-y-4 overflow-y-auto lg:sticky lg:top-4 lg:h-[calc(100vh-10rem)] lg:w-80 lg:self-start">
+          <aside className="w-full min-w-0 space-y-4 xl:w-96 xl:shrink-0 xl:self-start">
             <div className="rounded-xl border bg-white p-4">
               <h3 className="mb-3 font-semibold">Coverage Matrix</h3>
-              <p className="mb-2 text-xs text-gray-500">Officers assigned at each displayed hour (Asia/Manila). Includes completed service.</p>
-              <div className="space-y-1 overflow-x-auto">
+              <p className="mb-2 text-xs text-slate-600">Officers assigned at each displayed hour (Asia/Manila). Includes completed service.</p>
+              {coverageAvailable ? <div className="space-y-1 overflow-x-auto">
                 {/* Hour header */}
-                <div className="grid gap-1 text-[10px] text-gray-500" style={{gridTemplateColumns: `4rem repeat(${hourSlots.length}, minmax(2rem, 1fr))`}}>
+                <div className="grid gap-1 text-[11px] text-slate-600" style={{gridTemplateColumns: `4rem repeat(${hourSlots.length}, minmax(2rem, 1fr))`}}>
                   <div className="truncate pr-1" title="Bottleneck">BN</div>
                   {hourSlots.map((hour) => (
                     <div key={hour} className="text-center">{hour}:00</div>
@@ -538,21 +513,21 @@ export function GanttChart() {
                 </div>
                 {matrixRows.map(({ row, cells }) => (
                   <div key={row.id} className="grid gap-1" style={{gridTemplateColumns: `4rem repeat(${hourSlots.length}, minmax(2rem, 1fr))`}}>
-                    <div className="truncate pr-1 text-[10px] font-medium text-gray-600" title={row.name ?? row.id}>
+                    <div className="truncate pr-1 text-[11px] font-medium text-slate-600" title={row.name ?? row.id}>
                       {(row.id ?? "").replace("bn-", "").slice(0, 6)}
                     </div>
                     {cells.map(({count,required}, index) => (
                       <div
                         key={`${row.id}-${hourSlots[index]}`}
-                        className={`h-6 rounded ${required == null ? "bg-slate-100" : required === 0 && count === 0 ? "bg-emerald-100" : count >= required ? "bg-yellow-400" : "bg-rose-100"}`}
+                        className={`h-6 rounded ${required == null ? "bg-slate-100" : required === 0 && count === 0 ? "bg-emerald-100" : count >= required ? "bg-amber-400" : "bg-rose-100"}`}
                         title={`${row.name ?? row.id} @ ${hourSlots[index]}:00 -> ${count} officer(s)${required == null ? "" : ` / ${required} required`}`}
                       />
                     ))}
                   </div>
                 ))}
-              </div>
+              </div> : <p className="py-3 text-sm text-slate-600">{loading ? "Loading coverage…" : "Coverage unavailable."}</p>}
 
-              <div className="mt-4 space-y-1 text-xs text-gray-600">
+              <div className="mt-4 space-y-1 text-xs text-slate-600">
                 {matrixLegend.map((legend) => (
                   <div key={legend.label} className="flex items-center gap-2">
                     <div className={`h-3 w-3 rounded ${legend.className}`} />
@@ -562,22 +537,6 @@ export function GanttChart() {
               </div>
             </div>
           </aside>
-        </div>
-      ) : (
-        <div className="px-4 py-4">
-          <div className="flex items-center justify-between rounded-xl border border-dashed border-gray-300 bg-white px-4 py-3">
-            <div>
-              <div className="text-sm font-semibold text-gray-700">Schedule hidden</div>
-              <div className="text-xs text-gray-500">Expand bottom section to view assignments and officer management.</div>
-            </div>
-            <button
-              onClick={() => setBottomCollapsed(false)}
-              className="inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              <ChevronDown className="h-4 w-4" />
-              Expand
-            </button>
-          </div>
         </div>
       )}
       {canManage && editingAssignment !== undefined && <AssignmentEditor assignment={editingAssignment} day={day} initialShift={shiftFilter} officers={officers} nodes={bottlenecks} onClose={()=>setEditingAssignment(undefined)} onSaved={reloadSchedule}/>}

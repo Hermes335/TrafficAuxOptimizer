@@ -107,9 +107,17 @@ class OfficerSerializer(serializers.ModelSerializer):
         ]
 
 class IncidentSerializer(serializers.ModelSerializer):
+    photo_url = serializers.SerializerMethodField()
+
+    def get_photo_url(self, incident):
+        from incidents.photos import legacy_photo_name
+        if incident.photo_path or legacy_photo_name(incident.photo_url):
+            return f"/api/incidents/{incident.pk}/photo/"
+        return ""
+
     class Meta:
         model = Incident
-        fields = "__all__"
+        exclude = ["photo_path", "submission_key", "submission_fingerprint"]
 
 
 class DeploymentSerializer(serializers.ModelSerializer):
@@ -192,19 +200,38 @@ class POISerializer(serializers.ModelSerializer):
 class IncidentCreateSerializer(serializers.ModelSerializer):
     latitude = FiniteFloatField(min_value=-90, max_value=90, required=False, allow_null=True)
     longitude = FiniteFloatField(min_value=-180, max_value=180, required=False, allow_null=True)
+    description = serializers.CharField(max_length=5000, trim_whitespace=True)
 
     def validate(self, data):
+        if self.instance and self.instance.status in {"pending", "rejected"}:
+            raise serializers.ValidationError("Public submissions must be approved before they can be edited.")
+        if self.initial_data.get("photo_url"):
+            raise serializers.ValidationError({"photo_url": "Upload a photo through the report form."})
         node = data.get("bottleneck", getattr(self.instance, "bottleneck", None))
         if node and (node.is_deleted or node.is_archived):
             raise serializers.ValidationError({"bottleneck": "Select an active bottleneck."})
-        if not self.instance and not node and (data.get("latitude") is None or data.get("longitude") is None):
+        explicit_coordinates = "latitude" in data or "longitude" in data
+        if explicit_coordinates:
+            if data.get("latitude") is None or data.get("longitude") is None:
+                raise serializers.ValidationError("Provide both latitude and longitude for the selected pin.")
+            # Keep the location association when a form resends an unchanged
+            # pin. Six-decimal coordinate fields may round by half a unit.
+            if self.instance and "bottleneck" not in data:
+                previous_latitude = self.instance.latitude
+                previous_longitude = self.instance.longitude
+                if node:
+                    previous_latitude = node.latitude if previous_latitude is None else previous_latitude
+                    previous_longitude = node.longitude if previous_longitude is None else previous_longitude
+                moved = (previous_latitude is None or previous_longitude is None or
+                         abs(data["latitude"] - previous_latitude) > 0.0000005 or
+                         abs(data["longitude"] - previous_longitude) > 0.0000005)
+                if moved:
+                    data["bottleneck"] = None
+        elif node and (not self.instance or "bottleneck" in data):
+            data["latitude"], data["longitude"] = node.latitude, node.longitude
+        elif not self.instance or ("bottleneck" in data and node is None and
+                                   (self.instance.latitude is None or self.instance.longitude is None)):
             raise serializers.ValidationError("A location or bottleneck is required.")
-        if node:
-            if "bottleneck" in data:
-                data["latitude"], data["longitude"] = node.latitude, node.longitude
-            else:
-                data.setdefault("latitude", node.latitude)
-                data.setdefault("longitude", node.longitude)
         return data
 
     class Meta:
@@ -214,7 +241,6 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
             "incident_type",
             "severity",
             "description",
-            "photo_url",
             "latitude",
             "longitude",
         ]
@@ -227,7 +253,7 @@ class IncidentCreateSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
-class IncidentResponseSerializer(serializers.ModelSerializer):
+class IncidentResponseSerializer(IncidentSerializer):
     latitude = FiniteFloatField(required=False, allow_null=True)
     longitude = FiniteFloatField(required=False, allow_null=True)
 
@@ -249,4 +275,8 @@ class IncidentResponseSerializer(serializers.ModelSerializer):
             "reported_by",
             "created_at",
             "updated_at",
+            "source",
+            "reference",
+            "reviewed_by",
+            "reviewed_at",
         ]

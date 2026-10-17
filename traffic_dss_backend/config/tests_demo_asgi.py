@@ -14,6 +14,7 @@ async def accept_websocket(scope, receive, send):
 
 
 @pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize('authenticated,origin,expected', [
     (False, 'https://demo.example.com', False),
     (True, 'https://unapproved.example.com', False),

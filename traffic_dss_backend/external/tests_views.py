@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 import requests
 from urllib3.response import HTTPResponse as ProviderResponse
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -13,8 +14,16 @@ from rest_framework.test import APIClient
 from core.models import Bottleneck, TrafficData, WeatherData
 
 
+@pytest.fixture
+def staff_client(db):
+    user = get_user_model().objects.create_user(username="external-reader", password="test-password")
+    client = APIClient()
+    client.force_authenticate(user=user)
+    return client
+
+
 @pytest.mark.django_db
-def test_weather_api_exposes_live_provenance():
+def test_weather_api_exposes_live_provenance(staff_client):
     WeatherData.objects.create(
         timestamp="2026-09-19T00:00:00Z",
         source="pagasa",
@@ -25,7 +34,7 @@ def test_weather_api_exposes_live_provenance():
         precipitation=0,
         weather_impact_factor=1,
     )
-    response = APIClient().get("/api/weather/current/")
+    response = staff_client.get("/api/weather/current/")
     assert response.status_code == 200
     assert response.json()["source"] == "pagasa"
     assert response.json()["data_status"] == "live"
@@ -33,16 +42,16 @@ def test_weather_api_exposes_live_provenance():
 
 
 @pytest.mark.django_db
-def test_weather_api_reports_unavailable_without_data():
+def test_weather_api_reports_unavailable_without_data(staff_client):
     cache.delete("external:weather:last")
-    response = APIClient().get("/api/weather/current/")
+    response = staff_client.get("/api/weather/current/")
     assert response.status_code == 200
     assert response.json()["data_status"] == "unavailable"
     assert response.json()["available"] is False
 
 
 @pytest.mark.django_db
-def test_traffic_api_exposes_live_provenance_and_unavailable_state():
+def test_traffic_api_exposes_live_provenance_and_unavailable_state(staff_client):
     bottleneck = Bottleneck.objects.create(
         id="B-TRAFFIC",
         name="Traffic Test",
@@ -59,21 +68,21 @@ def test_traffic_api_exposes_live_provenance_and_unavailable_state():
         traffic_severity_index=0.4,
         avg_speed=25,
     )
-    response = APIClient().get("/api/traffic/real-time/")
+    response = staff_client.get("/api/traffic/real-time/")
     assert response.status_code == 200
     assert response.json()[0]["source"] == "tomtom"
     assert response.json()[0]["data_status"] == "live"
 
     TrafficData.objects.all().update(is_deleted=True)
     cache.clear()
-    unavailable = APIClient().get("/api/traffic/real-time/")
+    unavailable = staff_client.get("/api/traffic/real-time/")
     assert unavailable.status_code == 200
     assert unavailable.json()["metadata"]["data_status"] == "unavailable"
     assert unavailable.json()["metadata"]["available"] is False
 
 
 @pytest.mark.django_db
-def test_weather_and_traffic_api_mark_aged_observations_stale(settings):
+def test_weather_and_traffic_api_mark_aged_observations_stale(staff_client, settings):
     settings.TRAFFIC_MAX_INPUT_AGE = 900
     settings.WEATHER_MAX_INPUT_AGE = 1800
     now = timezone.now()
@@ -82,7 +91,7 @@ def test_weather_and_traffic_api_mark_aged_observations_stale(settings):
         source="tomtom", data_status="live", is_stale=False)
     weather = WeatherData.objects.create(timestamp=now, observed_at=now,
         source="openmeteo", data_status="fallback", is_stale=False)
-    client = APIClient()
+    client = staff_client
     assert client.get("/api/traffic/real-time/").json()[0]["is_stale"] is False
     assert client.get("/api/weather/current/").json()["is_stale"] is False
 
@@ -94,7 +103,7 @@ def test_weather_and_traffic_api_mark_aged_observations_stale(settings):
     assert weather_response["source"] == "openmeteo" and weather_response["is_stale"] is True
 
 
-def test_vector_traffic_proxy_does_not_label_decoded_content_as_gzip(settings, monkeypatch):
+def test_vector_traffic_proxy_does_not_label_decoded_content_as_gzip(staff_client, settings, monkeypatch):
     settings.TOMTOM_API_KEY = "test-provider-key"
     protobuf = b"\x1a\x0e\x0a\x0cTraffic flow"
     provider = requests.Response()
@@ -108,13 +117,13 @@ def test_vector_traffic_proxy_does_not_label_decoded_content_as_gzip(settings, m
     get = Mock(return_value=provider)
     monkeypatch.setattr("external.views.requests.get", get)
 
-    response = APIClient().get("/api/maps/tomtom-traffic-vector/14/13769/7701.pbf")
+    response = staff_client.get("/api/maps/tomtom-traffic-vector/14/13769/7701.pbf")
 
     assert response.status_code == 200
     assert response.content == protobuf
     assert response["Content-Type"] == "application/x-protobuf"
     assert "Content-Encoding" not in response
-    assert response["Cache-Control"] == "public, max-age=60"
+    assert response["Cache-Control"] == "private, max-age=60"
     url = get.call_args.args[0]
     assert url.endswith("/flow/relative/14/13769/7701.pbf")
     params = get.call_args.kwargs["params"]
@@ -123,20 +132,20 @@ def test_vector_traffic_proxy_does_not_label_decoded_content_as_gzip(settings, m
 
 
 @pytest.mark.parametrize("tile", ["23/0/0", "14/16384/0", "14/0/16384"])
-def test_vector_traffic_proxy_rejects_invalid_coordinates(settings, monkeypatch, tile):
+def test_vector_traffic_proxy_rejects_invalid_coordinates(staff_client, settings, monkeypatch, tile):
     settings.TOMTOM_API_KEY = "test-provider-key"
     get = Mock()
     monkeypatch.setattr("external.views.requests.get", get)
-    response = APIClient().get(f"/api/maps/tomtom-traffic-vector/{tile}.pbf")
+    response = staff_client.get(f"/api/maps/tomtom-traffic-vector/{tile}.pbf")
     assert response.status_code == 400
     get.assert_not_called()
 
 
-def test_vector_traffic_proxy_reports_missing_configuration(settings, monkeypatch):
+def test_vector_traffic_proxy_reports_missing_configuration(staff_client, settings, monkeypatch):
     settings.TOMTOM_API_KEY = ""
     get = Mock()
     monkeypatch.setattr("external.views.requests.get", get)
-    response = APIClient().get("/api/maps/tomtom-traffic-vector/14/13769/7701.pbf")
+    response = staff_client.get("/api/maps/tomtom-traffic-vector/14/13769/7701.pbf")
     assert response.status_code == 503
     get.assert_not_called()
 
@@ -146,11 +155,11 @@ def test_vector_traffic_proxy_reports_missing_configuration(settings, monkeypatc
     "tomtom-traffic/14/13769/7701.png",
     "tomtom-traffic-vector/14/13769/7701.pbf",
 ])
-def test_tile_failures_do_not_expose_provider_key(settings, monkeypatch, endpoint):
+def test_tile_failures_do_not_expose_provider_key(staff_client, settings, monkeypatch, endpoint):
     settings.TOMTOM_API_KEY = "private-test-key"
     get = Mock(side_effect=requests.RequestException("Provider URL contained key=private-test-key"))
     monkeypatch.setattr("external.views.requests.get", get)
-    response = APIClient().get(f"/api/maps/{endpoint}")
+    response = staff_client.get(f"/api/maps/{endpoint}")
     assert response.status_code == 502
     assert "private-test-key" not in response.json()["detail"]
 
@@ -170,78 +179,78 @@ def raster_provider(settings, monkeypatch):
 RASTER_URL = "/api/maps/tomtom-traffic/14/13770/7701.png?style=relative0"
 
 
-def test_raster_traffic_retries_transient_failure_and_caches_only_fresh_tiles(raster_provider, monkeypatch, caplog):
+def test_raster_traffic_retries_transient_failure_and_caches_only_fresh_tiles(staff_client, raster_provider, monkeypatch, caplog):
     caplog.set_level("INFO", logger="external_apis")
     monkeypatch.setattr("external.views.logger.handlers", [caplog.handler])
     get, provider = raster_provider
     get.side_effect = [requests.ReadTimeout("key=raster-test-key"), provider, provider]
     now = timezone.now()
     monkeypatch.setattr("external.views.timezone.now", lambda: now)
-    response = APIClient().get(RASTER_URL)
+    response = staff_client.get(RASTER_URL)
     assert response.status_code == 200 and response.content == provider.content
     assert get.call_count == 2
     assert "retrying" in caplog.text
     assert not any(record.levelname == "WARNING" and "Traffic tile transport failure" in record.message for record in caplog.records)
     assert get.call_args_list[0].args[0].startswith("https://api.tomtom.com/")
     assert get.call_args_list[1].args[0].startswith("https://a.api.tomtom.com/")
-    assert response["Cache-Control"] == "public, max-age=120"
+    assert response["Cache-Control"] == "private, max-age=120"
     monkeypatch.setattr("external.views.timezone.now", lambda: now + timedelta(seconds=35))
-    cached = APIClient().get(RASTER_URL)
+    cached = staff_client.get(RASTER_URL)
     assert cached.status_code == 200 and get.call_count == 2
-    assert cached["Cache-Control"] == "public, max-age=85"
+    assert cached["Cache-Control"] == "private, max-age=85"
     monkeypatch.setattr("external.views.timezone.now", lambda: now + timedelta(seconds=121))
-    assert APIClient().get(RASTER_URL).status_code == 200
+    assert staff_client.get(RASTER_URL).status_code == 200
     assert get.call_count == 3
 
 
-def test_raster_timeout_is_bounded_and_not_cached(raster_provider, caplog, monkeypatch):
+def test_raster_timeout_is_bounded_and_not_cached(staff_client, raster_provider, caplog, monkeypatch):
     monkeypatch.setattr("external.views.logger.handlers", [caplog.handler])
     get, provider = raster_provider
     get.side_effect = [requests.Timeout("key=raster-test-key"), requests.Timeout(), provider]
-    response = APIClient().get(RASTER_URL)
+    response = staff_client.get(RASTER_URL)
     assert response.status_code == 504 and get.call_count == 2
     assert any(record.levelname == "WARNING" and "tile unavailable" in record.message for record in caplog.records)
     assert "raster-test-key" not in response.content.decode()
     assert response["Cache-Control"] == "no-store"
-    assert APIClient().get(RASTER_URL).status_code == 200
+    assert staff_client.get(RASTER_URL).status_code == 200
     assert get.call_count == 3
 
 
 @pytest.mark.parametrize("status", [401, 403, 429])
-def test_raster_access_or_quota_failure_is_not_retried(raster_provider, status):
+def test_raster_access_or_quota_failure_is_not_retried(staff_client, raster_provider, status):
     get, provider = raster_provider
     provider.status_code = status
-    assert APIClient().get(RASTER_URL).status_code == status
+    assert staff_client.get(RASTER_URL).status_code == status
     assert get.call_count == 1
 
 
-def test_raster_transient_provider_error_is_retried(raster_provider):
+def test_raster_transient_provider_error_is_retried(staff_client, raster_provider):
     get, provider = raster_provider
     unavailable = requests.Response()
     unavailable.status_code = 503
     get.side_effect = [unavailable, provider]
-    assert APIClient().get(RASTER_URL).status_code == 200
+    assert staff_client.get(RASTER_URL).status_code == 200
     assert get.call_count == 2
 
 
-def test_raster_rejects_invalid_provider_content_without_caching(raster_provider):
+def test_raster_rejects_invalid_provider_content_without_caching(staff_client, raster_provider):
     get, provider = raster_provider
     provider._content = b"<html>upstream error</html>"
-    assert APIClient().get(RASTER_URL).status_code == 502
-    assert APIClient().get(RASTER_URL).status_code == 502
+    assert staff_client.get(RASTER_URL).status_code == 502
+    assert staff_client.get(RASTER_URL).status_code == 502
     assert get.call_count == 2
 
 
-def test_raster_cache_outage_does_not_hide_live_tiles(raster_provider, monkeypatch):
+def test_raster_cache_outage_does_not_hide_live_tiles(staff_client, raster_provider, monkeypatch):
     _, provider = raster_provider
     monkeypatch.setattr("external.views.cache.get", Mock(side_effect=ConnectionError()))
     monkeypatch.setattr("external.views.cache.set", Mock(side_effect=ConnectionError()))
-    response = APIClient().get(RASTER_URL)
+    response = staff_client.get(RASTER_URL)
     assert response.status_code == 200 and response.content == provider.content
 
 
 @pytest.mark.parametrize("tile", ["23/0/0", "14/16384/0", "14/0/16384"])
-def test_raster_traffic_proxy_rejects_invalid_coordinates(raster_provider, tile):
+def test_raster_traffic_proxy_rejects_invalid_coordinates(staff_client, raster_provider, tile):
     get, _ = raster_provider
-    assert APIClient().get(f"/api/maps/tomtom-traffic/{tile}.png").status_code == 400
+    assert staff_client.get(f"/api/maps/tomtom-traffic/{tile}.png").status_code == 400
     get.assert_not_called()

@@ -21,7 +21,7 @@ export function useBottleneckActions({
   setBottleneckActionNotice,
   setDeletingBottleneckId,
 }: UseBottleneckActionsOptions) {
-  const [addMode, setAddMode] = useState<"bottleneck" | "incident" | "poi" | null>(null);
+  const [addMode, setAddMode] = useState<"bottleneck" | "poi" | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [pendingPoint, setPendingPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [editingBottleneckId, setEditingBottleneckId] = useState<string | null>(null);

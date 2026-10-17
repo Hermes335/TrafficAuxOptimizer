@@ -78,7 +78,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
   const publicationTrigger = <DialogTrigger asChild>
     <button type="button" aria-label="Preview publication" title={compact && publicationWarning ? undefined : "Preview publication"}
       disabled={!runId || mode === "shadow" || Boolean(syntheticSources?.length)}
-      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md bg-yellow-400 font-semibold text-gray-900 transition-colors hover:bg-yellow-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${compact ? "h-9 w-full px-3 text-sm disabled:pointer-events-none" : "h-10 px-4"}`}>
+      className={`inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-amber-400 font-semibold text-slate-950 transition-colors hover:bg-amber-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${compact ? "h-9 w-full px-3 text-sm disabled:pointer-events-none" : "h-10 px-4"}`}>
       {compact && (publicationWarning
         ? <TriangleAlert className={`h-4 w-4 ${syntheticSources?.length ? "text-red-700" : "text-amber-800"}`} aria-hidden="true" />
         : <Eye className="h-4 w-4" aria-hidden="true" />)}
@@ -94,7 +94,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
       {compact && publicationWarning ? <Tooltip>
         <TooltipTrigger asChild>
           <span tabIndex={0} role="group" aria-label={`Publication unavailable. ${publicationWarning}`}
-            className="inline-flex w-full cursor-help rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2">
+            className="inline-flex w-full cursor-help rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2">
             {publicationTrigger}
           </span>
         </TooltipTrigger>

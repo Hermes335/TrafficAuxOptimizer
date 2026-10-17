@@ -28,9 +28,9 @@ export function IncidentTicker({ incidents, onRemoveIncident }: IncidentTickerPr
   return (
     <div className="rounded-lg border bg-white p-4">
       <div className="mb-3 flex items-center gap-2">
-        <AlertCircle className="h-5 w-5 text-red-500" />
-        <h3 className="font-semibold">Active Incidents</h3>
-        <span className="ml-auto rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+        <AlertCircle className={`h-4 w-4 ${incidents.length ? "text-red-600" : "text-slate-500"}`} />
+        <h3 className="text-base font-semibold">Active Incidents</h3>
+        <span className={`ml-auto rounded-full px-2 py-0.5 text-xs font-medium ${incidents.length ? "bg-red-100 text-red-700" : "bg-emerald-50 text-emerald-800"}`}>
           {incidents.length > 0 ? `${incidents.length} LIVE` : "CLEAR"}
         </span>
       </div>

@@ -1,10 +1,10 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter, Route, Routes } from "react-router";
-import { IncidentReport } from "../app/pages/IncidentReport";
+import { MemoryRouter } from "react-router";
 import { GanttChart } from "../app/pages/GanttChart";
 import { PublishScheduleButton } from "../app/components/PublishScheduleButton";
 import { useDashboardData } from "../app/hooks/useDashboardData";
+import { WeatherProvider } from "../app/contexts/WeatherContext";
 import { operationalDate } from "../app/services/operationalTime";
 import * as backend from "../app/services/backend";
 vi.mock("../app/services/backend", async original => ({
@@ -19,10 +19,6 @@ vi.mock("../app/contexts/AuthContext", () => ({useAuth: () => ({user: {role: "su
 vi.mock("../app/pages/GanttChart/GanttTimeline", () => ({GanttTimeline: () => null}));
 vi.mock("../app/components/ScheduleHistory", () => ({ScheduleHistory: () => null}));
 const nodes = [{id:"A", name:"First node"}, {id:"B", name:"Saved node"}] as backend.BottleneckOption[];
-const meta = {incident_types: [{value:"collision", label:"Collision"}, {value:"flooding", label:"Flooding"}],
-  severities: [{value:"major", label:"Major"}, {value:"critical", label:"Critical"}], statuses:[]};
-const incident = {id:42, incident_type:"flooding", severity:"critical", description:"Saved details", bottleneck:"B",
-  latitude:10.7, longitude:122.5, status:"active"};
 const day = operationalDate();
 const assignment: backend.DeploymentScheduleItem = {id:1, officer:"REVIEW-1", officer_name:"Fixture officer",
   bottleneck:"A", shift:"morning", assignment_type:"static", status:"assigned",
@@ -34,8 +30,6 @@ const preview: backend.PublicationPreview = {run_id:"run-A", operational_date:da
 beforeEach(() => {
   vi.resetAllMocks(); localStorage.clear();
   vi.mocked(backend.fetchBottlenecks).mockResolvedValue(nodes);
-  vi.mocked(backend.fetchIncidentMeta).mockResolvedValue(meta);
-  vi.mocked(backend.fetchIncident).mockResolvedValue(incident);
   vi.mocked(backend.updateIncident).mockResolvedValue(undefined);
   vi.mocked(backend.fetchDeploymentSchedule).mockResolvedValue([assignment]);
   vi.mocked(backend.fetchDashboardOfficers).mockResolvedValue([{id:1, name:"Fixture officer", badge_number:"REVIEW-1",
@@ -48,54 +42,25 @@ beforeEach(() => {
   vi.mocked(backend.fetchPOIs).mockResolvedValue([]);
   vi.mocked(backend.fetchCurrentWeather).mockResolvedValue({} as backend.WeatherCurrentSnapshot);
 });
-function renderIncident() {
-  return render(<MemoryRouter initialEntries={["/incidents/42"]}><Routes>
-    <Route path="/incidents/:id" element={<IncidentReport />} />
-  </Routes></MemoryRouter>);
-}
-it("waits for metadata and retains saved incident severity, type, and location", async () => {
-  let resolveMeta!: (data: typeof meta) => void;
-  vi.mocked(backend.fetchIncidentMeta).mockReturnValue(new Promise(resolve => {resolveMeta = resolve;}));
-  renderIncident();
-  expect(screen.getByText("UPDATE REPORT")).toHaveProperty("disabled", true);
-  await act(async () => resolveMeta(meta));
-  await screen.findByDisplayValue("Saved details");
-  fireEvent.click(screen.getByText("UPDATE REPORT"));
-  await waitFor(() => expect(backend.updateIncident).toHaveBeenCalledWith(42,
-    {incident_type:"flooding", severity:"critical", description:"Saved details", bottleneck:"B"}));
-});
-it("saves an edited incident location", async () => {
-  renderIncident(); await screen.findByDisplayValue("Saved details");
-  fireEvent.change(screen.getByLabelText("INCIDENT LOCATION"), {target:{value:"A"}});
-  fireEvent.click(screen.getByText("UPDATE REPORT"));
-  await screen.findByText("Incident updated successfully.");
-  expect(backend.updateIncident).toHaveBeenCalledWith(42, expect.objectContaining({bottleneck:"A",severity:"critical"}));
-});
-it("prevents saving a failed incident load and permits retry", async () => {
-  vi.mocked(backend.fetchIncident).mockRejectedValueOnce(new Error("Incident not found"));
-  renderIncident(); await screen.findByRole("alert");
-  expect(screen.getByText("UPDATE REPORT")).toHaveProperty("disabled", true);
-  fireEvent.click(screen.getByText("Retry loading"));
-  await screen.findByDisplayValue("Saved details");
-  expect(screen.getByText("UPDATE REPORT")).toHaveProperty("disabled", false);
-});
 it("text searches preserve the operational officer pool and active count", async () => {
   render(<MemoryRouter><GanttChart /></MemoryRouter>);
-  await screen.findByText("0 Officers Unassigned");
+  await waitFor(() => expect(screen.getByText("assignments").textContent).toBe("1 assignments"));
   fireEvent.change(screen.getByLabelText("Search schedule"), {target:{value:"no-match"}});
-  expect(screen.getByText("0 Officers Unassigned")).toBeTruthy();
-  expect(screen.getByText("Active Assignments").parentElement?.textContent).toBe("Active Assignments1");
+  expect(screen.getByText("unassigned officers").textContent).toBe("0 unassigned officers");
+  expect(screen.getByText("assignments").textContent).toBe("1 assignments");
 });
 it("completed service is excluded from active counts and retained in historical coverage", async () => {
   vi.mocked(backend.fetchDeploymentSchedule).mockResolvedValue([{...assignment,status:"completed"}]);
   render(<MemoryRouter><GanttChart /></MemoryRouter>);
-  await screen.findByText("1 Officers Unassigned");
-  expect(screen.getByText("Active Assignments").parentElement?.textContent).toBe("Active Assignments0");
+  await waitFor(() => expect(screen.getByText("unassigned officers").textContent).toBe("1 unassigned officers"));
+  expect(screen.getByText("assignments").textContent).toBe("0 assignments");
+  fireEvent.click(screen.getByRole("button", {name: "Show assignment list and coverage"}));
   expect(screen.getByTitle("First node @ 7:00 -> 1 officer(s)")).toBeTruthy();
 });
 it("uses timestamps for 06:30-07:30 coverage", async () => {
   render(<MemoryRouter><GanttChart /></MemoryRouter>);
-  await screen.findByText("0 Officers Unassigned");
+  await waitFor(() => expect(screen.getByText("assignments").textContent).toBe("1 assignments"));
+  fireEvent.click(screen.getByRole("button", {name: "Show assignment list and coverage"}));
   expect(screen.getByTitle("First node @ 6:00 -> 0 officer(s)")).toBeTruthy();
   expect(screen.getByTitle("First node @ 7:00 -> 1 officer(s)")).toBeTruthy();
 });
@@ -104,16 +69,17 @@ it("refreshes preserve the chosen saved run", async () => {
     parameters:{shift:"morning"},result_data:{},fitness_scores:[],created_by:1}));
   vi.mocked(backend.fetchOptimizationHistory).mockResolvedValue({count:2,next:null,results:runs});
   render(<MemoryRouter><GanttChart /></MemoryRouter>);
+  fireEvent.click(screen.getByRole("button", {name: "Schedule tools"}));
   await screen.findByText("run-B");
   fireEvent.change(screen.getByLabelText("Completed optimization run"),{target:{value:"run-B"}});
-  fireEvent.click(screen.getByText("Refresh schedule"));
+  fireEvent.click(screen.getByRole("button", {name: "Refresh schedule"}));
   await waitFor(() => expect(backend.fetchOptimizationHistory).toHaveBeenCalledTimes(2));
   expect(screen.getByLabelText("Completed optimization run")).toHaveProperty("value","run-B");
 });
 it("a history failure does not block loading the schedule", async () => {
   vi.mocked(backend.fetchOptimizationHistory).mockRejectedValue(new Error("History unavailable"));
   render(<MemoryRouter><GanttChart /></MemoryRouter>);
-  await screen.findByText("0 Officers Unassigned");
+  await waitFor(() => expect(screen.getByText("assignments").textContent).toBe("1 assignments"));
   expect(screen.getByText(/Run history: History unavailable/)).toBeTruthy();
 });
 it("a run changing outside an open publication review cannot change that review", async () => {
@@ -142,7 +108,7 @@ it("optional collection failures do not block dashboard updates", async () => {
   const snapshot = {...backend.getFallbackDashboardSnapshot(), incidents:[{id:9,text:"New incident",type:"major" as const}]};
   vi.mocked(backend.fetchDashboardSnapshot).mockResolvedValue(snapshot);
   vi.mocked(backend.fetchPOIs).mockRejectedValue(new Error("POIs unavailable"));
-  const {result} = renderHook(() => useDashboardData("morning"));
+  const {result} = renderHook(() => useDashboardData("morning"), {wrapper: WeatherProvider});
   await waitFor(() => expect(result.current.dashboardSnapshot.incidents[0]?.id).toBe(9));
   expect(result.current.loadError).toBe("Points of interest: POIs unavailable");
 });
@@ -151,7 +117,7 @@ it("coalesces live event bursts into one trailing refresh", async () => {
   let complete!: (snapshot: backend.DashboardSnapshot) => void;
   vi.mocked(backend.fetchDashboardSnapshot).mockReturnValueOnce(new Promise(resolve => {complete = resolve;}));
   vi.mocked(backend.subscribeToDashboardStream).mockImplementation(cb => {receive = cb; return () => {};});
-  renderHook(() => useDashboardData("morning"));
+  renderHook(() => useDashboardData("morning"), {wrapper: WeatherProvider});
   act(() => {for (let i=0;i<8;i++) receive({event:"incident_updated"});});
   expect(backend.fetchDashboardSnapshot).toHaveBeenCalledTimes(1);
   await act(async () => complete(backend.getFallbackDashboardSnapshot()));

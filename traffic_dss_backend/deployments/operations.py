@@ -141,7 +141,7 @@ class ScheduleReviewView(APIView):
         for node in nodes:
             assigned = [d for d in rows if d.bottleneck_id == node.pk]
             ids = [d.pk for d in assigned]
-            all_incidents = list(node.incidents.all())
+            all_incidents = [i for i in node.incidents.all() if i.status not in {"pending", "rejected"}]
             incidents = [i for i in all_incidents if not i.is_deleted and i.status in {"active", "investigating"}]
             for window in staffing_windows(node, start, end, incidents):
                 left, right = datetime.fromisoformat(window["start_time"]), datetime.fromisoformat(window["end_time"])

@@ -1,160 +1,70 @@
-import { Clock, CloudRain, Bell, LogOut, ChevronDown } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+﻿import { Clock, LogOut, ChevronDown, Menu, Route } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "../contexts/AuthContext";
-import { fetchCurrentWeather, type WeatherCurrentSnapshot } from "../services/backend";
+import { WeatherStatus } from "./WeatherStatus";
 
-export function Header() {
+export function Header({ onOpenNavigation, navigationOpen }: { onOpenNavigation: () => void; navigationOpen: boolean }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [now, setNow] = useState(() => new Date());
-  const [weather, setWeather] = useState<WeatherCurrentSnapshot | null>(null);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+  const accountButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
-    const timer = window.setInterval(() => {
-      setNow(new Date());
-    }, 1000 * 30);
-
-    return () => {
-      window.clearInterval(timer);
-    };
+    const timer = window.setInterval(() => setNow(new Date()), 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    let active = true;
-
-    const loadWeather = () => {
-      fetchCurrentWeather()
-        .then((snapshot) => {
-          if (!active) {
-            return;
-          }
-          setWeather(snapshot);
-        })
-        .catch(() => {
-          if (!active) {
-            return;
-          }
-          setWeather(null);
-        });
-    };
-
-    loadWeather();
-    const timer = window.setInterval(loadWeather, 1000 * 60 * 5);
-
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, []);
-
-  const manilaTimeLabel = useMemo(
-    () =>
-      new Intl.DateTimeFormat("en-PH", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-        timeZone: "Asia/Manila",
-      }).format(now),
-    [now],
-  );
-
-  const weatherLabel = useMemo(() => {
-    if (!weather?.available) {
-      return "Weather unavailable";
-    }
-    if (weather.is_stale) return "Weather reading stale";
-    const condition = (weather.condition ?? "weather unavailable")
-      .replace(/_/g, " ")
-      .replace(/\b\w/g, (char) => char.toUpperCase());
-    return weather.temperature != null ? `${Math.round(weather.temperature)}°C - ${condition}` : condition;
-  }, [weather]);
-
-  const lastWeatherReading = weather?.observed_at ?? weather?.timestamp;
-  const precipitationLabel = weather?.is_stale
-    ? lastWeatherReading ? `Last reading ${new Date(lastWeatherReading).toLocaleString("en-PH", {timeZone: "Asia/Manila", month: "short", day: "numeric", hour: "numeric", minute: "2-digit"})}` : "Last reading time unavailable"
-    : weather?.available && weather.precipitation != null ? `${weather.precipitation.toFixed(1)}mm/hr precipitation` : "No live weather feed";
-
-  const handleLogout = async () => {
-    setShowUserMenu(false);
-    await logout();
-    navigate("/login");
-  };
-
-  // Close menu when clicking outside
   useEffect(() => {
     if (!showUserMenu) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest(".relative")) {
+    const outside = (event: MouseEvent) => {
+      if (!accountRef.current?.contains(event.target as Node)) setShowUserMenu(false);
+    };
+    const escape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
         setShowUserMenu(false);
+        accountButtonRef.current?.focus();
       }
     };
-
-    document.addEventListener("click", handleClickOutside);
-    return () => document.removeEventListener("click", handleClickOutside);
+    document.addEventListener("click", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("click", outside);
+      document.removeEventListener("keydown", escape);
+    };
   }, [showUserMenu]);
 
+  const manilaTime = new Intl.DateTimeFormat("en-PH", {
+    hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Manila",
+  }).format(now);
+
   return (
-    <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b bg-white px-3 py-3 sm:px-6">
-      <div className="flex items-center gap-8">
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-yellow-400">
-            <span className="text-lg font-bold text-white">⚡</span>
-          </div>
-          <span className="text-lg font-bold text-yellow-500">Traffic Deployment DSS</span>
+    <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 sm:px-5">
+      <div className="flex min-w-0 items-center gap-3">
+        <button onClick={onOpenNavigation} aria-label="Open navigation" aria-expanded={navigationOpen} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-slate-700 hover:bg-slate-100 md:hidden">
+          <Menu className="h-5 w-5" />
+        </button>
+        <div className="hidden h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-400 text-slate-950 md:grid"><Route className="h-5 w-5" /></div>
+        <div className="min-w-0">
+          <div className="truncate text-sm font-bold tracking-tight text-slate-900 sm:text-base"><span className="sm:hidden">Traffic DSS</span><span className="hidden sm:inline">Traffic Deployment DSS</span></div>
+          <div className="text-xs text-slate-500">Iloilo City operations</div>
         </div>
       </div>
-
-      <div className="flex flex-wrap items-center gap-2 sm:gap-4">
-        <div className="flex items-center gap-2 rounded-lg border px-4 py-2">
-          <Clock className="h-4 w-4 text-yellow-500" />
-          <span className="text-sm text-gray-700">Manila: {manilaTimeLabel}</span>
-        </div>
-
-        <div className="flex items-center gap-2 rounded-lg border px-4 py-2">
-          <CloudRain className="h-4 w-4 text-yellow-500" />
-          <div>
-            <div className="text-sm font-medium text-gray-900">{weatherLabel}</div>
-            <div className="text-xs text-gray-500">{precipitationLabel}</div>
-          </div>
-        </div>
-
-        <button className="relative cursor-default opacity-40" title="Notifications (coming soon)" aria-label="Notifications - coming soon">
-          <Bell className="h-5 w-5 text-gray-400" />
-        </button>
-
-        <div className="relative">
-          <button
-            aria-label="Account menu" aria-expanded={showUserMenu}
-            onClick={() => setShowUserMenu(!showUserMenu)}
-            className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-gray-100"
-          >
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-yellow-400">
-              <span className="text-sm font-bold text-white">
-                {user?.username?.charAt(0).toUpperCase() || "U"}
-              </span>
-            </div>
-            <ChevronDown className={`h-4 w-4 text-gray-500 transition-transform ${showUserMenu ? "rotate-180" : ""}`} />
+      <div className="flex shrink-0 items-center gap-3 sm:gap-5">
+        <div className="hidden items-center gap-2 text-xs text-slate-600 lg:flex"><Clock className="h-4 w-4" /><span>Manila <span className="font-semibold tabular-nums text-slate-900">{manilaTime}</span></span></div>
+        <div className="hidden border-l border-slate-200 pl-5 sm:block"><WeatherStatus compact /></div>
+        <div className="relative" ref={accountRef}>
+          <button ref={accountButtonRef} aria-label="Account menu" aria-expanded={showUserMenu} aria-controls="account-menu" onClick={() => setShowUserMenu(value => !value)} className="flex min-h-10 items-center gap-1.5 rounded-lg px-1.5 hover:bg-slate-100">
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-slate-100 text-sm font-semibold text-slate-700">{user?.username?.charAt(0).toUpperCase() || "U"}</span>
+            <ChevronDown className={`h-4 w-4 text-slate-500 transition-transform ${showUserMenu ? "rotate-180" : ""}`} />
           </button>
-
-          {showUserMenu && (
-            <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border bg-white py-1 shadow-lg">
-              <div className="border-b px-4 py-3">
-                <div className="text-sm font-medium text-gray-900">{user?.username}</div>
-                <div className="text-xs text-gray-500">{user?.role}</div>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
-              >
-                <LogOut className="h-4 w-4" />
-                Sign Out
-              </button>
-            </div>
-          )}
+          {showUserMenu && <div id="account-menu" className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+            <div className="border-b px-4 py-3"><div className="text-sm font-semibold">{user?.username}</div><div className="text-xs capitalize text-slate-600">{user?.role}</div></div>
+            <div className="space-y-3 border-b px-4 py-3 sm:hidden"><div className="text-xs text-slate-600">Manila time · {manilaTime}</div><WeatherStatus /></div>
+            <button onClick={async () => { setShowUserMenu(false); await logout(); navigate("/login"); }} className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-red-700 hover:bg-red-50"><LogOut className="h-4 w-4" />Sign Out</button>
+          </div>}
         </div>
       </div>
     </header>

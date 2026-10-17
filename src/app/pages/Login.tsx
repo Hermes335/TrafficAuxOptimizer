@@ -254,14 +254,14 @@ export function Login() {
             <form onSubmit={handleSubmit} className="mt-8 space-y-4">
               <div>
                 <label htmlFor="username" className="mb-2 block text-[11px] font-semibold uppercase tracking-[0.13em] text-slate-500">
-                  Employee ID
+                  Username or badge number
                 </label>
                 <input
                   type="text"
                   id="username"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="e.g. TMO-2024-001"
+                  placeholder="Enter your username or badge number"
                   className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-500/20"
                   autoComplete="username"
                   disabled={isSubmitting || !!lockedUntil}
@@ -276,7 +276,7 @@ export function Login() {
                   <button
                     type="button"
                     onClick={handleForgotPassword}
-                    className="text-xs font-medium text-amber-600 hover:text-amber-700"
+                    className="text-xs font-medium text-amber-800 hover:text-amber-900"
                   >
                     Forgot password?
                   </button>
@@ -320,11 +320,11 @@ export function Login() {
               <button
                 type="submit"
                 disabled={isSubmitting || !!lockedUntil}
-                className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-500 py-3 text-sm font-semibold text-white transition hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                className="mt-1 flex w-full items-center justify-center gap-2 rounded-xl bg-amber-400 py-3 text-sm font-semibold text-slate-950 transition hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {isSubmitting ? (
                   <>
-                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-slate-900 border-t-transparent" />
                     Authenticating...
                   </>
                 ) : (

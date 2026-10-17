@@ -4,6 +4,11 @@
   "installCommand": "ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci",
   "buildCommand": "npm run build:web",
   "outputDirectory": "dist",
+  "headers": [
+    { "source": "/(.*)", "headers": [
+      { "key": "Permissions-Policy", "value": "camera=(self), geolocation=(self), microphone=()" }
+    ] }
+  ],
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]

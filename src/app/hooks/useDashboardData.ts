@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useWeather } from "../contexts/WeatherContext";
 import { isDeploymentActive } from "../services/operationalTime";
 import {
-  fetchPOIs, type POI, fetchDashboardSnapshot, fetchDashboardOfficers, fetchDeploymentSchedule, fetchCurrentWeather, fetchTrafficReadings, type TrafficReading,
+  fetchPOIs, type POI, fetchDashboardSnapshot, fetchDashboardOfficers, fetchDeploymentSchedule, fetchTrafficReadings, type TrafficReading,
   getFallbackDashboardSnapshot, subscribeToDashboardStream,
   type DashboardOfficerRecord, type DashboardSnapshot, type DeploymentScheduleItem,
-  type WeatherCurrentSnapshot, type ConnectionState,
+  type ConnectionState,
 } from "../services/backend";
 
-const missingWeather: WeatherCurrentSnapshot = {
-  timestamp: null, condition: null, temperature: null, precipitation: null, weather_impact_factor: null,
-  source: "unknown", data_status: "unavailable", available: false, is_synthetic: false,
-  is_stale: false, observed_at: null, fetched_at: null,
-};
 export function dashboardEventNeedsRefresh(event: string) {
   return ["deployment_changed", "incident_reported", "incident_updated", "incident_resolved",
     "incidents_auto_resolved", "bottlenecks_updated", "tsi_threshold_exceeded", "weather_wif_shift",
@@ -20,7 +16,7 @@ export function dashboardEventNeedsRefresh(event: string) {
 
 export function useDashboardData(shift = "afternoon") {
   const [dashboardSnapshot, setDashboardSnapshot] = useState<DashboardSnapshot>(getFallbackDashboardSnapshot);
-  const [weatherSnapshot, setWeatherSnapshot] = useState(missingWeather);
+  const { weather: weatherSnapshot, loading: weatherLoading, error: weatherError, refreshWeather } = useWeather();
   const [trafficReadings, setTrafficReadings] = useState<TrafficReading[]>([]);
   const [pois, setPois] = useState<POI[]>([]);
   const [officers, setOfficers] = useState<DashboardOfficerRecord[]>([]);
@@ -40,14 +36,13 @@ export function useDashboardData(shift = "afternoon") {
   const loadCollections = useCallback(async () => {
     const request = ++generation.current;
       const results = await Promise.allSettled([
-        fetchDashboardSnapshot(shift), fetchDashboardOfficers(), fetchDeploymentSchedule(), fetchCurrentWeather(), fetchPOIs(), fetchTrafficReadings(),
+        fetchDashboardSnapshot(shift), fetchDashboardOfficers(), fetchDeploymentSchedule(), refreshWeather(), fetchPOIs(), fetchTrafficReadings(),
       ]);
       if (!mounted.current || request !== generation.current) return;
-      const [snapshot, roster, schedule, weather, poiRows, traffic] = results;
+      const [snapshot, roster, schedule, , poiRows, traffic] = results;
       if (snapshot.status === "fulfilled") { setDashboardSnapshot(snapshot.value); setLastRefresh(new Date().toISOString()); }
       if (roster.status === "fulfilled") setOfficers(roster.value);
       if (schedule.status === "fulfilled") setDeployments(schedule.value);
-      if (weather.status === "fulfilled") setWeatherSnapshot(weather.value);
       if (poiRows.status === "fulfilled") setPois(poiRows.value);
       // A failed refresh must not keep labelling an old reading as live.
       setTrafficReadings(traffic.status === "fulfilled" ? traffic.value : []);
@@ -55,7 +50,7 @@ export function useDashboardData(shift = "afternoon") {
         ? [`${["Dashboard", "Officers", "Schedule", "Weather", "Points of interest", "Traffic readings"][i]}: ${result.reason instanceof Error ? result.reason.message : "Refresh failed"}`] : []);
       setLoadError(failures.join(" · ") || null);
       if (failures.length) throw new Error(failures.join(" · "));
-  }, [shift]);
+  }, [shift, refreshWeather]);
   const latestLoad = useRef(loadCollections);
   latestLoad.current = loadCollections;
   const reloadDashboard = useCallback(() => {
@@ -89,7 +84,7 @@ export function useDashboardData(shift = "afternoon") {
   }, [reloadDashboard, shift]);
   const activeDeployments = deployments.filter(d => d.shift === shift && isDeploymentActive(d, now));
   return {
-    dashboardSnapshot, setDashboardSnapshot, weatherSnapshot, trafficReadings, officers, deployments, pois, setPois,
+    dashboardSnapshot, setDashboardSnapshot, weatherSnapshot, weatherLoading, weatherError, trafficReadings, officers, deployments, pois, setPois,
     activeDeployments,
     deployedOfficersCount: new Set(activeDeployments.map(d => d.officer)).size,
     totalOfficersCount: officers.filter(o => o.shift === shift && ["available", "deployed"].includes(o.status)).length,

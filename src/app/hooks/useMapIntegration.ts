@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
+import { getApiBaseUrl } from "../services/backend";
+
+export function mapRequest(url: string) {
+  const parsed = new URL(url, window.location.href);
+  const backend = new URL(getApiBaseUrl());
+  const token = localStorage.getItem("auth_token");
+  return parsed.origin === backend.origin && parsed.pathname.startsWith("/api/maps/") && token
+    ? {url, headers: {Authorization: `Bearer ${token}`}}
+    : {url};
+}
 
 const mapCenter: [number, number] = [122.5621, 10.7202];
 type TileCoordinates = { z: number; x: number; y: number };
@@ -67,6 +77,7 @@ export function useMapIntegration({ selectedView, tomTomTrafficTileUrl }: UseMap
       center: mapCenter,
       zoom: 12.6,
       attributionControl: false,
+      transformRequest: mapRequest,
       style: createMapStyle(tomTomTrafficTileUrl),
     });
     const failedTiles = new Set<string>();

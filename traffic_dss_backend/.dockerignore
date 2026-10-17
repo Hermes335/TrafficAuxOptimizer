@@ -7,6 +7,7 @@ venv/
 *.log
 logs/
 media/
+private-media/
 .test-tmp/
 .pytest_cache/
 __pycache__/

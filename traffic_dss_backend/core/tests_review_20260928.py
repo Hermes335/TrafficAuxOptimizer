@@ -62,13 +62,18 @@ def test_operational_details_require_authentication(schedule, path):
     assert APIClient().get(path).status_code == 401
 
 
-def test_public_dashboard_hides_assignee_identity_and_preserves_tsi(schedule):
+def test_dashboard_requires_authentication_and_staff_read_preserves_tsi(schedule):
     s = schedule
     Bottleneck.objects.filter(pk=s.node.pk).update(tsi=0.799)
-    response = APIClient().get(f"/api/dashboard/bottlenecks/?shift=morning&date={s.day}")
+    public_response = APIClient().get(f"/api/dashboard/bottlenecks/?shift=morning&date={s.day}")
+    assert public_response.status_code == 401
+    assert "results" not in public_response.data
+    response = s.client.get(f"/api/dashboard/bottlenecks/?shift=morning&date={s.day}")
+    assert response.status_code == 200
     row = response.data["results"][0]
     assert row["tsi"] == 0.799 and row["status"] == "warning"
-    assert row["assigned_officers"] == [] and row["assigned_officer"] is None
+    assert row["assigned_officers"] == [{"name": s.officers[0].name, "badge_number": s.officers[0].badge_number}]
+    assert row["assigned_officer"] == s.officers[0].badge_number
 
 
 @pytest.mark.parametrize("bad", ["old_run", "old_traffic", "missing_weather", "future_timestamp", "unverified"])

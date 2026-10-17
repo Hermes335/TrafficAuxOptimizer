@@ -84,6 +84,7 @@ def test_dashboard_kpis_authenticated():
 
 @pytest.mark.django_db
 def test_dashboard_bottlenecks_use_default_pagination_and_page_navigation():
+    user = get_user_model().objects.create_user(username="bottleneck-page", password="pass12345")
     for index in range(101):
         Bottleneck.objects.create(
             id=f"PAG-{index:03d}",
@@ -94,6 +95,7 @@ def test_dashboard_bottlenecks_use_default_pagination_and_page_navigation():
         )
 
     client = APIClient()
+    client.force_authenticate(user=user)
     first_page = client.get("/api/dashboard/bottlenecks/")
     second_page = client.get("/api/dashboard/bottlenecks/?page=2")
     empty_page = client.get("/api/dashboard/bottlenecks/?page=999")
@@ -142,8 +144,10 @@ def test_incident_pagination_preserves_filter_and_ordering():
         timestamp=timezone.now(),
     )
 
-    response = APIClient().get("/api/incidents/?severity=minor")
-    empty_response = APIClient().get("/api/incidents/?severity=critical")
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.get("/api/incidents/?severity=minor")
+    empty_response = client.get("/api/incidents/?severity=critical")
 
     assert response.status_code == 200
     assert [item["id"] for item in response.json()["results"]] == [newer.id, older.id]
@@ -153,6 +157,7 @@ def test_incident_pagination_preserves_filter_and_ordering():
 
 @pytest.mark.django_db
 def test_poi_list_uses_default_pagination():
+    user = get_user_model().objects.create_user(username="poi-page", password="pass12345")
     for index in range(101):
         POI.objects.create(
             poi_id=f"PAG-POI-{index:03d}",
@@ -162,7 +167,9 @@ def test_poi_list_uses_default_pagination():
             longitude=122.56,
         )
 
-    response = APIClient().get("/api/dashboard/pois/?page=2")
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.get("/api/dashboard/pois/?page=2")
 
     assert response.status_code == 200
     assert response.json()["count"] == 101
@@ -525,7 +532,7 @@ def test_active_officer_cap_blocks_roster_expansion():
 
 
 @pytest.mark.django_db
-def test_dashboard_pois_allow_anonymous_reads_but_reject_writes_without_mutation():
+def test_dashboard_pois_reject_anonymous_reads_and_writes_without_mutation():
     poi = POI.objects.create(
         poi_id="POI-PUBLIC-001",
         name="Public Hospital",
@@ -537,8 +544,8 @@ def test_dashboard_pois_allow_anonymous_reads_but_reject_writes_without_mutation
     initial_rows = list(POI.objects.order_by("pk").values())
 
     response = client.get("/api/dashboard/pois/")
-    assert response.status_code == 200
-    assert any(item["poi_id"] == poi.poi_id for item in response.json()["results"])
+    assert response.status_code == 401
+    assert "results" not in response.json()
 
     create_response = client.post(
         "/api/dashboard/pois/",

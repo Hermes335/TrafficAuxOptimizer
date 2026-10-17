@@ -20,7 +20,7 @@ async function showLogin() {
     <Route path="/login" element={<AuthRedirect><Login /></AuthRedirect>} />
     <Route path="/" element={<ProtectedRoute><div>Signed in successfully</div></ProtectedRoute>} />
   </Routes></AuthProvider></MemoryRouter>);
-  fireEvent.change(await screen.findByLabelText("Employee ID"), { target: { value: "demo_admin" } });
+  fireEvent.change(await screen.findByLabelText("Username or badge number"), { target: { value: "demo_admin" } });
   fireEvent.change(screen.getByLabelText("Password"), { target: { value: "test-password" } });
 }
 
@@ -32,11 +32,11 @@ it("keeps the form mounted while sign-in is pending and preserves inputs after f
   await showLogin();
   fireEvent.click(screen.getByRole("button", { name: "Sign In to System" }));
   expect(screen.getByRole("button", { name: "Authenticating..." })).toHaveProperty("disabled", true);
-  expect(screen.getByLabelText("Employee ID")).toHaveProperty("value", "demo_admin");
+  expect(screen.getByLabelText("Username or badge number")).toHaveProperty("value", "demo_admin");
   expect(screen.getByLabelText("Password")).toHaveProperty("value", "test-password");
   rejectRequest(new TypeError("Failed to fetch"));
   expect(await screen.findByText(/Cannot reach the server/)).toBeTruthy();
-  expect(screen.getByLabelText("Employee ID")).toHaveProperty("value", "demo_admin");
+  expect(screen.getByLabelText("Username or badge number")).toHaveProperty("value", "demo_admin");
   expect(screen.getByLabelText("Password")).toHaveProperty("value", "test-password");
 });
 

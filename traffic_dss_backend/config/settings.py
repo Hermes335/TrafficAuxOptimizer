@@ -150,6 +150,10 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / "staticfiles"
 MEDIA_URL = "/media/"
 MEDIA_ROOT = BASE_DIR / "media"
+# Uploaded incident images are served only by the authenticated photo endpoint.
+PRIVATE_MEDIA_ROOT = Path(env("PRIVATE_MEDIA_ROOT", default=str(BASE_DIR / "private-media"))).resolve()
+if PRIVATE_MEDIA_ROOT == MEDIA_ROOT.resolve() or MEDIA_ROOT.resolve() in PRIVATE_MEDIA_ROOT.parents:
+    raise ImproperlyConfigured("PRIVATE_MEDIA_ROOT must be outside the public MEDIA_ROOT.")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
@@ -182,6 +186,8 @@ REST_FRAMEWORK = {
         "refresh": "30/min",
         "operational_read": "300/min",
         "public_dashboard": "60/min",
+        "incident_report": "10/hour",
+        "incident_report_staff": "60/hour",
     },
 }
 

@@ -12,7 +12,7 @@ const trafficTile = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAANUlEQVR4nO3
 const liveTrafficTiles = process.env.LIVE_TRAFFIC_TILES === "1";
 let probeLiveTrafficTiles = liveTrafficTiles;
 const root = path.resolve(__dirname, "..");
-const dist = path.join(root, "dist");
+const dist = process.env.BROWSER_DIST ? path.resolve(process.env.BROWSER_DIST) : path.join(root, "dist");
 const artifacts = path.join(root, "traffic_dss_backend", ".test-tmp", "browser-artifacts");
 fs.mkdirSync(artifacts, {recursive:true});
 const server = http.createServer((req,res) => {
@@ -65,7 +65,14 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     const trafficZooms=new Set();
     let trafficUnavailable=false;
     const previewRuns=[], exportedRuns=[];
+    const longRunId="optimization-run-2026-10-17T09-38-49.123456-7dfe12a6";
     let timedFixtures=false;
+    let rejectBottleneckSave=false;
+    const reportRequests=[], reviewDecisions=[], publicReportPaths=new Set();
+    let rejectFirstReport=true;
+    let pendingReports=[{id:91,reference:"public-report-fixture",source:"public",incident_type:"collision",severity:"major",
+      description:"Public report waiting for staff review",latitude:10.723456,longitude:122.567891,bottleneck:null,
+      status:"pending",timestamp:new Date().toISOString(),photo_url:"/api/incidents/91/photo/"}];
     let staffingProfile={area_name:"Prime State",signal_status:"none",min_officers_required:0,max_officers_allowed:4,
       staffing_periods:[{start:"06:30",end:"07:30",required:1,label:"Morning post"},{start:"09:00",end:"10:00",required:1,label:"School traffic"}]};
     const savedAssignments=[], savedProfiles=[];
@@ -83,9 +90,10 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       if(event.method!=="Fetch.requestPaused") return;
       const {requestId,request}=event.params;
       const url=new URL(request.url);
+      if(url.pathname.startsWith("/api/") && !Object.keys(request.headers).some(key=>key.toLowerCase()==="authorization")) publicReportPaths.add(url.pathname);
       if(request.url.startsWith(origin)) {await call("Fetch.continueRequest",{requestId});return;}
       if(request.method==="OPTIONS") {await call("Fetch.fulfillRequest",{requestId,responseCode:204,responseHeaders:[{name:"Access-Control-Allow-Origin",value:"*"},{name:"Access-Control-Allow-Headers",value:"*"},{name:"Access-Control-Allow-Methods",value:"GET,POST,PUT,DELETE,OPTIONS"}]});return;}
-      const isBaseTile=url.hostname==="a.tile.openstreetmap.org" && url.pathname.endsWith(".png");
+      const isBaseTile=["a.tile.openstreetmap.org","tile.openstreetmap.org"].includes(url.hostname) && url.pathname.endsWith(".png");
       const isTrafficTile=url.pathname.includes("/api/maps/tomtom-traffic/") && url.pathname.endsWith(".png");
       if(isBaseTile || isTrafficTile) {
         if(isTrafficTile && trafficUnavailable) {
@@ -115,6 +123,12 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
         payload=request.method==="POST"?reservedBlocks.at(-1):reservedBlocks;
       }
       else if(url.pathname.includes("/deployments/observations/")) payload=[];
+      else if(rejectBottleneckSave && url.pathname.includes("/bottlenecks/manage/") && request.method==="PUT") {
+        await call("Fetch.fulfillRequest",{requestId,responseCode:503,responseHeaders:[
+          {name:"Content-Type",value:"application/json"},{name:"Access-Control-Allow-Origin",value:"*"},
+        ],body:Buffer.from(JSON.stringify({detail:"Bottleneck update temporarily unavailable"})).toString("base64")});
+        return;
+      }
       else if(timedFixtures && url.pathname.includes("/bottlenecks/manage/") && request.method==="PUT") {
         staffingProfile={...staffingProfile,...JSON.parse(request.postData)};savedProfiles.push(staffingProfile);payload={...node,...staffingProfile};
       }
@@ -133,15 +147,33 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       else if(timedFixtures && url.pathname.includes("/deployments/700/update/")) {const data=JSON.parse(request.postData);savedAssignments.push(data);editedEnd=data.end_time.slice(11,16);payload=data;}
       else if(url.pathname.includes("/kpis/")) payload=kpis;
       else if(url.pathname === "/api/incidents/meta/") payload={incident_types:[{value:"collision",label:"Collision"}],severities:[{value:"major",label:"Major"}],statuses:[]};
+      else if(url.pathname === "/api/incidents/locations/") payload=[{id:node.id,name:"Test intersection",latitude:node.latitude,longitude:node.longitude}];
+      else if(url.pathname === "/api/incidents/report/" && request.method==="POST") {
+        reportRequests.push(request.postData || "");
+        if(rejectFirstReport) {
+          rejectFirstReport=false;
+          await call("Fetch.fulfillRequest",{requestId,responseCode:503,responseHeaders:[{name:"Content-Type",value:"application/json"},{name:"Access-Control-Allow-Origin",value:"*"}],body:Buffer.from(JSON.stringify({detail:"Report service temporarily unavailable"})).toString("base64")});
+          return;
+        }
+        payload={id:92,reference:"submitted-report-fixture",status:"pending"};
+      }
+      else if(url.pathname === "/api/incidents/review/") payload={...empty,count:pendingReports.length,results:pendingReports};
+      else if(url.pathname === "/api/incidents/91/photo/") {
+        await call("Fetch.fulfillRequest",{requestId,responseCode:200,responseHeaders:[{name:"Content-Type",value:"image/png"},{name:"Access-Control-Allow-Origin",value:"*"}],body:baseTile});return;
+      }
+      else if(url.pathname === "/api/incidents/91/review/" && request.method==="POST") {
+        reviewDecisions.push(JSON.parse(request.postData));pendingReports=[];payload={status:"active"};
+      }
       else if(url.pathname === "/api/dashboard/incidents/42/") payload={id:42,incident_type:"collision",severity:"major",description:"Nested route fixture",bottleneck:"B-TEST",latitude:null,longitude:null,status:"active"};
       else if(url.pathname.includes("/bottlenecks/")) payload={...empty,count:1,results:[node]};
       else if(url.pathname.includes("/weather/")) payload={condition:null,weather_impact_factor:null,source:"missing",available:false,data_status:"unavailable",is_stale:false};
       else if(url.pathname.includes("/optimization/status/")) payload={run_id:"early-fixture",status:"completed",current_generation:48,total_generations:300,current_fitness:95.75,converged_early:true,updated_at:new Date().toISOString(),estimated_completion:new Date().toISOString()};
       else if(url.pathname.includes("/optimization/results/")) payload={run_id:"early-fixture",status:"completed",fitness_scores:Array.from({length:48},(_,i)=>95.5+i/200),total_generations:300,converged_early:true,top_solutions:[{staffing_efficiency:100,reserve_officers:7,staffing_targets:{"B-TEST":2},staffing_shortages:{},resource_utilization:22.2,assignments:[{officer_id:1,badge_number:"DEMO-1",bottleneck_id:"B-TEST",bottleneck_name:"Quiet junction"},{officer_id:2,badge_number:"DEMO-2",bottleneck_id:"B-TEST",bottleneck_name:"Quiet junction"}]}],parameters:{}};
-      else if(url.pathname.includes("/history/")) payload={...empty,count:3,results:[
+      else if(url.pathname.includes("/history/")) payload={...empty,count:4,results:[
         {id:1,run_id:"morning-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{}},
         {id:2,run_id:"generated-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{synthetic_data_used:["tsi"]}},
         {id:3,run_id:"shadow-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning",mode:"shadow"},fitness_scores:[],result_data:{}},
+        {id:4,run_id:longRunId,timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{}},
       ]};
       else if(url.pathname.includes("/preview-optimization/")) {
         previewRuns.push(JSON.parse(request.postData).run_id);
@@ -191,13 +223,13 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     const evaluate=async expression=>(await call("Runtime.evaluate",{expression,returnByValue:true,awaitPromise:true})).result?.value;
     const waitFor=async (expression, timeoutMs=10000)=>{
       const deadline=Date.now()+timeoutMs;
-      while(Date.now()<deadline){if(await evaluate(expression))return;await delay(100);}
+      while(Date.now()<deadline){if(await evaluate(`Boolean(${expression})`))return;await delay(100);}
       throw Error("Timed out: "+expression+"\n"+await evaluate("document.body.innerText"));
     };
     const clickText=text=>evaluate(`[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)})?.click()`);
     console.log("Opening dashboard");
     await call("Page.navigate",{url:origin+"/"});
-    await waitFor("document.body.innerText.includes('Shift-average unfilled posts: 2')");
+    await waitFor("document.body.innerText.includes('2 avg. unfilled posts')");
     await waitFor('document.querySelector(\'button[aria-label^="Test junction"]\')');
     const hasTrafficPixels=`(() => {
       const canvas=document.querySelector('.maplibregl-canvas');
@@ -232,16 +264,18 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       await evaluate("document.querySelector('[aria-label=\"Center map\"]').click()");
       await delay(800);
     }
+    assert.equal(await evaluate("document.querySelector('#dashboard-details').getBoundingClientRect().width"),0,"Dashboard details should leave room for the map until opened");
     await evaluate('document.querySelector(\'button[aria-label^="Test junction"]\')?.click()');
     await waitFor("document.querySelector(\'.maplibregl-popup-content\')");
     await waitFor("document.body.innerText.includes('Bottleneck Details')");
-    assert.equal(await evaluate("(() => {const panel=document.querySelector('[aria-label=\"Dashboard details and quick actions\"]');panel.scrollTop=panel.scrollHeight;const run=[...panel.querySelectorAll('a')].find(e=>e.textContent.includes('Configure Optimization'));const p=panel.getBoundingClientRect(),r=run.getBoundingClientRect();return panel.scrollTop>0&&r.top>=p.top&&r.bottom<=p.bottom+1;})()"),true,"Quick Optimize must remain reachable when bottleneck details are open");
+    assert.equal(await evaluate("(() => {const panel=document.querySelector('[aria-label=\"Dashboard details and quick actions\"]');panel.scrollTop=panel.scrollHeight;const run=[...panel.querySelectorAll('a')].find(e=>e.textContent.includes('Configure Optimization'));const p=panel.getBoundingClientRect(),r=run.getBoundingClientRect();return r.height>0&&r.top>=p.top&&r.bottom<=p.bottom+1;})()"),true,"Quick Optimize must remain reachable when bottleneck details are open");
     assert.equal(await evaluate("(() => {const panel=document.querySelector('[aria-label=\"Dashboard details and quick actions\"]');return panel.scrollWidth <= panel.clientWidth;})()"),true,"Quick Optimize must fit its panel without horizontal overflow: " + await evaluate("(() => {const p=document.querySelector('[aria-label=\"Dashboard details and quick actions\"]');return JSON.stringify({client:p.clientWidth,scroll:p.scrollWidth,children:[...p.querySelectorAll('*')].filter(e=>e.clientWidth&&e.scrollWidth>e.clientWidth).map(e=>({tag:e.tagName,text:e.textContent.slice(0,80),client:e.clientWidth,scroll:e.scrollWidth}))});})()"));
     assert.equal(await evaluate('!!document.querySelector(".maplibregl-popup-content img, .maplibregl-popup-content script")'),false);
     assert.equal(await evaluate("window.exploited"),undefined);
     assert.equal(await evaluate("[...document.querySelectorAll('a')].some(e=>/scenarios|analytics/i.test(e.getAttribute('href')))"),false);
     await waitFor("document.querySelectorAll('.poi-marker').length===5");
     assert.equal(await evaluate("new Set([...document.querySelectorAll('.poi-marker')].map(e=>e.dataset.poiCategory)).size"),5);
+    await evaluate("document.querySelector('details[aria-label=\"Point of interest marker legend\"] > summary').click()");
     await evaluate("document.querySelector('button[aria-label=\"Show School markers\"]').click()");
     await waitFor("document.querySelectorAll('.poi-marker').length===4");
     await evaluate("document.querySelector('button[aria-label=\"Show School markers\"]').click()");
@@ -254,15 +288,52 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       await call("Emulation.setDeviceMetricsOverride", {width,height:850,deviceScaleFactor:1,mobile:false});
       await delay(400);
       assert.equal(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"),true,"Dashboard must fit a narrow viewport");
-      await clickText("Hide bottlenecks");
-      await clickText("Hide details");
+      await clickText("Map");
       await delay(200);
-      assert.equal(await evaluate("(() => {const canvas=document.querySelector('.maplibregl-canvas');return Math.abs(canvas.getBoundingClientRect().width-canvas.parentElement.getBoundingClientRect().width)<2;})()"),true,"Map must resize with panel changes");
+      assert.equal(await evaluate("(() => {const canvas=document.querySelector('.maplibregl-canvas');const rect=canvas.getBoundingClientRect();return rect.width>0&&rect.top<innerHeight&&Math.abs(rect.width-canvas.parentElement.getBoundingClientRect().width)<2;})()"),true,"Map must remain visible and resize with panel changes");
       const responsiveShot=await call("Page.captureScreenshot",{format:"png"});
       fs.writeFileSync(path.join(artifacts,`dashboard-${width}.png`),Buffer.from(responsiveShot.data,"base64"));
-      await clickText("Show bottlenecks");
-      await clickText("Show details");
+      await clickText("Bottlenecks");
+      assert.equal(await evaluate("document.querySelector('#dashboard-bottlenecks').getBoundingClientRect().width>0 && document.querySelector('#dashboard-map').getBoundingClientRect().width===0"),true,"The bottleneck view must replace the map on narrow screens");
+      await clickText("Details");
+      assert.equal(await evaluate("document.querySelector('#dashboard-details').getBoundingClientRect().width>0 && document.querySelector('#dashboard-bottlenecks').getBoundingClientRect().width===0"),true,"The details view must replace the bottleneck list on narrow screens");
+      await clickText("Map");
     }
+    // Validation and failed API saves must remain visible in the active editor,
+    // even while the mobile list (the former error location) is hidden.
+    await clickText("Bottlenecks");
+    await evaluate("document.querySelector('#dashboard-bottlenecks [aria-label=\"Edit bottleneck\"]').click()");
+    await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] #node-name')");
+    await evaluate("(() => {const input=document.querySelector('#node-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await clickText("Update");
+    await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] [role=alert]')?.textContent==='Bottleneck name is required.'");
+    const editorAlertVisible="(() => {const editor=document.querySelector('[role=region][aria-label=\"Edit bottleneck\"]');const alert=editor.querySelector('[role=alert]');const e=editor.getBoundingClientRect(),a=alert.getBoundingClientRect();return a.height>0&&a.top>=e.top&&a.bottom<=e.bottom&&a.top>=0&&a.bottom<=innerHeight;})()";
+    await waitFor(editorAlertVisible);
+    assert.equal(await evaluate("document.querySelector('#dashboard-bottlenecks').getBoundingClientRect().width"),0,"Edit errors must be visible without reopening the hidden list");
+    rejectBottleneckSave=true;
+    await evaluate("(() => {const input=document.querySelector('#node-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Unsaved regression draft');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await clickText("Update");
+    await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] [role=alert]')?.textContent==='Bottleneck update temporarily unavailable'");
+    await waitFor(editorAlertVisible);
+    assert.equal(await evaluate("document.querySelector('#node-name').value"),"Unsaved regression draft","Failed edits must retain the user's input");
+    rejectBottleneckSave=false;
+    await clickText("Cancel");
+
+    // Both keyboard activation keys, including reselecting the same node,
+    // must carry focus to the newly displayed detail panel.
+    for (const key of ["Enter", " "]) {
+      await clickText("Bottlenecks");
+      await evaluate("document.querySelector('#dashboard-bottlenecks [role=button]').focus()");
+      await call("Input.dispatchKeyEvent",{type:"keyDown",key,code:key==="Enter"?"Enter":"Space",windowsVirtualKeyCode:key==="Enter"?13:32});
+      await call("Input.dispatchKeyEvent",{type:"keyUp",key,code:key==="Enter"?"Enter":"Space",windowsVirtualKeyCode:key==="Enter"?13:32});
+      await waitFor("document.activeElement===document.querySelector('#dashboard-details h2') && document.activeElement.getBoundingClientRect().width>0");
+    }
+    await evaluate("document.querySelector('[aria-label=\"Open navigation\"]').click()");
+    await waitFor("document.querySelector('[role=dialog]')");
+    await call("Emulation.setDeviceMetricsOverride", {width:768,height:1000,deviceScaleFactor:1,mobile:false});
+    await waitFor("!document.querySelector('[role=dialog]') && document.body.style.pointerEvents!=='none'");
+    await waitFor("document.activeElement===document.querySelector('[aria-label=\"Primary navigation\"] a[aria-current=page]')");
+    console.log("Mobile regressions PASS: visible edit errors, keyboard details focus, drawer closure at desktop breakpoint");
     await call("Emulation.setDeviceMetricsOverride", {width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     trafficUnavailable=true;
     await call("Network.setCacheDisabled",{cacheDisabled:true});
@@ -275,6 +346,9 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     console.log("Traffic tiles recovered without leaving the dashboard");
     console.log("Opening publication board");
     await call("Page.navigate",{url:origin+"/gantt-chart"});
+    await waitFor("document.querySelector('[aria-controls=\"schedule-tools\"]')");
+    assert.equal(await evaluate("document.querySelector('[aria-controls=\"schedule-tools\"]').getAttribute('aria-expanded')"),"false","Schedule tools should start collapsed");
+    await clickText("Schedule tools");
     await waitFor("[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='Preview publication' && !e.disabled)");
     await clickText("Preview publication");
     await waitFor("[...document.querySelectorAll('[role=dialog] button')].some(e=>e.textContent.trim()==='Confirm publication' && !e.disabled)");
@@ -304,7 +378,8 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     fs.writeFileSync(path.join(artifacts,"optimization-mobile.png"),Buffer.from(configShot.data,"base64"));
     const actions='document.querySelector(\'[role="group"][aria-label="Actions for morning-fixture"]\')';
     await waitFor(`Boolean(${actions})`);
-    for (const width of [1920,1280]) {
+    assert.equal(await evaluate(`(() => {const link=document.querySelector('a[title="${longRunId}"]');return link?.getAttribute('aria-label')==='View run ${longRunId}'&&link.textContent.length<${longRunId.length};})()`),true,"Long run IDs must remain accessible while their visible text is shortened");
+    for (const width of [1920,1280,1024,390]) {
       await call("Emulation.setDeviceMetricsOverride",{width,height:1000,deviceScaleFactor:1,mobile:false});
       await delay(100);
       const geometry=await evaluate(`(() => {
@@ -312,19 +387,22 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
         const rects=buttons.map(button=>button.getBoundingClientRect());
         const groups=[...document.querySelectorAll('[role="group"][aria-label^="Actions for "]')];
         return {count:buttons.length,heights:rects.map(rect=>rect.height),tops:rects.map(rect=>rect.top),gap:rects[1].left-rects[0].right,
-          rowHeights:groups.map(group=>group.closest('tr').getBoundingClientRect().height)};
+          withinRows:groups.every(group=>{const row=group.closest('li').getBoundingClientRect();return [...group.querySelectorAll('button')].every(button=>{const rect=button.getBoundingClientRect();return rect.width>0&&rect.left>=row.left&&rect.right<=row.right&&rect.right<=innerWidth;});}),
+          actionHeights:groups.map(group=>group.getBoundingClientRect().height)};
       })()`);
       assert.equal(geometry.count,2);
       assert.equal(geometry.heights[0],geometry.heights[1],"History actions should be the same height");
       assert.equal(geometry.tops[0],geometry.tops[1],"History actions should share one row");
       assert(geometry.gap>=8,"History actions need visible spacing");
-      assert.equal(geometry.rowHeights.length,3);
-      assert(geometry.rowHeights.every(height=>Math.abs(height-geometry.rowHeights[0])<1),"Generated/shadow warnings must not increase row height");
+      assert.equal(geometry.withinRows,true,"Every history action must fit its row and viewport without horizontal scrolling");
+      assert.equal(geometry.actionHeights.length,4);
+      assert(geometry.actionHeights.every(height=>Math.abs(height-geometry.actionHeights[0])<1),"Generated/shadow warnings must not increase action group height");
       if(width===1920) {
         const actionsShot=await call("Page.captureScreenshot",{format:"png"});
         fs.writeFileSync(path.join(artifacts,"optimization-actions.png"),Buffer.from(actionsShot.data,"base64"));
       }
     }
+    await call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     const blockedActions='document.querySelector(\'[role="group"][aria-label="Actions for generated-fixture"]\')';
     const previewCount=previewRuns.length;
     await evaluate(`${blockedActions}.querySelector('button[aria-label="Preview publication"]').click()`);
@@ -388,6 +466,7 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     assert.equal(savedAssignments.length,1);assert.equal(savedAssignments[0].end_time,"2099-01-01T08:00:00+08:00");
     await waitFor("document.body.innerText.includes('Schedule needs review')");
     await evaluate("document.querySelector('[aria-label=\"Area filter\"]').value='Prime State'; document.querySelector('[aria-label=\"Area filter\"]').dispatchEvent(new Event('change',{bubbles:true}));");
+    await clickText("Operations & feedback");
     await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent.includes('Breaks and travel')).click()");
     await evaluate("(() => {const form=document.querySelector('select[name=kind]').form;form.elements.officer.value='1';form.elements.start.value='08:00';form.elements.end.value='08:30';form.requestSubmit();})()");
     await waitFor("document.body.innerText.includes('ALPHA · break')");
@@ -400,14 +479,14 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     timedFixtures=false;
     if (fs.readFileSync(path.join(dist,"index.html"),"utf8").includes('src="/assets/')) {
       await call("Page.navigate",{url:origin+"/incident-report/42"});
-      await waitFor("document.body.innerText.includes('Edit Incident') && document.querySelector('textarea')?.value === 'Nested route fixture'");
+      await waitFor("document.body.innerText.includes('Edit incident report') && document.querySelector('textarea')?.value === 'Nested route fixture'");
       await call("Page.reload");
-      await waitFor("document.body.innerText.includes('Edit Incident') && document.querySelector('textarea')?.value === 'Nested route fixture'");
+      await waitFor("document.body.innerText.includes('Edit incident report') && document.querySelector('textarea')?.value === 'Nested route fixture'");
       console.log("Web deployment PASS: direct nested route and refresh load assets and incident data");
     }
     for(const oldRoute of ["/scenarios","/analytics"]){
       await call("Page.navigate",{url:origin+oldRoute});
-      await waitFor("location.pathname === '/' && document.body.innerText.includes('Shift-average unfilled posts: 2')");
+      await waitFor("location.pathname === '/' && document.body.innerText.includes('2 avg. unfilled posts')");
     }
     await evaluate(auth("dispatcher")+"window.dispatchEvent(new Event('auth-session-changed'));");
     await waitFor("![...document.querySelectorAll('a')].some(e=>e.getAttribute('href')==='/optimization')");
@@ -415,6 +494,82 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await evaluate("localStorage.clear()");
     await call("Page.navigate",{url:origin+"/login"});
     await waitFor("document.body.innerText.includes(\'Sign In to System\')");
+    publicReportPaths.clear();
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await call("Page.navigate",{url:origin+"/incident-report"});
+    await waitFor("document.querySelector('#incident-description') && !document.querySelector('#incident-description').disabled");
+    assert.equal(await evaluate("!!document.querySelector('[aria-label=\"Primary navigation\"]')"),false);
+    assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"),true,"Public report must fit a phone");
+    const point=await evaluate("(() => {const r=document.querySelector('[aria-label=\"Incident location map\"] canvas').getBoundingClientRect(); return {x:r.left+r.width/2,y:r.top+r.height/2};})()");
+    await call("Input.dispatchMouseEvent",{type:"mousePressed",button:"left",clickCount:1,...point});
+    await call("Input.dispatchMouseEvent",{type:"mouseReleased",button:"left",clickCount:1,...point});
+    await waitFor("document.body.innerText.includes('Pin selected')");
+    await waitFor("document.querySelector('[aria-label=Latitude]').value !== '' && document.querySelector('[aria-label=Longitude]').value !== ''");
+    const selectedPin=await evaluate("({latitude:document.querySelector('[aria-label=Latitude]').value,longitude:document.querySelector('[aria-label=Longitude]').value})");
+    await evaluate("Object.defineProperty(navigator,'geolocation',{configurable:true,value:{getCurrentPosition:(_ok,fail)=>fail({code:1})}})");
+    await clickText("Use my location");
+    await waitFor("document.body.innerText.includes('Location permission was denied')");
+    assert.equal(await evaluate("document.querySelector('[aria-label=Latitude]').value"),selectedPin.latitude);
+    const mobileReport=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"incident-report-mobile.png"),Buffer.from(mobileReport.data,"base64"));
+    await evaluate("Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:async()=>{throw new DOMException('Denied','NotAllowedError')}}})");
+    await clickText("Open camera");
+    await waitFor("document.body.innerText.includes('Camera permission was denied')");
+    await evaluate(`Object.defineProperty(navigator,'mediaDevices',{configurable:true,value:{getUserMedia:async constraints=>{
+      window.cameraConstraints=constraints;
+      const canvas=document.createElement('canvas');canvas.width=640;canvas.height=480;
+      const context=canvas.getContext('2d');context.fillStyle='#8ba6ad';context.fillRect(0,0,640,480);
+      context.fillStyle='#fbbf24';context.fillRect(260,100,120,280);
+      const stream=canvas.captureStream(5);window.cameraTracks=stream.getTracks();return stream;
+    }}})`);
+    await clickText("Open camera");
+    await waitFor("document.querySelector('video')?.videoWidth > 0");
+    assert.equal(await evaluate("window.cameraConstraints.audio"),false);
+    await clickText("Capture photo");
+    await waitFor("document.querySelector('img[alt=\"Captured photo preview\"]')");
+    assert.equal(await evaluate("window.cameraTracks.every(track=>track.readyState==='ended')"),true,"Camera must stop after capture");
+    await clickText("Retake");
+    await waitFor("document.querySelector('video')?.videoWidth > 0");
+    await clickText("Capture photo");
+    await waitFor("document.querySelector('img[alt=\"Captured photo preview\"]')");
+    await clickText("Use photo");
+    await waitFor("document.querySelector('img[alt=\"Photo attached to your report\"]')");
+    await evaluate("(() => {const input=document.querySelector('#incident-description');Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,'Blocked lane with an exact map pin');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    await call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await evaluate("window.scrollTo(0,0)");
+    assert.equal(await evaluate("document.documentElement.scrollWidth <= innerWidth"),true,"Public report must fit desktop");
+    const desktopReport=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"incident-report-desktop.png"),Buffer.from(desktopReport.data,"base64"));
+    await clickText("Submit report");
+    await waitFor("document.body.innerText.includes('Retry same report')");
+    assert.equal(await evaluate("document.querySelector('#incident-description').value"),"Blocked lane with an exact map pin");
+    await clickText("Retry same report");
+    await waitFor("document.body.innerText.includes('Report received for review')");
+    assert.equal(reportRequests.length,2);
+    const field=(body,name)=>body.match(new RegExp('name="'+name+'"\\r\\n\\r\\n([^\\r]+)'))?.[1];
+    assert.equal(field(reportRequests[0],"submission_key"),field(reportRequests[1],"submission_key"));
+    assert(field(reportRequests[0],"submission_key"),"Submission requires retry key");
+    assert(Math.abs(Number(field(reportRequests[1],"latitude"))-Number(selectedPin.latitude))<0.000001,`Latitude changed: selected ${selectedPin.latitude}, submitted ${field(reportRequests[1],"latitude")}`);
+    assert(Math.abs(Number(field(reportRequests[1],"longitude"))-Number(selectedPin.longitude))<0.000001,`Longitude changed: selected ${selectedPin.longitude}, submitted ${field(reportRequests[1],"longitude")}`);
+    assert(reportRequests[1].includes('name="photo"'),"Captured photo must accompany the report");
+    assert.deepEqual([...publicReportPaths].filter(path=>!path.startsWith('/api/incidents/')).sort(),[],"Public page must not request operational data");
+    const protectedRoutes=["/","/incident-review"];
+    if(fs.readFileSync(path.join(dist,"index.html"),"utf8").includes('src="/assets/')) protectedRoutes.push("/incident-report/42");
+    for(const route of protectedRoutes) {
+      await call("Page.navigate",{url:origin+route});
+      await waitFor("location.pathname === '/login' && document.body.innerText.includes('Sign In to System')");
+    }
+    await evaluate(auth("dispatcher"));
+    await call("Page.navigate",{url:origin+"/incident-review"});
+    await waitFor("document.body.innerText.includes('Public report waiting for staff review')");
+    await waitFor("document.querySelector('img[alt=\"Photo submitted with this incident report\"]')?.complete");
+    assert((await evaluate("document.querySelector('img[alt=\"Photo submitted with this incident report\"]').src")).startsWith('blob:'));
+    const reviewShot=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"incident-review-desktop.png"),Buffer.from(reviewShot.data,"base64"));
+    await clickText("Approve incident");
+    await waitFor("document.body.innerText.includes('No reports waiting for review')");
+    assert.deepEqual(reviewDecisions,[{decision:"approve"}]);
+    console.log("Public reporting PASS: phone/desktop map pin, location denial, camera denial/capture/retake/cleanup, photo submission, retry deduplication, protected routes, staff photo and approval.");
     assert.equal(errors.length,0,errors.join("\n"));
     console.log("Browser PASS: base tiles and WebGL traffic road pixels, dashboard, publication preview/confirmation, history action layout, early completion, staffing targets/reserves, Gantt geometry, zero staffing profiles, timed edits, area filter, schedule review, break reservations, removed routes, dispatcher actions; timezone America/Los_Angeles.");
     console.log("Screenshots: "+path.join(artifacts,"poi-markers.png")+" and "+path.join(artifacts,"publication-preview.png"));

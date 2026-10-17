@@ -3,7 +3,7 @@ import type maplibregl from "maplibre-gl";
 
 interface Options {
   map: maplibregl.Map | null;
-  addMode: "bottleneck" | "incident" | "poi" | null;
+  addMode: "bottleneck" | "poi" | null;
   setPendingPoint: (point: {latitude:number; longitude:number}) => void;
   editPickFromMap: boolean;
   setEditLatitude: (value:string) => void;

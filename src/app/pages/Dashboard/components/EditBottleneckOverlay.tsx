@@ -1,8 +1,10 @@
 import { X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import { StaffingProfileFields } from "../../../components/StaffingProfileFields";
 import type { StaffingProfile } from "../../../services/backend";
 
 interface EditBottleneckOverlayProps {
+  error?: string | null;
   editStaffing: StaffingProfile; setEditStaffing: (value:StaffingProfile)=>void;
   editBottleneckName: string; setEditBottleneckName: (v: string) => void;
   editBottleneckDistrict: string; setEditBottleneckDistrict: (v: string) => void;
@@ -17,6 +19,7 @@ interface EditBottleneckOverlayProps {
 }
 
 export function EditBottleneckOverlay({
+  error,
   editStaffing, setEditStaffing,
   editBottleneckName, setEditBottleneckName,
   editBottleneckDistrict, setEditBottleneckDistrict,
@@ -27,8 +30,13 @@ export function EditBottleneckOverlay({
   editPickFromMap, setEditPickFromMap,
   onSave, onClose, savingEditBottleneck,
 }: EditBottleneckOverlayProps) {
+  const errorRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [error]);
+
   return (
-    <div className="absolute left-4 top-20 z-30 max-h-[calc(100%-6rem)] w-[min(28rem,calc(100%-2rem))] overflow-y-auto rounded-lg border bg-white p-4 shadow-xl">
+    <div role="region" aria-label="Edit bottleneck" className="absolute left-4 top-20 z-30 max-h-[calc(100%-6rem)] w-[min(28rem,calc(100%-2rem))] overflow-y-auto rounded-lg border bg-white p-4 shadow-xl">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-sm font-semibold">Edit Bottleneck</h3>
         <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close"><X className="h-4 w-4" /></button>
@@ -72,6 +80,7 @@ export function EditBottleneckOverlay({
           Pick from map
         </label>
         <StaffingProfileFields value={editStaffing} onChange={setEditStaffing}/>
+        {error && <p ref={errorRef} role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
         <div className="flex gap-2">
           <button onClick={onClose} className="flex-1 rounded border px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
           <button onClick={onSave} disabled={savingEditBottleneck} className="flex-1 rounded bg-yellow-400 px-3 py-1.5 text-sm font-medium text-gray-900 hover:bg-yellow-500 disabled:cursor-not-allowed disabled:bg-yellow-300">

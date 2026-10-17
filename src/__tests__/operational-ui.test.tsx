@@ -8,6 +8,7 @@ import { MarkerCreationForm } from "../app/pages/Dashboard/components/MarkerCrea
 import { IncidentTicker } from "../app/pages/Dashboard/components/IncidentTicker";
 import { PublishScheduleButton } from "../app/components/PublishScheduleButton";
 import { useDashboardData, dashboardEventNeedsRefresh } from "../app/hooks/useDashboardData";
+import { WeatherProvider } from "../app/contexts/WeatherContext";
 import * as backend from "../app/services/backend";
 vi.mock("../app/services/backend", async importOriginal => ({
   ...await importOriginal<typeof import("../app/services/backend")>(),
@@ -38,12 +39,12 @@ it("failed POI deletion reports the error and keeps the popup", async () => {
   form.remove();
 });
 
-it.each(["poi", "incident"] as const)("failed %s POST keeps an unsaved draft without adding a marker", async kind => {
-  const create = kind === "poi" ? backend.createPOI : backend.createMapIncident;
+it.each(["poi", "bottleneck"] as const)("failed %s POST keeps an unsaved draft without adding a marker", async kind => {
+  const create = kind === "poi" ? backend.createPOI : backend.createDashboardBottleneck;
   vi.mocked(create).mockRejectedValueOnce(new Error("POST failed"));
   const onSaved = vi.fn();
   render(<MarkerCreationForm kind={kind} point={{latitude:0,longitude:0}} onSaved={onSaved} onCancel={vi.fn()} />);
-  fireEvent.change(screen.getByLabelText(kind === "poi" ? "Name" : "Description"), {target:{value:"Draft"}});
+  fireEvent.change(screen.getByLabelText("Name"), {target:{value:"Draft"}});
   fireEvent.click(screen.getByText("Create"));
   expect(await screen.findByRole("alert")).toHaveProperty("textContent","POST failed");
   expect(onSaved).not.toHaveBeenCalled();
@@ -139,7 +140,7 @@ it("live deployment and incident events refresh all affected collections; failur
   vi.mocked(backend.fetchDashboardOfficers).mockResolvedValue([]);
   vi.mocked(backend.fetchDeploymentSchedule).mockResolvedValue([]);
   vi.mocked(backend.fetchCurrentWeather).mockResolvedValue({} as backend.WeatherCurrentSnapshot);
-  const {result} = renderHook(()=>useDashboardData("morning"));
+  const {result} = renderHook(()=>useDashboardData("morning"), {wrapper: WeatherProvider});
   await waitFor(()=>expect(result.current.lastRefresh).not.toBeNull());
   receive({event:"deployment_changed"});
   await waitFor(()=>expect(backend.fetchDashboardOfficers).toHaveBeenCalledTimes(2));

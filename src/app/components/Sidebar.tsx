@@ -1,10 +1,11 @@
 import { useAuth } from "../contexts/AuthContext";
-import { NavLink } from "react-router";
+import { NavLink, useMatch } from "react-router";
 import {
   LayoutDashboard,
   CalendarRange,
   Zap,
   AlertTriangle,
+  ClipboardCheck,
   Clock,
   Users,
   Settings as SettingsIcon,
@@ -12,26 +13,32 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
 
 interface SidebarProps {
   collapsed: boolean;
   setCollapsed: (collapsed: boolean) => void;
+  mobileOpen: boolean;
+  onMobileOpenChange: (open: boolean) => void;
 }
 
-function SidebarNavLink({ item, collapsed }: { item: { icon: React.ComponentType<{ className?: string }>; label: string; path: string }; collapsed: boolean }) {
+function SidebarNavLink({ item, collapsed, onNavigate }: { item: { icon: React.ComponentType<{ className?: string }>; label: string; path: string }; collapsed: boolean; onNavigate?: () => void }) {
+  // A static class string survives Tooltip's asChild prop composition.
+  const isActive = !!useMatch({ path: item.path, end: item.path === "/" });
   const link = (
     <NavLink
       to={item.path}
       aria-label={item.label}
-      className={({ isActive }) =>
+      onClick={onNavigate}
+      className={
         `transition-colors ${
           collapsed
             ? "mx-auto grid h-10 w-10 place-items-center rounded-lg"
             : "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm"
         } ${
           isActive
-            ? "bg-yellow-50 text-yellow-600"
-            : "text-gray-700 hover:bg-gray-100"
+            ? "bg-amber-50 font-semibold text-amber-900 ring-1 ring-inset ring-amber-200"
+            : "text-slate-600 hover:bg-slate-100 hover:text-slate-950"
         }`
       }
     >
@@ -52,7 +59,7 @@ function SidebarNavLink({ item, collapsed }: { item: { icon: React.ComponentType
   );
 }
 
-export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
+export function Sidebar({ collapsed, setCollapsed, mobileOpen, onMobileOpenChange }: SidebarProps) {
   const { user } = useAuth();
   const canManage = user?.role === "supervisor" || user?.role === "administrator";
   const navItems = [
@@ -60,6 +67,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     { icon: CalendarRange, label: "Deployment Gantt", path: "/gantt-chart" },
     { icon: Zap, label: "Optimization", path: "/optimization" },
     { icon: AlertTriangle, label: "Incident Report", path: "/incident-report" },
+    { icon: ClipboardCheck, label: "Review Reports", path: "/incident-review" },
   ];
 
   const secondaryItems = [
@@ -68,15 +76,38 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
     { icon: SettingsIcon, label: "System", path: "/settings" },
   ];
 
+  const primaryItems = navItems.filter(item => canManage || item.path !== "/optimization");
+  const visibleSecondaryItems = secondaryItems.filter(item => (canManage || item.path !== "/officer-management") && (user?.role === "administrator" || item.path !== "/audit-logs"));
+
   return (
+    <>
+    <Sheet open={mobileOpen} onOpenChange={onMobileOpenChange}>
+      <SheetContent side="left" className="w-72 max-w-[85vw] gap-0" onCloseAutoFocus={event => {
+        event.preventDefault();
+        const opener = document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]');
+        const desktopLink = document.querySelector<HTMLAnchorElement>('[aria-label="Primary navigation"] a[aria-current="page"]');
+        (opener?.getClientRects().length ? opener : desktopLink)?.focus();
+      }}>
+        <SheetHeader>
+          <SheetTitle>Traffic Deployment DSS</SheetTitle>
+          <SheetDescription>Iloilo City operations</SheetDescription>
+        </SheetHeader>
+        <nav aria-label="Mobile navigation" className="space-y-1 overflow-y-auto px-3 pb-6">
+          {primaryItems.map(item => <SidebarNavLink key={item.path} item={item} collapsed={false} onNavigate={() => onMobileOpenChange(false)} />)}
+          <div className="my-4 border-t" />
+          {visibleSecondaryItems.map(item => <SidebarNavLink key={item.path} item={item} collapsed={false} onNavigate={() => onMobileOpenChange(false)} />)}
+        </nav>
+      </SheetContent>
+    </Sheet>
     <aside
-      className={`flex shrink-0 flex-col border-r bg-white transition-all duration-300 ${
-        collapsed ? "w-16" : "w-56"
+      aria-label="Primary navigation"
+      className={`hidden shrink-0 flex-col border-r border-slate-200 bg-white transition-[width] duration-200 md:flex ${
+        collapsed ? "w-16" : "w-52"
       }`}
     >
       <div className="flex-1 overflow-y-auto py-4">
         <nav className={`space-y-1 ${collapsed ? "px-1" : "px-2"}`}>
-          {navItems.filter(item => canManage || item.path !== "/optimization").map((item) => (
+          {primaryItems.map((item) => (
             <SidebarNavLink key={item.path} item={item} collapsed={collapsed} />
           ))}
         </nav>
@@ -84,7 +115,7 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
         <div className="my-4 border-t"></div>
 
         <nav className={`space-y-1 ${collapsed ? "px-1" : "px-2"}`}>
-          {secondaryItems.filter(item => (canManage || item.path !== "/officer-management") && (user?.role === "administrator" || item.path !== "/audit-logs")).map((item) => (
+          {visibleSecondaryItems.map((item) => (
             <SidebarNavLink key={item.path} item={item} collapsed={collapsed} />
           ))}
         </nav>
@@ -116,5 +147,6 @@ export function Sidebar({ collapsed, setCollapsed }: SidebarProps) {
         )}
       </div>
     </aside>
+    </>
   );
 }
