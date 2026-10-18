@@ -57,7 +57,7 @@ celery -A config beat --loglevel=info
 
 Provide a writable location for backend logs and the beat schedule file. Do not run Electron or the Windows development service launcher on the backend host. Migrations create the schema; they do not transfer local officers, bottlenecks or operational records. Import the intended dataset separately and replace the README's demo accounts before sharing access.
 
-**Production dependency prerequisite:** the backend currently requires Django 4.2 (`<5`), which is outside support as of this deployment preparation. Upgrade to a supported Django release and run backend regression tests before public production use. This frontend hosting change does not perform that framework migration. See [Django's supported versions](https://www.djangoproject.com/download/).
+The backend requires Django 5.2 LTS (`>=5.2,<5.3`). The Azure deployment preparation passed all 355 backend regression tests on Django 5.2.18 using isolated SQLite test settings. Run migrations and verify the deployed PostgreSQL-backed application separately. See [Django's supported versions](https://www.djangoproject.com/download/) and [Azure evaluation deployment](DEPLOYMENT_AZURE.md).
 
 ## 2. Import the frontend into Vercel
 

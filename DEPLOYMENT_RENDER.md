@@ -88,10 +88,10 @@ optimization, and periodic data refresh. The complete checklist is in
 
 ## Before public production use
 
-The existing backend requires Django 4.2 (`<5`); the existing deployment guide
-requires upgrading to a supported release and regression testing before public
-production use. This Blueprint does not change that dependency. See
-[Django's supported versions](https://www.djangoproject.com/download/).
+The backend requires Django 5.2 LTS (`>=5.2,<5.3`). The Azure deployment preparation
+passed all 355 backend regression tests on Django 5.2.18 using isolated SQLite
+test settings. Verify the deployed PostgreSQL application and the checks below
+on the chosen host. See [Django's supported versions](https://www.djangoproject.com/download/).
 
 The API service has a separate 1 GB persistent disk at `/var/incident-photos` for
 incident photos (`PRIVATE_MEDIA_ROOT`). This disk is an additional paid resource;

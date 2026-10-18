@@ -7,8 +7,11 @@ const state = path.join(root, '.cloudflare-demo');
 const wait = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
 
 (async () => {
-  const runtime = JSON.parse(fs.readFileSync(path.join(state, 'running.json'), 'utf8'));
-  const credentials = JSON.parse(fs.readFileSync(path.join(state, 'credentials.json'), 'utf8'));
+  const azure = process.argv.includes('--azure')
+    ? JSON.parse(fs.readFileSync(path.join(state, 'azure-provision.json'), 'utf8')) : null;
+  const runtime = azure || JSON.parse(fs.readFileSync(path.join(state, 'running.json'), 'utf8'));
+  const credentials = azure ? { username: 'demo_admin', password: azure.demo_password }
+    : JSON.parse(fs.readFileSync(path.join(state, 'credentials.json'), 'utf8'));
   const profile = fs.mkdtempSync(path.join(state, 'browser-check-'));
   const browser = spawn(process.env.BROWSER_EXE || 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe', [
     '--headless=new', '--no-first-run', '--no-default-browser-check', '--disable-extensions',
@@ -31,6 +34,7 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     await new Promise((resolve, reject) => { socket.onopen = resolve; socket.onerror = reject; });
     let sequence = 0;
     let loginStatus;
+    let loginOrigin;
     const pending = new Map();
     socket.onmessage = message => {
       const event = JSON.parse(message.data);
@@ -42,7 +46,10 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
         event.error ? request.reject(new Error(event.error.message)) : request.resolve(event.result);
       } else if (event.method === 'Network.responseReceived') {
         const response = event.params.response;
-        if (new URL(response.url).pathname === '/api/auth/login/') loginStatus = response.status;
+        if (new URL(response.url).pathname === '/api/auth/login/') {
+          loginStatus = response.status;
+          loginOrigin = new URL(response.url).origin;
+        }
       }
     };
     call = (method, params = {}) => new Promise((resolve, reject) => {
@@ -86,6 +93,9 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     }
     console.log('Browser login HTTP status:', loginStatus ?? 'No login response received');
     console.log('Resulting page:', pathname);
+    if (azure && loginOrigin !== 'https://' + azure.hostname) {
+      throw new Error('The deployed frontend is not using the expected Azure backend.');
+    }
     if (loginStatus !== 200 || pathname === '/login') {
       const visibleError = await evaluate("document.querySelector('.bg-red-50')?.innerText || 'No error displayed'");
       console.log('Visible sign-in error:', visibleError);

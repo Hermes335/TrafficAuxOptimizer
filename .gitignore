@@ -66,3 +66,6 @@ field_test
 # Thesis manuscript and supporting generated artifacts
 thesis_output/
 
+# Google Forms evaluation package
+/evaluation_form/
+

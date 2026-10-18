@@ -39,9 +39,16 @@ function checkSocket(url, origin, shouldConnect) {
 }
 
 async function main() {
-  const { url, frontend } = JSON.parse(fs.readFileSync(path.join(state, 'running.json'), 'utf8'));
-  const { username, password } = JSON.parse(fs.readFileSync(path.join(state, 'credentials.json'), 'utf8'));
-  assert.match(url, /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/);
+  const azure = process.argv.includes('--azure')
+    ? JSON.parse(fs.readFileSync(path.join(state, 'azure-provision.json'), 'utf8')) : null;
+  const { url, frontend } = azure
+    ? { url: 'https://' + azure.hostname, frontend: azure.frontend }
+    : JSON.parse(fs.readFileSync(path.join(state, 'running.json'), 'utf8'));
+  const { username, password } = azure
+    ? { username: 'demo_admin', password: azure.demo_password }
+    : JSON.parse(fs.readFileSync(path.join(state, 'credentials.json'), 'utf8'));
+  assert.match(url, azure ? /^https:\/\/[a-z0-9.-]+\.cloudapp\.azure\.com$/
+    : /^https:\/\/[a-z0-9-]+\.trycloudflare\.com$/);
   const request = (route, options = {}) => fetch(url + route, {
     ...options, signal: AbortSignal.timeout(20000),
   });
@@ -87,6 +94,32 @@ async function main() {
   await checkSocket(socketUrl, frontend, false);
   await checkSocket(socketUrl + '?token=' + encodeURIComponent(access), 'https://unapproved.example.com', false);
   console.log('PASS: public WSS ping/pong; anonymous and unapproved origins rejected');
+  if (process.argv.includes('--optimize')) {
+    const headers = { Authorization: `Bearer ${access}`, Origin: frontend, 'Content-Type': 'application/json' };
+    response = await request('/api/optimization/start/', {
+      method: 'POST', headers,
+      body: JSON.stringify({ mode: 'shadow', session_id: 'Azure deployment verification',
+        shift: 'afternoon', population_size: 50, generations: 50 }),
+    });
+    assert.equal(response.status, 202);
+    const { run_id } = await response.json();
+    let status;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      response = await request('/api/optimization/status/' + encodeURIComponent(run_id) + '/', { headers });
+      assert.equal(response.status, 200);
+      status = (await response.json()).status;
+      if (['completed', 'failed', 'cancelled'].includes(status)) break;
+      await new Promise(resolve => setTimeout(resolve, 1500));
+    }
+    assert.equal(status, 'completed', 'Background optimization did not complete');
+    response = await request('/api/optimization/export/' + encodeURIComponent(run_id) + '/', { headers });
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/csv/);
+    const csv = await response.text();
+    assert.ok(csv.includes('shadow') && csv.includes('Fictional Demo Junction'));
+    fs.writeFileSync(path.join(state, azure ? 'azure-recommendation-check.csv' : 'demo-recommendation-check.csv'), csv);
+    console.log('PASS: queued Shadow optimization completed and recommendation CSV downloaded; no deployment published');
+  }
 }
 
 main().catch(error => {
