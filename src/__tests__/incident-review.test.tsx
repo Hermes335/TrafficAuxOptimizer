@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 import { IncidentReview } from "../app/pages/IncidentReview";
 import * as reporting from "../app/services/incidentReporting";
 
@@ -25,6 +26,10 @@ const createObjectURL = vi.fn(() => "blob:private-incident-photo");
 const revokeObjectURL = vi.fn();
 const NativeURL = globalThis.URL;
 
+function renderReview() {
+  return render(<MemoryRouter><IncidentReview /></MemoryRouter>);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(reporting.fetchPendingReports).mockResolvedValue([{ ...report }]);
@@ -39,10 +44,11 @@ afterEach(() => vi.unstubAllGlobals());
 
 it("keeps a report after a failed approval and removes it only after a successful retry", async () => {
   vi.mocked(reporting.reviewIncidentReport).mockRejectedValueOnce(new Error("Review service unavailable"));
-  render(<IncidentReview />);
+  renderReview();
   const approve = await screen.findByRole("button", { name: "Approve report #51" });
   const map = screen.getByRole("link", { name: /View pin on map/ });
-  expect(map.getAttribute("href")).toContain("mlat=10.315699&mlon=123.885437");
+  expect(map.getAttribute("href")).toBe("/?report_id=51");
+  expect(map.getAttribute("target")).toBeNull();
   fireEvent.click(approve);
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Review service unavailable");
   expect(screen.getByText(report.description)).toBeTruthy();
@@ -57,7 +63,7 @@ it("keeps a report after a failed approval and removes it only after a successfu
 
 it("confirms rejection, preserves reports after errors, and lets staff retry", async () => {
   vi.mocked(reporting.reviewIncidentReport).mockRejectedValueOnce(new Error("Could not reject report"));
-  render(<IncidentReview />);
+  renderReview();
   fireEvent.click(await screen.findByRole("button", { name: "Reject report #51" }));
   expect(reporting.reviewIncidentReport).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Keep report" }));
@@ -75,7 +81,7 @@ it("confirms rejection, preserves reports after errors, and lets staff retry", a
 it("prevents duplicate reviews and refreshes while a decision is saving", async () => {
   let finishReview!: () => void;
   vi.mocked(reporting.reviewIncidentReport).mockImplementationOnce(() => new Promise(resolve => { finishReview = resolve; }));
-  render(<IncidentReview />);
+  renderReview();
   const approve = await screen.findByRole("button", { name: "Approve report #51" });
   fireEvent.click(approve);
   fireEvent.click(approve);
@@ -88,7 +94,7 @@ it("prevents duplicate reviews and refreshes while a decision is saving", async 
 
 it("retries initial loading and keeps existing reports if a refresh fails", async () => {
   vi.mocked(reporting.fetchPendingReports).mockRejectedValueOnce(new Error("Cannot load reports"));
-  render(<IncidentReview />);
+  renderReview();
   expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Cannot load reports"));
   expect(screen.queryByText("No reports waiting for review")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Retry loading reports" }));
@@ -102,7 +108,7 @@ it("retries initial loading and keeps existing reports if a refresh fails", asyn
 
 it("loads protected photos by report ID and releases the private blob after review", async () => {
   vi.mocked(reporting.fetchPendingReports).mockResolvedValue([{ ...report, photo_url: "/api/private-photo/51/" }]);
-  render(<IncidentReview />);
+  renderReview();
   const photo = await screen.findByRole("img", { name: "Photo submitted with this incident report" });
   expect(reporting.fetchIncidentPhoto).toHaveBeenCalledWith(51);
   expect(photo.getAttribute("src")).toBe("blob:private-incident-photo");
@@ -115,7 +121,7 @@ it("loads protected photos by report ID and releases the private blob after revi
 it("retries a failed photo request without blocking the review controls", async () => {
   vi.mocked(reporting.fetchPendingReports).mockResolvedValue([{ ...report, photo_url: "/api/private-photo/51/" }]);
   vi.mocked(reporting.fetchIncidentPhoto).mockRejectedValueOnce(new Error("Photo request failed"));
-  const { unmount } = render(<IncidentReview />);
+  const { unmount } = renderReview();
   fireEvent.click(await screen.findByRole("button", { name: "Retry photo" }));
   await screen.findByRole("img");
   expect(reporting.fetchIncidentPhoto).toHaveBeenCalledTimes(2);

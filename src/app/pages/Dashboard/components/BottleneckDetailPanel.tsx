@@ -1,23 +1,16 @@
 import { MapPin, X, User } from "lucide-react";
 import type { Bottleneck, TrafficReading } from "../../../services/backend";
 import { TrafficFreshness } from "../../../components/TrafficFreshness";
-import { ConfirmDialog } from "../../../components/ConfirmDialog";
 
 interface BottleneckDetailPanelProps {
   bottleneck: Bottleneck;
   onClose: () => void;
-  onDelete: (id: string) => Promise<void>;
-  deletingId: string | null;
-  canManage: boolean;
   trafficReading?: TrafficReading;
 }
 
 export function BottleneckDetailPanel({
   bottleneck,
   onClose,
-  onDelete,
-  deletingId,
-  canManage,
   trafficReading,
 }: BottleneckDetailPanelProps) {
   const tsi = trafficReading ? trafficReading.traffic_severity_index : bottleneck.tsi;
@@ -121,22 +114,6 @@ export function BottleneckDetailPanel({
           </div>
         )}
 
-        {/* Delete */}
-        <ConfirmDialog
-          trigger={
-            <button
-              disabled={!canManage || deletingId === bottleneck.id}
-              className="w-full rounded-lg border border-red-600 px-3 py-2 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
-            >
-              {deletingId === bottleneck.id ? "Removing..." : "Remove Bottleneck"}
-            </button>
-          }
-          title="Remove Bottleneck"
-          description={`Are you sure you want to remove "${bottleneck.name}"? This action cannot be undone.`}
-          confirmText="Remove"
-          onConfirm={() => onDelete(bottleneck.id)}
-          isDangerous
-        />
       </div>
     </div>
   );

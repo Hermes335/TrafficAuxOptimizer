@@ -28,6 +28,9 @@ vi.mock("../app/hooks/useMapIntegration", () => ({useMapIntegration: () => ({
 vi.mock("../app/hooks/useMapClickHandler", () => ({useMapClickHandler: (options: Parameters<typeof useMapClickHandler>[0]) => {fixture.click = options;}}));
 vi.mock("../app/hooks/useMapMarkers", () => ({useMapMarkers: () => {}}));
 vi.mock("../app/hooks/useMapAssignmentLines", () => ({useMapAssignmentLines: () => {}}));
+vi.mock("../app/hooks/useIncidentMapPreview", () => ({useIncidentMapPreview: () => ({
+  report: null, loading: false, error: null, retry: vi.fn(), focusLocation: vi.fn(),
+})}));
 
 beforeEach(() => {
   vi.resetAllMocks();

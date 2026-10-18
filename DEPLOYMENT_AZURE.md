@@ -73,7 +73,7 @@ hostname with Certbot's Nginx plugin and enable HTTP-to-HTTPS redirection. Test
 health, login, authenticated reads, private media, WebSockets, queued optimization
 and scheduler operation before updating Vercel's VITE_API_BASE_URL. Use the exact
 backend HTTPS origin without /api and redeploy the frontend. The default approved
-frontend is https://traffic-aux-optimizer.vercel.app; previews need explicit approval.
+frontend is https://traffic-off-optimizer.vercel.app; previews need explicit approval.
 
 Verify the initial fictional evaluation deployment with:
 
@@ -86,6 +86,8 @@ It expects the initial 24 fictional officers and 10 fictional junctions. The
 browser check also verifies the frontend actually uses the Azure origin and
 stays signed in after a dashboard refresh. Run it after Vercel redeployment.
 Both checks read credentials privately from the ignored provisioning file.
+After demo records have been edited, use `--existing-data` with the first check
+to verify access and WebSockets without requiring the original seeded records.
 
 See DEPLOYMENT_VERCEL.md for the full hosted verification checklist.
 

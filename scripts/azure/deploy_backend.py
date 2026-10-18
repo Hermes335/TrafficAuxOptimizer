@@ -32,7 +32,7 @@ def main():
     parser.add_argument("--hostname", required=True)
     parser.add_argument("--db-host", required=True)
     parser.add_argument("--db-password-file", type=Path, default=STATE / "azure-db-password.txt")
-    parser.add_argument("--frontend", default="https://traffic-aux-optimizer.vercel.app")
+    parser.add_argument("--frontend", default="https://traffic-off-optimizer.vercel.app")
     args = parser.parse_args()
     for value in (args.host, args.hostname, args.db_host):
         if not re.fullmatch(r"[a-zA-Z0-9.-]+", value):

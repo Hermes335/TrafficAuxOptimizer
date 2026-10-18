@@ -19,12 +19,13 @@ interface UseMapMarkersOptions {
   onIncidentEdit?: (id: number) => void;
   onPoiUpdated?: (poi: POI) => void;
   onIncidentUpdated?: (id: number) => void;
+  suppressAutoFit?: boolean;
 }
 export function useMapMarkers(options: UseMapMarkersOptions) {
   const callbacks = useRef(options);
   callbacks.current = options;
   const entries = useRef(new Map<string, {marker: maplibregl.Marker; signature: string}>());
-  const {mapRef, markersRef, hasFittedRef, filteredBottlenecks, incidents, pois = [], selectedBottleneckId} = options;
+  const {mapRef, markersRef, hasFittedRef, filteredBottlenecks, incidents, pois = [], selectedBottleneckId, suppressAutoFit = false} = options;
   const map = mapRef.current;
 
   useEffect(() => {
@@ -103,7 +104,7 @@ export function useMapMarkers(options: UseMapMarkersOptions) {
         if (!keep.has(key)) { entry.marker.remove(); entries.current.delete(key); }
       }
       markersRef.current = Array.from(entries.current.values(), entry => entry.marker);
-      if (!hasFittedRef.current && filteredBottlenecks.length > 1) {
+      if (!suppressAutoFit && !hasFittedRef.current && filteredBottlenecks.length > 1) {
         const first = filteredBottlenecks[0];
         const bounds = new maplibregl.LngLatBounds([first.longitude, first.latitude], [first.longitude, first.latitude]);
         filteredBottlenecks.forEach(b => bounds.extend([b.longitude, b.latitude]));
@@ -112,7 +113,7 @@ export function useMapMarkers(options: UseMapMarkersOptions) {
     };
     // Markers attach to the map container and do not need raster tiles to load.
     render();
-  }, [map, filteredBottlenecks, incidents, pois, selectedBottleneckId, markersRef, hasFittedRef]);
+  }, [map, filteredBottlenecks, incidents, pois, selectedBottleneckId, markersRef, hasFittedRef, suppressAutoFit]);
 
   useEffect(() => () => {
     entries.current.forEach(entry => entry.marker.remove()); entries.current.clear();

@@ -11,7 +11,7 @@ const reading: TrafficReading = {
 };
 function details(bottleneck: Bottleneck, trafficReading?: TrafficReading) {
   return render(<BottleneckDetailPanel bottleneck={bottleneck} trafficReading={trafficReading}
-    onClose={vi.fn()} onDelete={vi.fn()} deletingId={null} canManage={true} />);
+    onClose={vi.fn()} />);
 }
 
 it("missing traffic and missing schedule are not shown as free flow and zero deployment", () => {

@@ -85,10 +85,15 @@ async function main() {
     assert.equal(response.status, 200);
     const payload = await response.json();
     const rows = Array.isArray(payload) ? payload : payload.results;
-    assert.equal(rows.length, count);
-    assert.ok(rows.every(row => row.name.startsWith(prefix)));
+    assert.ok(Array.isArray(rows));
+    if (!process.argv.includes('--existing-data')) {
+      assert.equal(rows.length, count);
+      assert.ok(rows.every(row => row.name.startsWith(prefix)));
+    }
   }
-  console.log('PASS: demo login and authenticated fictional roster/map requests');
+  console.log(process.argv.includes('--existing-data')
+    ? 'PASS: demo login and authenticated roster/map requests with existing data'
+    : 'PASS: demo login and authenticated fictional roster/map requests');
   const socketUrl = url.replace('https:', 'wss:') + '/ws/dashboard/';
   await checkSocket(socketUrl + '?token=' + encodeURIComponent(access), frontend, true);
   await checkSocket(socketUrl, frontend, false);

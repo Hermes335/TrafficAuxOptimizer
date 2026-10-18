@@ -6,8 +6,8 @@ import { poiCategories, PoiSymbol } from "../services/poiMarker";
 import { useAuth } from "../contexts/AuthContext";
 import { operationalDate, operationalShift } from "../services/operationalTime";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, ChevronRight, Cloud, CloudRain, MapPin, Plus, Pencil, Trash2, RefreshCw, Map, List, PanelRight, Zap } from "lucide-react";
-import { Link, useNavigate } from "react-router";
+import { AlertCircle, CheckCircle2, ChevronRight, Cloud, CloudRain, MapPin, Plus, Pencil, Trash2, RefreshCw, Map, List, PanelRight, X, Zap } from "lucide-react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { getApiBaseUrl, resolveIncident } from "../services/backend";
 import { useDashboardData } from "../hooks/useDashboardData";
@@ -16,8 +16,11 @@ import { useMapIntegration } from "../hooks/useMapIntegration";
 import { useMapClickHandler } from "../hooks/useMapClickHandler";
 import { useMapMarkers } from "../hooks/useMapMarkers";
 import { useMapAssignmentLines } from "../hooks/useMapAssignmentLines";
+import { useIncidentMapPreview } from "../hooks/useIncidentMapPreview";
+import { ReportLocationPreview } from "./Dashboard/components/ReportLocationPreview";
 import { getRelativeCongestionSeverity, congestionTone, computeRelativeThresholds } from "../types/severity";
 import { ConfirmDialog } from "../components/ConfirmDialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
 import {
   KPICards,
   BottleneckDetailPanel,
@@ -31,6 +34,9 @@ import {
 
 export function Dashboard() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const reportId = searchParams.get("report_id");
+  const hasReportPreview = reportId !== null;
   const {user} = useAuth();
   const canManage = user?.role === "supervisor" || user?.role === "administrator";
   const [selectedShift, setSelectedShift] = usePageState("dashboard.selectedShift", operationalShift() === "morning" ? "Morning" : "Afternoon");
@@ -38,6 +44,16 @@ export function Dashboard() {
   // --- Data hook ---
   const data = useDashboardData(selectedShift.toLowerCase());
   const { dashboardSnapshot, weatherSnapshot, deployedOfficersCount, totalOfficersCount, activeDeployments, reloadDashboard, pois, setPois } = data;
+  const { bottleneckActionNotice, setBottleneckActionNotice } = data;
+
+  useEffect(() => {
+    if (!bottleneckActionNotice) return;
+    const timeout = window.setTimeout(() => setBottleneckActionNotice(null), 4000);
+    return () => window.clearTimeout(timeout);
+  }, [bottleneckActionNotice, setBottleneckActionNotice]);
+
+  // A notice already shown here should not replay when returning to the page.
+  useEffect(() => () => setBottleneckActionNotice(null), [setBottleneckActionNotice]);
 
   // --- UI state ---
   const [selectedView, setSelectedView] = usePageState("dashboard.selectedView", "Congestion");
@@ -48,6 +64,9 @@ export function Dashboard() {
   const [showBottlenecks, setShowBottlenecks] = usePageState("dashboard.showBottlenecks", true);
   const [showDetails, setShowDetails] = usePageState("dashboard.showDetails", false);
   const [mobilePanel, setMobilePanel] = usePageState<"map" | "bottlenecks" | "details">("dashboard.mobilePanel", "map");
+  useEffect(() => {
+    if (reportId !== null) setMobilePanel("map");
+  }, [reportId, setMobilePanel]);
   const detailsHeadingRef = useRef<HTMLHeadingElement>(null);
   const [detailsFocusRequest, setDetailsFocusRequest] = useState(0);
   const visiblePois = useMemo(() => pois.filter(poi => !hiddenPoiCategories.includes(poi.category)), [pois, hiddenPoiCategories]);
@@ -67,6 +86,21 @@ export function Dashboard() {
   const markerPersisted = ba.addMode === "poi" ? poiPersisted : ba.addMode === "bottleneck" && bottleneckPersisted;
   const resetMarkerDraft = useResetPageState(`marker.${ba.addMode}.`);
   const markerActionsBusy = markerSaving || ba.savingEditBottleneck || data.deletingBottleneckId !== null;
+  const [discardEditAction, setDiscardEditAction] = useState<{run: () => void} | null>(null);
+  const discardReturnFocus = useRef<HTMLElement | null>(null);
+  const editDiscarded = useRef(false);
+  const withEditDiscard = (run: () => void) => {
+    if (markerActionsBusy) return;
+    if (!ba.editBottleneckDirty) { run(); return; }
+    discardReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    editDiscarded.current = false;
+    setDiscardEditAction({run});
+  };
+  const closeBottleneckEdit = () => {
+    ba.setEditingBottleneckId(null);
+    ba.setEditPickFromMap(false);
+    data.setBottleneckActionError(null);
+  };
   const cancelMarkerPlacement = () => {
     if (markerActionsBusy) return;
     resetMarkerDraft();
@@ -75,15 +109,33 @@ export function Dashboard() {
   };
   const editBottleneck = (id: string) => {
     if (markerActionsBusy) return;
-    // Leaving a completed placement must discard its refresh-only form state.
-    if (markerPersisted) cancelMarkerPlacement();
-    ba.startEditingBottleneck(id);
-    setMobilePanel("map");
+    if (ba.editingBottleneckId === id) { setMobilePanel("map"); return; }
+    withEditDiscard(() => {
+      // Leaving a completed placement must discard its refresh-only form state.
+      if (markerPersisted) cancelMarkerPlacement();
+      ba.startEditingBottleneck(id);
+      setMobilePanel("map");
+    });
   };
+  const startMarkerPlacement = (kind: "bottleneck" | "poi") => withEditDiscard(() => {
+    closeBottleneckEdit();
+    ba.setPendingPoint(null);
+    ba.setAddMode(kind);
+    ba.setShowAddMenu(false);
+  });
 
   // --- Map integration ---
   const tomTomTrafficTileUrl = `${getApiBaseUrl()}/api/maps/tomtom-traffic/{z}/{x}/{y}.png?style=relative0`;
   const map = useMapIntegration({ selectedView, tomTomTrafficTileUrl });
+  const reportPreview = useIncidentMapPreview({ reportId, map: map.mapInstance, hasFittedRef: map.hasFittedRef });
+  const closeReportPreview = () => {
+    setSearchParams(current => {
+      const next = new URLSearchParams(current);
+      next.delete("report_id");
+      return next;
+    }, { replace: true });
+    map.mapRef.current?.getCanvas().focus();
+  };
 
   useEffect(() => {
     if (!map.mapInstance || !map.mapContainerRef.current || typeof ResizeObserver === "undefined") return;
@@ -96,9 +148,9 @@ export function Dashboard() {
   // --- Map click handler ---
   useMapClickHandler({
     map: map.mapInstance,
-    addMode: markerActionsBusy || markerPersisted ? null : ba.addMode,
+    addMode: markerActionsBusy || markerPersisted || hasReportPreview ? null : ba.addMode,
     setPendingPoint: ba.setPendingPoint,
-    editPickFromMap: !markerActionsBusy && ba.editPickFromMap,
+    editPickFromMap: !markerActionsBusy && !hasReportPreview && ba.editPickFromMap,
     setEditLatitude: ba.setEditLatitude,
     setEditLongitude: ba.setEditLongitude,
     setBottleneckActionError: data.setBottleneckActionError,
@@ -108,6 +160,7 @@ export function Dashboard() {
   // --- Derived values ---
   const bottlenecks = dashboardSnapshot.bottlenecks;
   const incidents = dashboardSnapshot.incidents;
+  const areaNames = useMemo(() => [...new Set(bottlenecks.map(item => item.area_name?.trim()).filter((name): name is string => Boolean(name)))].sort(), [bottlenecks]);
 
   const filteredBottlenecks = useMemo(() => {
     const term = filterTerm.trim().toLowerCase();
@@ -201,6 +254,7 @@ export function Dashboard() {
     mapRef: map.mapRef,
     markersRef: map.markersRef,
     hasFittedRef: map.hasFittedRef,
+    suppressAutoFit: hasReportPreview,
     filteredBottlenecks,
     incidents,
     pois: visiblePois,
@@ -221,7 +275,40 @@ export function Dashboard() {
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-y-auto bg-slate-50 xl:overflow-hidden">
-      <div className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
+      <AlertDialog open={discardEditAction !== null} onOpenChange={open => { if (!open) setDiscardEditAction(null); }}>
+        <AlertDialogContent onCloseAutoFocus={event => {
+          event.preventDefault();
+          if (editDiscarded.current) {
+            // Restore focus after the dialog's exit animation releases its focus scope.
+            const nextControl = document.getElementById("node-name") ?? document.querySelector<HTMLElement>('button[aria-label="Add Marker"]');
+            nextControl?.focus();
+          } else if (discardReturnFocus.current?.isConnected) discardReturnFocus.current.focus();
+        }}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsaved changes?</AlertDialogTitle>
+            <AlertDialogDescription>Your bottleneck edits have not been saved. Discard them to continue.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction className="bg-red-600 text-white hover:bg-red-700" onClick={() => {
+              if (markerActionsBusy) return;
+              editDiscarded.current = true;
+              discardEditAction?.run();
+              setDiscardEditAction(null);
+            }}>Discard changes</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      {bottleneckActionNotice && (
+        <div role="status" aria-atomic="true" className="fixed bottom-20 left-1/2 z-40 flex w-fit max-w-[calc(100vw-8rem)] -translate-x-1/2 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm text-emerald-900 shadow-lg sm:bottom-6 sm:max-w-sm">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+          <span className="min-w-0 break-words">{bottleneckActionNotice}</span>
+          <button type="button" aria-label="Dismiss success notification" onClick={() => setBottleneckActionNotice(null)} className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-emerald-700 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600">
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+      <div data-dashboard-toolbar className="shrink-0 border-b border-slate-200 bg-white px-4 py-3 sm:px-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h1 className="text-lg font-semibold tracking-tight text-slate-950">Live operations</h1>
@@ -250,7 +337,6 @@ export function Dashboard() {
         </div>
         {data.loadError && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800">{data.loadError}</p>}
         {data.bottleneckActionError && !ba.editingBottleneckId && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{data.bottleneckActionError}</p>}
-        {data.bottleneckActionNotice && <p role="status" className="mt-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{data.bottleneckActionNotice}</p>}
       </div>
       <div role="group" aria-label="Dashboard view" className="grid shrink-0 grid-cols-3 gap-1 border-b border-slate-200 bg-white p-2 xl:hidden">
         {([{id:"map",label:"Map",icon:Map},{id:"bottlenecks",label:"Bottlenecks",icon:List},{id:"details",label:"Details",icon:PanelRight}] as const).map(item => <button key={item.id} aria-pressed={mobilePanel === item.id} aria-controls={item.id === "map" ? "dashboard-map" : `dashboard-${item.id}`} onClick={() => setMobilePanel(item.id)} className={`flex min-h-10 items-center justify-center gap-2 rounded-lg text-sm font-medium ${mobilePanel === item.id ? "bg-amber-50 text-amber-900 ring-1 ring-inset ring-amber-200" : "text-slate-600 hover:bg-slate-100"}`}><item.icon className="h-4 w-4" />{item.label}</button>)}
@@ -265,7 +351,7 @@ export function Dashboard() {
       />
 
       {/* Main Content Area */}
-      <div className="flex min-h-0 flex-1 flex-col xl:flex-row">
+      <div className="flex min-h-0 flex-1 flex-col bg-white xl:flex-row">
         {/* Left Sidebar - Bottlenecks List */}
         <div id="dashboard-bottlenecks" className={`${mobilePanel === "bottlenecks" ? "flex" : "hidden"} ${showBottlenecks ? "xl:flex" : "xl:hidden"} min-h-0 w-full shrink-0 flex-col border-r border-slate-200 bg-white xl:w-64 2xl:w-72`}>
           <div className="border-b border-slate-200 bg-white px-3 py-3">
@@ -308,8 +394,18 @@ export function Dashboard() {
                   <div className="ml-2 flex shrink-0 flex-col items-end gap-1">
                     <span className={`text-sm font-bold ${tsiPercent == null ? "text-slate-500" : congestionTone[severity].text}`}>{tsiPercent == null ? "Unavailable" : `${tsiPercent}%`}</span>
                     <div className="flex items-center gap-1">
-                      <ConfirmDialog title="Remove Bottleneck" description={`Are you sure you want to remove ${item.id} (${item.name})?`} confirmText="Remove" isDangerous onConfirm={() => markerActionsBusy ? Promise.resolve() : ba.onDeleteBottleneck(item.id)} trigger={<button aria-label="Remove bottleneck" disabled={!canManage || markerActionsBusy} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50" onClick={(e) => e.stopPropagation()}><Trash2 className="h-3.5 w-3.5" /></button>} />
-                      <button disabled={!canManage || markerActionsBusy} aria-label="Edit bottleneck" onClick={(e) => { e.stopPropagation(); editBottleneck(item.id); }} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-blue-50 hover:text-blue-600"><Pencil className="h-3.5 w-3.5" /></button>
+                      <div onClick={event => event.stopPropagation()}>
+                        <ConfirmDialog
+                          title="Remove Bottleneck"
+                          description={`Are you sure you want to remove ${item.id} (${item.name})?`}
+                          confirmText="Remove"
+                          isDangerous
+                          disabled={!canManage || markerActionsBusy}
+                          onConfirm={() => markerActionsBusy ? Promise.resolve() : ba.onDeleteBottleneck(item.id)}
+                          trigger={<button aria-label="Remove bottleneck" disabled={!canManage || markerActionsBusy} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /></button>}
+                        />
+                      </div>
+                      <button disabled={!canManage || markerActionsBusy || hasReportPreview} title={hasReportPreview ? "Close report preview to edit a bottleneck" : undefined} aria-label="Edit bottleneck" onClick={(e) => { e.stopPropagation(); editBottleneck(item.id); }} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50"><Pencil className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
                 </div>
@@ -319,7 +415,7 @@ export function Dashboard() {
         </div>
 
         {/* Map Area */}
-        <div id="dashboard-map" aria-label="Live traffic map" className={`${mobilePanel === "map" ? "block" : "hidden"} relative min-h-[28rem] min-w-0 flex-1 bg-slate-100 xl:block xl:min-h-0`}>
+        <div id="dashboard-map" aria-label="Live traffic map" className={`${mobilePanel === "map" ? "block" : "hidden"} relative mb-4 min-h-[28rem] min-w-0 flex-1 bg-slate-100 xl:block xl:min-h-0`}>
           <div className="absolute left-3 right-3 top-3 z-20 flex flex-wrap items-start justify-between gap-2">
             <div className="flex gap-0.5 rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
               <button onClick={() => { setSelectedView("Congestion"); setShowWeatherOverlay(false); }} className={`rounded-lg px-2.5 py-2 text-xs font-medium transition-colors sm:text-sm ${selectedView === "Congestion" ? "bg-amber-100 text-amber-900" : "text-slate-600 hover:bg-slate-100"}`}>Congestion</button>
@@ -328,11 +424,11 @@ export function Dashboard() {
             </div>
             <div className="hidden items-center rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-medium text-slate-600 2xl:flex"><MapPin className="mr-1 h-4 w-4 text-slate-500" />{dashboardSnapshot.cityLabel}</div>
             <div className="relative">
-              <button aria-label="Add Marker" disabled={markerActionsBusy || markerPersisted} aria-expanded={ba.showAddMenu} onClick={() => ba.setShowAddMenu(!ba.showAddMenu)} className="flex h-11 w-11 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 sm:w-auto sm:px-3 disabled:opacity-50"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Add Marker</span><ChevronRight className="hidden h-4 w-4 rotate-90 sm:block" /></button>
-              {ba.showAddMenu && (
+              <button aria-label="Add Marker" disabled={markerActionsBusy || markerPersisted || hasReportPreview} aria-expanded={ba.showAddMenu && !hasReportPreview} onClick={() => ba.setShowAddMenu(!ba.showAddMenu)} className="flex h-11 w-11 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-50 sm:w-auto sm:px-3 disabled:opacity-50"><Plus className="h-4 w-4" /><span className="hidden sm:inline">Add Marker</span><ChevronRight className="hidden h-4 w-4 rotate-90 sm:block" /></button>
+              {ba.showAddMenu && !hasReportPreview && (
                 <div className="absolute right-0 top-full mt-2 w-56 rounded-xl bg-white p-2 shadow-xl">
-                  <button disabled={!canManage || markerActionsBusy || markerPersisted} onClick={() => { ba.setPendingPoint(null); ba.setAddMode("bottleneck"); ba.setEditPickFromMap(false); ba.setShowAddMenu(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-orange-400" />Bottleneck Node</button>
-                  <button disabled={markerActionsBusy || markerPersisted} onClick={() => { ba.setPendingPoint(null); ba.setAddMode("poi"); ba.setEditPickFromMap(false); ba.setShowAddMenu(false); }} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-blue-500" />Point of Interest</button>
+                  <button disabled={!canManage || markerActionsBusy || markerPersisted} onClick={() => startMarkerPlacement("bottleneck")} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-orange-400" />Bottleneck Node</button>
+                  <button disabled={markerActionsBusy || markerPersisted} onClick={() => startMarkerPlacement("poi")} className="flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"><div className="h-3 w-3 rounded-full bg-blue-500" />Point of Interest</button>
                 </div>
               )}
             </div>
@@ -344,9 +440,9 @@ export function Dashboard() {
             </div>
           </div>
 
-          {ba.addMode && <div className="absolute left-3 right-3 top-32 z-20 rounded-lg bg-amber-100 px-4 py-3 text-sm font-semibold text-amber-950 shadow-lg">{markerSaving ? "Saving marker…" : markerPersisted ? "Marker saved. Retry refresh or cancel placement." : `Click map to place ${ba.addMode}`} <button aria-label="Cancel marker placement" disabled={markerActionsBusy} onClick={cancelMarkerPlacement}>×</button></div>}
+          {ba.addMode && !hasReportPreview && <div className="absolute left-3 right-3 top-32 z-20 rounded-lg bg-amber-100 px-4 py-3 text-sm font-semibold text-amber-950 shadow-lg">{markerSaving ? "Saving marker…" : markerPersisted ? "Marker saved. Retry refresh or cancel placement." : `Click map to place ${ba.addMode}`} <button aria-label="Cancel marker placement" disabled={markerActionsBusy} onClick={cancelMarkerPlacement}>×</button></div>}
 
-          {ba.addMode && ba.pendingPoint && <MarkerCreationForm
+          {ba.addMode && ba.pendingPoint && !hasReportPreview && <MarkerCreationForm
             key={ba.addMode} kind={ba.addMode} point={ba.pendingPoint}
             disabled={markerActionsBusy}
             onSaved={async () => { await reloadDashboard(); ba.setPendingPoint(null); ba.setAddMode(null); data.setBottleneckActionNotice("Marker saved."); }}
@@ -356,8 +452,12 @@ export function Dashboard() {
 
           <div className="relative h-full w-full overflow-hidden bg-gray-100">
             <div ref={map.mapContainerRef} className="h-full w-full" />
-            {ba.editingBottleneckId && (
+            {ba.editingBottleneckId && !hasReportPreview && (
               <EditBottleneckOverlay
+                key={ba.editingBottleneckId}
+                editingBottleneckId={ba.editingBottleneckId}
+                editBottleneckDirty={ba.editBottleneckDirty}
+                areaNames={areaNames}
                 error={data.bottleneckActionError}
                 editStaffing={ba.editStaffing} setEditStaffing={ba.setEditStaffing}
                 editBottleneckName={ba.editBottleneckName} setEditBottleneckName={ba.setEditBottleneckName}
@@ -368,16 +468,17 @@ export function Dashboard() {
                 editLongitude={ba.editLongitude} setEditLongitude={ba.setEditLongitude}
                 editPickFromMap={ba.editPickFromMap} setEditPickFromMap={ba.setEditPickFromMap}
                 onSave={ba.onSaveEditedBottleneck}
-                onClose={() => { if (ba.savingEditBottleneck) return; ba.setEditingBottleneckId(null); ba.setEditPickFromMap(false); }}
+                onClose={() => withEditDiscard(closeBottleneckEdit)}
                 savingEditBottleneck={ba.savingEditBottleneck}
               />
             )}
-            <WeatherOverlay showWeatherOverlay={showWeatherOverlay} weatherStyle={weatherStyle} WeatherIndicatorIcon={WeatherIndicatorIcon} weatherLabel={weatherLabel} weatherStatusTone={weatherStatusTone} weatherImpactFactor={weatherImpactFactor} />
+            <WeatherOverlay showWeatherOverlay={showWeatherOverlay && !hasReportPreview} weatherStyle={weatherStyle} WeatherIndicatorIcon={WeatherIndicatorIcon} weatherLabel={weatherLabel} weatherStatusTone={weatherStatusTone} weatherImpactFactor={weatherImpactFactor} />
           </div>
 
           <IncidentModal showIncidentModal={showIncidentModal} onClose={() => setShowIncidentModal(false)} selectedIncident={selectedIncident} incidentHeadline={incidentHeadline} incidentLocation={incidentLocation} />
           <MapControls map={map.mapRef.current} />
-          {pois.length > 0 && <RememberedDetails stateKey="dashboard.poiLegend" aria-label="Point of interest marker legend" className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-5rem)] rounded-lg border border-slate-200 bg-white/95 px-3 py-2 shadow-sm">
+          {hasReportPreview && <ReportLocationPreview preview={reportPreview} onClose={closeReportPreview} />}
+          {pois.length > 0 && !hasReportPreview && <RememberedDetails stateKey="dashboard.poiLegend" aria-label="Point of interest marker legend" className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-5rem)] rounded-lg border border-slate-200 bg-white/95 px-3 py-2 shadow-sm">
             <summary className="cursor-pointer text-xs font-medium text-slate-700">Points of interest</summary>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {poiCategories.map(item => <button key={item.value} aria-pressed={!hiddenPoiCategories.includes(item.value)}
@@ -396,9 +497,6 @@ export function Dashboard() {
               bottleneck={ba.getSelectedBottleneck()!}
               trafficReading={data.trafficReadings.find(reading => reading.bottleneck === ba.selectedBottleneckId)}
               onClose={() => ba.setSelectedBottleneckId(null)}
-              onDelete={id => markerActionsBusy ? Promise.resolve() : ba.onDeleteBottleneck(id)}
-              deletingId={data.deletingBottleneckId}
-              canManage={canManage && !markerActionsBusy}
             />
           )}
           <IncidentTicker incidents={incidents} onRemoveIncident={onRemoveIncident} />

@@ -5,7 +5,24 @@ import {
   deleteDashboardBottleneck,
   updateDashboardBottleneck,
   type DashboardSnapshot,
+  type StaffingProfile,
 } from "../services/backend";
+
+function editSignature(values: {
+  name: string; district: string; type: string; weight: string;
+  latitude: string; longitude: string; staffing: StaffingProfile;
+}) {
+  const numericValue = (value: string) => value.trim() && Number.isFinite(Number(value)) ? Number(value) : value.trim();
+  return JSON.stringify({
+    name: values.name.trim(), district: values.district.trim() || "Iloilo City", type: values.type,
+    weight: numericValue(values.weight), latitude: numericValue(values.latitude), longitude: numericValue(values.longitude),
+    staffing: {...values.staffing, area_name: values.staffing.area_name.trim(),
+      staffing_periods: values.staffing.staffing_periods.map(period => ({...period,
+        label: (period.label ?? "").trim(), days: [...(period.days ?? [0, 1, 2, 3, 4, 5, 6])].sort(),
+      })),
+    },
+  });
+}
 
 interface UseBottleneckActionsOptions {
   dashboardSnapshot: DashboardSnapshot;
@@ -33,6 +50,7 @@ export function useBottleneckActions({
   const [editLatitude, setEditLatitude] = usePageState("bottleneckForm.editLatitude", "");
   const [editLongitude, setEditLongitude] = usePageState("bottleneckForm.editLongitude", "");
   const [editStaffing, setEditStaffing] = usePageState("bottleneckForm.editStaffing", staffingProfile({}));
+  const [editBaseline, setEditBaseline] = usePageState<string | null>("bottleneckForm.editBaseline", null);
   const [editPickFromMap, setEditPickFromMap] = useState(false);
   const [savingEditBottleneck, setSavingEditBottleneck] = usePageState("bottleneckForm.savingEditBottleneck", false);
   const [selectedBottleneckId, setSelectedBottleneckId] = usePageState<string | null>("bottleneckForm.selectedBottleneckId", null);
@@ -43,6 +61,10 @@ export function useBottleneckActions({
     operation.reload = reloadDashboard;
     return () => { if (operation.reload === reloadDashboard) operation.reload = null; };
   }, [operation, reloadDashboard]);
+  const editBottleneckDirty = editingBottleneckId !== null && editBaseline !== editSignature({
+    name: editBottleneckName, district: editBottleneckDistrict, type: editBottleneckType,
+    weight: editBottleneckWeight, latitude: editLatitude, longitude: editLongitude, staffing: editStaffing,
+  });
 
   const getSelectedBottleneck = () => {
     return dashboardSnapshot.bottlenecks.find((b) => b.id === selectedBottleneckId) || null;
@@ -69,9 +91,14 @@ export function useBottleneckActions({
   };
 
   const startEditingBottleneck = (bottleneckId: string) => {
-    if (operation.pending) return;
+    if (operation.pending || editingBottleneckId === bottleneckId) return;
     const target = dashboardSnapshot.bottlenecks.find((item) => item.id === bottleneckId);
     if (!target) return;
+    setEditBaseline(editSignature({
+      name: target.name, district: target.district ?? "", type: target.bottleneck_type ?? "other",
+      weight: String(target.road_priority_weight ?? 1), latitude: target.latitude != null ? String(target.latitude) : "",
+      longitude: target.longitude != null ? String(target.longitude) : "", staffing: staffingProfile(target),
+    }));
     setEditingBottleneckId(target.id);
     setEditBottleneckName(target.name);
     setEditBottleneckDistrict(target.district ?? "");
@@ -88,7 +115,7 @@ export function useBottleneckActions({
 
   const onSaveEditedBottleneck = async () => {
     if (operation.pending) return;
-    if (!editingBottleneckId) return;
+    if (!editingBottleneckId || !editBottleneckDirty) return;
     if (!editBottleneckName.trim()) {
       setBottleneckActionError("Bottleneck name is required.");
       return;
@@ -120,6 +147,7 @@ export function useBottleneckActions({
         ...editStaffing,
       });
       setEditingBottleneckId(null);
+      setEditBaseline(null);
       setEditPickFromMap(false);
       setBottleneckActionNotice("Bottleneck updated successfully.");
       try { await operation.reload?.(); }
@@ -137,6 +165,7 @@ export function useBottleneckActions({
     showAddMenu, setShowAddMenu,
     pendingPoint, setPendingPoint,
     editingBottleneckId, setEditingBottleneckId: (...args: Parameters<typeof setEditingBottleneckId>) => { if (!operation.pending) setEditingBottleneckId(...args); },
+    editBottleneckDirty,
     editBottleneckName, setEditBottleneckName,
     editBottleneckDistrict, setEditBottleneckDistrict,
     editBottleneckType, setEditBottleneckType,

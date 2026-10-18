@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Check, ExternalLink, ImageOff, LoaderCircle, MapPin, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { Check, ImageOff, LoaderCircle, MapPin, RefreshCw, ShieldCheck, X } from "lucide-react";
+import { Link } from "react-router";
 import {
   fetchIncidentPhoto,
   fetchPendingReports,
@@ -91,9 +92,8 @@ function PendingReportCard({ report, disabled, saving, error, onReview }: {
         {hasLocation ? (
           <>
             <p className="mt-1 font-mono text-xs">{latitude.toFixed(6)}, {longitude.toFixed(6)}</p>
-            <a className="mt-2 inline-flex min-h-9 items-center gap-1.5 font-semibold text-amber-800 underline underline-offset-4 hover:text-amber-950"
-              href={`https://www.openstreetmap.org/?mlat=${latitude}&mlon=${longitude}#map=18/${latitude}/${longitude}`}
-              target="_blank" rel="noopener noreferrer">View pin on map <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" /><span className="sr-only"> (opens a new tab)</span></a>
+            <Link className="mt-2 inline-flex min-h-9 items-center gap-1.5 font-semibold text-amber-800 underline underline-offset-4 hover:text-amber-950"
+              to={`/?report_id=${report.id}`}>View pin on map <MapPin aria-hidden="true" className="h-3.5 w-3.5" /></Link>
           </>
         ) : <p className="mt-1">Exact coordinates unavailable{report.bottleneck ? ` · ${report.bottleneck}` : ""}.</p>}
       </div>

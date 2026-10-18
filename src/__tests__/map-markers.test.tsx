@@ -59,6 +59,29 @@ it("shows operational markers while raster map tiles are unavailable",()=>{
   unmount();
 });
 
+it("keeps late dashboard data from moving a report preview and restores normal fitting when preview closes",()=>{
+  const map={fitBounds:vi.fn()};
+  const hasFittedRef={current:false};
+  const nodes=[
+    {id:"A",name:"First intersection",status:"normal" as const,latitude:10.72,longitude:122.56},
+    {id:"B",name:"Second intersection",status:"normal" as const,latitude:10.73,longitude:122.57},
+  ];
+  const base={mapRef:{current:map} as any,markersRef:{current:[]},hasFittedRef,
+    filteredBottlenecks:[] as typeof nodes,incidents:[],pois:[],onMarkerClick:vi.fn(),suppressAutoFit:true};
+  const {rerender}=renderHook(props=>useMapMarkers(props),{initialProps:base});
+  rerender({...base,filteredBottlenecks:nodes});
+  expect(stubs.markers).toHaveLength(2);
+  expect(map.fitBounds).not.toHaveBeenCalled();
+  expect(hasFittedRef.current).toBe(false);
+  // Another dashboard refresh must keep respecting the selected report location.
+  rerender({...base,filteredBottlenecks:nodes.map(node=>({...node}))});
+  expect(stubs.markers).toHaveLength(2);
+  expect(map.fitBounds).not.toHaveBeenCalled();
+  rerender({...base,filteredBottlenecks:nodes,suppressAutoFit:false});
+  expect(map.fitBounds).toHaveBeenCalledTimes(1);
+  expect(hasFittedRef.current).toBe(true);
+});
+
 it("renders distinct accessible POI designs and updates a category without replacing its marker",()=>{
   const map={fitBounds:vi.fn()};
   const pois=poiCategories.map((category,index)=>({poi_id:`POI-${index}`,name:`Place ${index}`,category:category.value,
