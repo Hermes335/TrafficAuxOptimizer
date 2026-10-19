@@ -17,6 +17,29 @@ logger = logging.getLogger("external_apis")
 TRAFFIC_TILE_TTL = 120
 
 
+class TrafficActivityView(APIView):
+	"""Only a signed-in, visible client sends this presence heartbeat."""
+	permission_classes = [permissions.IsAuthenticated]
+	throttle_classes = []
+
+	def post(self, request):
+		from .activity import RESUME_KEY, record_traffic_activity, traffic_viewers_active
+		was_active = traffic_viewers_active()
+		try:
+			if not record_traffic_activity():
+				return Response({"detail": "Activity tracking is temporarily unavailable."}, status=503)
+			if not was_active and cache.add(RESUME_KEY, True, timeout=30):
+				from .tasks import fetch_traffic_data
+				try:
+					fetch_traffic_data.delay()
+				except Exception:
+					cache.delete(RESUME_KEY)
+					logger.warning("Traffic resume could not be queued; scheduled polling will retry.")
+		except Exception:
+			return Response({"detail": "Activity tracking is temporarily unavailable."}, status=503)
+		return Response(status=204)
+
+
 def _traffic_png(content, fetched_at):
 	response = HttpResponse(content, content_type="image/png")
 	remaining = max(0, TRAFFIC_TILE_TTL - int((timezone.now() - fetched_at).total_seconds()))

@@ -222,6 +222,8 @@ else:
 
 REDIS_URL = env("REDIS_URL", default="redis://localhost:6379/0")
 TOMTOM_API_KEY = env("TOMTOM_API_KEY", default="")
+TRAFFIC_POLL_ONLY_WHEN_ACTIVE = env.bool("TRAFFIC_POLL_ONLY_WHEN_ACTIVE", default=True)
+TRAFFIC_ACTIVITY_TIMEOUT = max(90, env.int("TRAFFIC_ACTIVITY_TIMEOUT", default=180))
 PAGASA_API_ENDPOINT = env("PAGASA_API_ENDPOINT", default="")
 ILOILO_LATITUDE = env.float("ILOILO_LATITUDE", default=10.7202)
 ILOILO_LONGITUDE = env.float("ILOILO_LONGITUDE", default=122.5621)

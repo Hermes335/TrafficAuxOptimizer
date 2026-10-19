@@ -2,6 +2,7 @@ import { SESSION_EVENT, sessionChanged, clearSession } from "../services/session
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import { getApiBaseUrl } from "../services/backend";
 import { LoginError } from "../services/loginErrors";
+import { useTrafficActivity } from "../hooks/useTrafficActivity";
 
 export type UserRole = "dispatcher" | "supervisor" | "administrator";
 
@@ -33,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  useTrafficActivity(!!user && !!token);
 
   useEffect(() => {
     const sync = () => {

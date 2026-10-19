@@ -35,6 +35,7 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     let sequence = 0;
     let loginStatus;
     let loginOrigin;
+    let trafficActivityStatus;
     const pending = new Map();
     socket.onmessage = message => {
       const event = JSON.parse(message.data);
@@ -49,6 +50,9 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
         if (new URL(response.url).pathname === '/api/auth/login/') {
           loginStatus = response.status;
           loginOrigin = new URL(response.url).origin;
+        }
+        if (event.params.type !== 'Preflight' && new URL(response.url).pathname === '/api/traffic/activity/') {
+          trafficActivityStatus = response.status;
         }
       }
     };
@@ -114,6 +118,10 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
       throw new Error('The browser session did not survive a dashboard reload.');
     }
     console.log('PASS: deployed login stays signed in through dashboard loading and a full page reload.');
+    if (process.argv.includes('--traffic-activity')) {
+      if (trafficActivityStatus !== 204) throw new Error('The deployed browser did not send a successful traffic activity heartbeat.');
+      console.log('PASS: deployed signed-in browser sends the traffic activity heartbeat.');
+    }
   } finally {
     if (socket && socket.readyState === WebSocket.OPEN) {
       await call('Browser.close').catch(() => {});

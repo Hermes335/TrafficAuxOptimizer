@@ -8,6 +8,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from core.models import Bottleneck, TrafficData, WeatherData
+from .activity import background_traffic_allowed, claim_traffic_poll
 
 from .clients import (
     ProviderError,
@@ -37,6 +38,8 @@ def _broadcast_dashboard_alert(payload: dict):
 
 def _fetch_single_traffic(bottleneck):
     """Fetch traffic data for a single bottleneck. Called in parallel."""
+    if not background_traffic_allowed():
+        return bottleneck, None, None, "unavailable"
     snapshot = None
     source = None
     data_status = "unavailable"
@@ -60,6 +63,10 @@ def _fetch_single_traffic(bottleneck):
 
 @shared_task
 def fetch_traffic_data():
+    if not background_traffic_allowed():
+        return {"status": "paused", "reason": "no_active_viewers", "created": 0}
+    if not claim_traffic_poll():
+        return {"status": "skipped", "reason": "poll_not_due", "created": 0}
     created = 0
     source_counts = {"tomtom": 0, "osm_overpass": 0, "cache": 0}
     critical_alerts = 0

@@ -91,6 +91,29 @@ to verify access and WebSockets without requiring the original seeded records.
 
 See DEPLOYMENT_VERCEL.md for the full hosted verification checklist.
 
+## Background traffic quota
+
+The frontend posts an authenticated presence heartbeat once a minute while a
+signed-in tab is visible. With `TRAFFIC_POLL_ONLY_WHEN_ACTIVE=True` (the default),
+traffic polling pauses after 180 seconds without a heartbeat. Hidden tabs,
+signed-out users, ordinary API polling and health checks do not extend presence.
+Multiple visible users share the lease; one closing the app cannot pause others.
+Returning queues a traffic refresh, with a shared five-minute cooldown preventing
+duplicate provider calls from overlapping users and scheduled jobs. Requests
+already in progress can finish; queued work rechecks activity before collecting.
+Missing/unavailable presence cache pauses traffic polling to conserve quota.
+
+This pauses the background traffic collection task, including its fallback
+requests. Weather and operational maintenance schedules continue. It does not
+stop Azure compute or prevent map tiles requested directly by a browser. Saved
+traffic observations remain intact and continue to age normally; an idle period
+does not make old observations fresh or override optimization input validation.
+`TRAFFIC_ACTIVITY_TIMEOUT` configures the grace period (minimum 90 seconds).
+Set `TRAFFIC_POLL_ONLY_WHEN_ACTIVE=False` only when continuous unattended traffic
+collection is required. Browser heartbeat changes require a Vercel deployment.
+Verify the deployed heartbeat with
+`node scripts/check-deployed-login.cjs --azure --traffic-activity`.
+
 References: [Azure free services](https://learn.microsoft.com/en-us/azure/cost-management-billing/manage/create-free-services),
 [PostgreSQL provisioning](https://learn.microsoft.com/en-us/azure/postgresql/configure-maintain/quickstart-create-server),
 [Azure public DNS labels](https://learn.microsoft.com/en-us/azure/virtual-network/ip-services/public-ip-addresses),
