@@ -36,6 +36,7 @@ function startDjangoBackend() {
   const projectRoot = path.resolve(__dirname, "..");
   const djangoRoot = path.join(projectRoot, "traffic_dss_backend");
   const pythonExe = require("../scripts/python-path.cjs")(projectRoot);
+  require("../scripts/check-backend-runtime.cjs").checkBackendRuntime(projectRoot, pythonExe);
 
   backendProcess = spawn(
     pythonExe,

@@ -89,7 +89,7 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, onMobileOpenChang
         (opener?.getClientRects().length ? opener : desktopLink)?.focus();
       }}>
         <SheetHeader>
-          <SheetTitle>Traffic Deployment DSS</SheetTitle>
+          <SheetTitle>TrafficOffOptimizer</SheetTitle>
           <SheetDescription>Iloilo City operations</SheetDescription>
         </SheetHeader>
         <nav aria-label="Mobile navigation" className="space-y-1 overflow-y-auto px-3 pb-6">

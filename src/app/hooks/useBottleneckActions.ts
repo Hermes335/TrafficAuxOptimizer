@@ -83,7 +83,8 @@ export function useBottleneckActions({
       try { await operation.reload?.(); }
       catch { setBottleneckActionError("Bottleneck removed, but the dashboard could not be refreshed. Use Refresh to reload it."); }
     } catch (actionError: unknown) {
-      setBottleneckActionError(actionError instanceof Error ? actionError.message : "Failed to remove bottleneck.");
+      // The confirmation dialog owns failed deletions and keeps retry reachable.
+      throw new Error(actionError instanceof Error ? actionError.message : "Failed to remove bottleneck.");
     } finally {
       operation.pending = false;
       setDeletingBottleneckId(null);

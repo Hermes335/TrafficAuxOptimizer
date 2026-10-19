@@ -29,7 +29,9 @@
     "start": "electron .",
     "test": "vitest run",
     "lint": "eslint src vite.config.ts vitest.config.ts",
-    "test:browser": "node scripts/browser-review.cjs"
+    "test:browser": "node scripts/browser-review.cjs",
+    "check:backend": "node scripts/check-backend-runtime.cjs",
+    "benchmark:evaluation": "node scripts/run-service.cjs benchmark"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

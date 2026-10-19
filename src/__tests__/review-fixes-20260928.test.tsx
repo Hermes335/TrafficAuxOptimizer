@@ -10,7 +10,7 @@ import * as backend from "../app/services/backend";
 vi.mock("../app/services/backend", async original => ({
   ...await original<typeof import("../app/services/backend")>(),
   fetchBottlenecks: vi.fn(), fetchIncidentMeta: vi.fn(), fetchIncident: vi.fn(), updateIncident: vi.fn(),
-  fetchDeploymentSchedule: vi.fn(), fetchDashboardOfficers: vi.fn(), fetchOptimizationHistory: vi.fn(),
+  fetchDeploymentSchedule: vi.fn(), clearDeploymentSchedule: vi.fn(), fetchDashboardOfficers: vi.fn(), fetchOptimizationHistory: vi.fn(),
   fetchDashboardSnapshot: vi.fn(), fetchPOIs: vi.fn(), fetchCurrentWeather: vi.fn(), fetchTrafficReadings: vi.fn().mockResolvedValue([]),
   previewPublication: vi.fn(), publishDeploymentsFromOptimization: vi.fn(),
   subscribeToDashboardStream: vi.fn(() => () => {}),
@@ -48,6 +48,33 @@ it("text searches preserve the operational officer pool and active count", async
   fireEvent.change(screen.getByLabelText("Search schedule"), {target:{value:"no-match"}});
   expect(screen.getByText("unassigned officers").textContent).toBe("0 unassigned officers");
   expect(screen.getByText("assignments").textContent).toBe("1 assignments");
+});
+it("keeps a rejected schedule clear in its confirmation and permits cancellation", async () => {
+  vi.mocked(backend.clearDeploymentSchedule).mockRejectedValueOnce(new Error("Clear request unavailable"));
+  render(<MemoryRouter><GanttChart /></MemoryRouter>);
+  await waitFor(() => expect(screen.getByText("assignments").textContent).toBe("1 assignments"));
+  fireEvent.click(screen.getByRole("button", {name:"Schedule tools"}));
+  fireEvent.click(screen.getByRole("button", {name:"Clear schedule"}));
+  fireEvent.change(screen.getByPlaceholderText("Type to confirm..."), {target:{value:"CLEAR_SCHEDULE"}});
+  fireEvent.click(screen.getByRole("button", {name:"Clear Schedule"}));
+  expect((await screen.findByRole("alert")).textContent).toBe("Clear request unavailable");
+  expect(screen.getByRole("alertdialog")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name:"Cancel"}));
+  expect(backend.clearDeploymentSchedule).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("assignments").textContent).toBe("1 assignments");
+});
+it("reports a successful clear with a failed refresh without offering to clear again", async () => {
+  vi.mocked(backend.clearDeploymentSchedule).mockResolvedValueOnce({cleared:1});
+  render(<MemoryRouter><GanttChart /></MemoryRouter>);
+  await waitFor(() => expect(screen.getByText("assignments").textContent).toBe("1 assignments"));
+  fireEvent.click(screen.getByRole("button", {name:"Schedule tools"}));
+  fireEvent.click(screen.getByRole("button", {name:"Clear schedule"}));
+  vi.mocked(backend.fetchDeploymentSchedule).mockRejectedValueOnce(new Error("Refresh offline"));
+  fireEvent.change(screen.getByPlaceholderText("Type to confirm..."), {target:{value:"CLEAR_SCHEDULE"}});
+  fireEvent.click(screen.getByRole("button", {name:"Clear Schedule"}));
+  await screen.findByText(/The schedule was cleared, but the display could not be refreshed/);
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(backend.clearDeploymentSchedule).toHaveBeenCalledTimes(1);
 });
 it("completed service is excluded from active counts and retained in historical coverage", async () => {
   vi.mocked(backend.fetchDeploymentSchedule).mockResolvedValue([{...assignment,status:"completed"}]);

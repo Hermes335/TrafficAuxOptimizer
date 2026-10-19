@@ -1,6 +1,13 @@
-# Traffic DSS Backend
+# TrafficOffOptimizer Backend
 
-Django + DRF backend for the Traffic Deployment DSS.
+Django + DRF backend for TrafficOffOptimizer.
+
+The supported framework is Django 5.2 LTS, as declared in `requirements.txt`.
+Development launchers use the repository-root `.venv` by default. Install these
+requirements into that environment and run `npm run check:backend` from the
+repository root. Set `TRAFFIC_PYTHON` consistently for the web service, worker and
+scheduler if using another interpreter. Restart existing services after an
+environment upgrade; installing packages does not update already imported code.
 
 ## Implemented (Phase 1)
 

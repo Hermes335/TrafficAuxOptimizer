@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,17 +37,24 @@ export function ConfirmDialog({
   const [open, setOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [typedValue, setTypedValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const submitting = useRef(false);
 
   const canConfirm = !requiresTypedConfirmation || typedValue === requiresTypedConfirmation;
 
   const handleConfirm = async () => {
-    if (!canConfirm) return;
+    if (!canConfirm || disabled || submitting.current) return;
+    submitting.current = true;
     setIsLoading(true);
+    setError(null);
     try {
       await onConfirm();
       setOpen(false);
       setTypedValue("");
+    } catch (actionError: unknown) {
+      setError(actionError instanceof Error ? actionError.message : "The action could not be completed. Please try again.");
     } finally {
+      submitting.current = false;
       setIsLoading(false);
     }
   };
@@ -55,16 +62,25 @@ export function ConfirmDialog({
   const handleCancel = () => {
     setOpen(false);
     setTypedValue("");
+    setError(null);
     onCancel?.();
   };
 
   return (
-    <AlertDialog open={open} onOpenChange={setOpen}>
+    <AlertDialog open={open} onOpenChange={value => {
+      if (submitting.current || (value && disabled)) return;
+      setOpen(value);
+      setError(null);
+      if (!value) setTypedValue("");
+    }}>
       <div onClick={() => {
-        if (disabled) return;
+        if (disabled || submitting.current) return;
+        setError(null);
         setOpen(true);
       }}>{trigger}</div>
-      <AlertDialogContent>
+      <AlertDialogContent aria-busy={isLoading} onEscapeKeyDown={event => {
+        if (submitting.current) event.preventDefault();
+      }}>
         <AlertDialogHeader>
           <AlertDialogTitle className={isDangerous ? "text-red-600" : ""}>
             {title}
@@ -83,15 +99,20 @@ export function ConfirmDialog({
               placeholder="Type to confirm..."
               className="w-full rounded-lg border px-3 py-2 text-sm"
               autoFocus
+              disabled={isLoading}
             />
           </div>
         )}
+        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         <div className="flex justify-end gap-3">
           <AlertDialogCancel onClick={handleCancel} disabled={isLoading}>
             {cancelText}
           </AlertDialogCancel>
           <AlertDialogAction
-            onClick={handleConfirm}
+            onClick={event => {
+              event.preventDefault();
+              void handleConfirm();
+            }}
             disabled={!canConfirm || isLoading}
             className={isDangerous ? "bg-red-600 hover:bg-red-700" : ""}
           >

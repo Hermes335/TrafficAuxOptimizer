@@ -1,4 +1,4 @@
-# TrafficAuxOptimizer
+# TrafficOffOptimizer
 
 A Traffic Decision Support System (DSS) for the Iloilo City Traffic Management Office (ICTMO). It uses an NSGA-II multi-objective genetic algorithm to optimize traffic officer deployment across bottleneck locations, with real-time WebSocket progress, Pareto front visualization, incident-aware optimization, and deployment scheduling.
 
@@ -29,7 +29,7 @@ Frontend (React + TypeScript + Vite + Tailwind CSS + shadcn/ui)
   Optimization   -- Configure shift, weights, GA parameters; start runs
   Deployment Board    -- Deployment schedule, coverage matrix, publish from optimization
 
-Backend (Django 4.2 + Celery + Channels + Redis)
+Backend (Django 5.2 LTS + Celery + Channels + Redis)
   optimization/  -- NSGA-II engine, Celery task, WebSocket progress, Pareto data
   dashboard/     -- KPIs, bottleneck/officer CRUD, map data
   deployments/   -- Schedule, assign, publish optimization results
@@ -81,6 +81,13 @@ Backend (Django 4.2 + Celery + Channels + Redis)
 
 Start all: `npm run dev:local`. Stop with Ctrl+C in that terminal (`npm run stop:local` is a Windows-only fallback). Backend launchers and Electron select the Windows or Unix virtual-environment interpreter; set `TRAFFIC_PYTHON` to override it.
 
+The canonical development interpreter is the repository-root `.venv`. Install
+`traffic_dss_backend/requirements.txt` with that interpreter, then run
+`npm run check:backend`. The backend, worker, scheduler, Electron backend and
+demo launcher check the selected Django version before starting. A different
+environment can be selected with `TRAFFIC_PYTHON`; use the same value for every
+backend service. Restart already running services after updating dependencies.
+
 ## Data Sources
 
 | Data | Source | Update Frequency | Used In |
@@ -125,3 +132,9 @@ See [implementation report](IMPLEMENTATION_REPORT_2026-09-24.md) for the complet
 - `npm test`, `npm run typecheck`, `npm run lint`, `npm run build`.
 - From the backend: `python -m pytest --ds=config.test_settings -p no:cacheprovider`. The test settings use an isolated SQLite database and in-memory services.
 - After building: `node scripts/browser-review.cjs` runs fixture-only browser checks on Windows with Edge. Set `BROWSER_EXE` to another compatible Chromium executable if needed.
+
+For reproducible synthetic optimization timing and optional cold-load profiling,
+see [evaluation verification](EVALUATION_VALIDATION.md). Run
+`npm run benchmark:evaluation` to measure the scheduling engine without touching
+the application database. Benchmark reports are saved in the ignored
+`evaluation_form/validation` directory.

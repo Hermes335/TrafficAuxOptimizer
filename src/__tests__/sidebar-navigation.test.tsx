@@ -53,7 +53,7 @@ it("opens the mobile navigation and closes the sheet after following a route", a
   expect(screen.queryByRole("navigation", { name: "Mobile navigation" })).toBeNull();
 
   fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-  const dialog = await screen.findByRole("dialog", { name: "Traffic Deployment DSS" });
+  const dialog = await screen.findByRole("dialog", { name: "TrafficOffOptimizer" });
   const mobileNavigation = within(dialog).getByRole("navigation", { name: "Mobile navigation" });
   expectOnlyActiveLink(mobileNavigation, "Dashboard");
   fireEvent.click(within(mobileNavigation).getByRole("link", { name: "Deployment Gantt" }));

@@ -249,7 +249,7 @@ export function Login() {
 
           <div className="w-full max-w-md">
             <h2 className="text-4xl font-black tracking-tight text-slate-900">Sign In</h2>
-            <p className="mt-2 text-sm text-slate-500">Access the Traffic Deployment System with your credentials.</p>
+            <p className="mt-2 text-sm text-slate-500">Sign in to TrafficOffOptimizer to manage traffic deployment.</p>
 
             <form onSubmit={handleSubmit} className="mt-8 space-y-4">
               <div>

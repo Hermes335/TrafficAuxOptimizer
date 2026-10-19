@@ -38,7 +38,7 @@ it("closes the mobile drawer when desktop navigation appears and restores page i
 
   render(<MemoryRouter><Layout /></MemoryRouter>);
   fireEvent.click(screen.getByRole("button", { name: "Open navigation" }));
-  expect(await screen.findByRole("dialog", { name: "Traffic Deployment DSS" })).toBeTruthy();
+  expect(await screen.findByRole("dialog", { name: "TrafficOffOptimizer" })).toBeTruthy();
   expect(document.body.style.pointerEvents).toBe("none");
 
   resize(640);

@@ -9,6 +9,7 @@ async function main() {
     backend: ["manage.py", "runserver", `127.0.0.1:${process.env.BACKEND_PORT || 8000}`],
     worker: ["-m", "celery", "-A", "config", "worker", "-l", "info", "--pool=solo"],
     beat: ["-m", "celery", "-A", "config", "beat", "-l", "info"],
+    benchmark: [path.join(root, "scripts", "benchmark-evaluation.py"), ...process.argv.slice(3)],
   };
   let executable, args, cwd, env = process.env;
   if (service === "desktop-local") {
@@ -20,10 +21,11 @@ async function main() {
     env = { ...process.env, SKIP_DJANGO_BACKEND: "true" };
   } else if (commands[service]) {
     executable = pythonPath(root);
+    require("./check-backend-runtime.cjs").checkBackendRuntime(root, executable);
     args = commands[service];
     cwd = path.join(root, "traffic_dss_backend");
   } else {
-    throw new Error("Choose backend, worker, beat, or desktop-local.");
+    throw new Error("Choose backend, worker, beat, benchmark, or desktop-local.");
   }
   const child = spawn(executable, args, { cwd, env, stdio: "inherit", windowsHide: true });
   child.on("error", error => { console.error(error.message); process.exitCode = 1; });

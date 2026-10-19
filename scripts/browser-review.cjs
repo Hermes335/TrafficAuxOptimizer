@@ -1,6 +1,7 @@
 /* Built-app browser regression. API writes are always fixtures.
  * LIVE_TRAFFIC_TILES=1 enables read-only traffic tiles from the running backend. */
 const assert = require("node:assert/strict");
+const {gzipSync} = require("node:zlib");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
@@ -10,17 +11,29 @@ const {spawn} = require("node:child_process");
 const baseTile = "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAYAAADED76LAAAAFklEQVR4nGP4TwAwgIhHLz7gxMNDAQDLt/Iu3TsrkAAAAABJRU5ErkJggg==";
 const trafficTile = "iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAANUlEQVR4nO3OMQ0AMAgAQVQgqjYRCumABpb75PeLrNf/uGoBEBAQEBAQEBAQEBAQEBAQV4gBpQG8vQOicB0AAAAASUVORK5CYII=";
 const liveTrafficTiles = process.env.LIVE_TRAFFIC_TILES === "1";
+const profileLoad = process.env.BROWSER_PROFILE_LOAD === "1";
 let probeLiveTrafficTiles = liveTrafficTiles;
 const root = path.resolve(__dirname, "..");
 const dist = process.env.BROWSER_DIST ? path.resolve(process.env.BROWSER_DIST) : path.join(root, "dist");
-const artifacts = path.join(root, "traffic_dss_backend", ".test-tmp", "browser-artifacts");
+const artifacts = process.env.BROWSER_ARTIFACTS ? path.resolve(process.env.BROWSER_ARTIFACTS) : path.join(root, "traffic_dss_backend", ".test-tmp", "browser-artifacts");
 fs.mkdirSync(artifacts, {recursive:true});
+const compressedAssets = new Map();
 const server = http.createServer((req,res) => {
   const pathname = decodeURIComponent(new URL(req.url,"http://local").pathname);
   let file = path.resolve(dist,"." + pathname);
   if (!file.startsWith(dist + path.sep) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) file=path.join(dist,"index.html");
   const types={".js":"application/javascript",".css":"text/css",".html":"text/html",".png":"image/png"};
   res.setHeader("Content-Type",types[path.extname(file)] || "application/octet-stream");
+  if(profileLoad && file.startsWith(path.join(dist,"assets")+path.sep)) {
+    res.setHeader("Cache-Control","public, max-age=31536000, immutable");
+    if(/\bgzip\b/.test(req.headers["accept-encoding"] || "")) {
+      if(!compressedAssets.has(file)) compressedAssets.set(file,gzipSync(fs.readFileSync(file)));
+      res.setHeader("Content-Encoding","gzip");
+      res.setHeader("Vary","Accept-Encoding");
+      res.end(compressedAssets.get(file));
+      return;
+    }
+  }
   res.end(fs.readFileSync(file));
 });
 const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
@@ -236,8 +249,13 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     };
     const clickText=text=>evaluate(`[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)})?.click()`);
     console.log("Opening dashboard");
+    if (profileLoad) {
+      await call("Network.enable");
+      await call("Network.setCacheDisabled", {cacheDisabled:true});
+      await call("Network.emulateNetworkConditions", {offline:false,latency:150,downloadThroughput:200000,uploadThroughput:93750});
+    }
     await call("Page.navigate",{url:origin+"/"});
-    await waitFor("document.body.innerText.includes('2 avg. unfilled posts')");
+    await waitFor("document.body.innerText.includes('2 avg. unfilled posts')", profileLoad?60000:10000);
     await waitFor('document.querySelector(\'button[aria-label^="Test junction"]\')');
     const hasTrafficPixels=`(() => {
       const canvas=document.querySelector('.maplibregl-canvas');
@@ -248,7 +266,21 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       for(let i=0;i<pixels.length;i+=4)if(pixels[i+1]>80&&pixels[i+1]>pixels[i]*1.5&&pixels[i+1]>pixels[i+2]*1.3&&pixels[i+3]>0)green++;
       return green>100;
     })()`;
-    await waitFor(hasTrafficPixels, liveTrafficTiles?60000:10000);
+    await waitFor(hasTrafficPixels, (liveTrafficTiles||profileLoad)?60000:10000);
+    if (profileLoad) {
+      const timings = await evaluate(`(() => {
+        const n=performance.getEntriesByType('navigation')[0];
+        return {observedMapReadyMs:performance.now(),domContentLoadedMs:n.domContentLoadedEventEnd,
+          firstContentfulPaintMs:performance.getEntriesByName('first-contentful-paint')[0]?.startTime??null,
+          assets:performance.getEntriesByType('resource').filter(r=>r.name.startsWith(location.origin+'/assets/'))
+            .map(r=>({file:new URL(r.name).pathname,transferBytes:r.transferSize,encodedBytes:r.encodedBodySize,decodedBytes:r.decodedBodySize,durationMs:r.duration}))};
+      })()`);
+      const report={scope:"Cold fixture dashboard, gzip-enabled local static server with immutable asset caching, 150 ms latency and 1.6 Mbps download; excludes live provider and hosting latency",...timings};
+      fs.writeFileSync(path.join(artifacts,"load-profile.json"),JSON.stringify(report,null,2));
+      console.log("Cold dashboard profile: "+JSON.stringify({mapReadyMs:timings.observedMapReadyMs,firstContentfulPaintMs:timings.firstContentfulPaintMs}));
+      await call("Network.emulateNetworkConditions",{offline:false,latency:0,downloadThroughput:-1,uploadThroughput:-1});
+      await call("Network.setCacheDisabled",{cacheDisabled:false});
+    }
     assert(loadedTiles.base>0,"Map must load base tiles");
     assert(loadedTiles.traffic>0,"Map must load traffic tiles and render their roads");
     await waitFor("!document.querySelector('[aria-label=\"Retry traffic layer\"]')", liveTrafficTiles?60000:10000);
@@ -313,19 +345,20 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await evaluate("document.querySelector('#dashboard-bottlenecks [aria-label=\"Edit bottleneck\"]').click()");
     await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] #node-name')");
     await evaluate("(() => {const input=document.querySelector('#node-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
-    await clickText("Update");
-    await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] [role=alert]')?.textContent==='Bottleneck name is required.'");
-    const editorAlertVisible="(() => {const editor=document.querySelector('[role=region][aria-label=\"Edit bottleneck\"]');const alert=editor.querySelector('[role=alert]');const e=editor.getBoundingClientRect(),a=alert.getBoundingClientRect();return a.height>0&&a.top>=e.top&&a.bottom<=e.bottom&&a.top>=0&&a.bottom<=innerHeight;})()";
+    await clickText("Save changes");
+    await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] #edit-name-error')?.textContent==='Enter a bottleneck name.'");
+    const editorAlertVisible="(() => {const editor=document.querySelector('[role=region][aria-label=\"Edit bottleneck\"]');const alert=editor.querySelector('[role=alert],#edit-name-error');const e=editor.getBoundingClientRect(),a=alert.getBoundingClientRect();return a.height>0&&a.top>=e.top&&a.bottom<=e.bottom&&a.top>=0&&a.bottom<=innerHeight;})()";
     await waitFor(editorAlertVisible);
     assert.equal(await evaluate("document.querySelector('#dashboard-bottlenecks').getBoundingClientRect().width"),0,"Edit errors must be visible without reopening the hidden list");
     rejectBottleneckSave=true;
     await evaluate("(() => {const input=document.querySelector('#node-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Unsaved regression draft');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
-    await clickText("Update");
+    await clickText("Save changes");
     await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] [role=alert]')?.textContent==='Bottleneck update temporarily unavailable'");
     await waitFor(editorAlertVisible);
     assert.equal(await evaluate("document.querySelector('#node-name').value"),"Unsaved regression draft","Failed edits must retain the user's input");
     rejectBottleneckSave=false;
     await clickText("Cancel");
+    await clickText("Discard changes");
 
     // Both keyboard activation keys, including reselecting the same node,
     // must carry focus to the newly displayed detail panel.
@@ -413,12 +446,11 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     const blockedActions='document.querySelector(\'[role="group"][aria-label="Actions for generated-fixture"]\')';
     const previewCount=previewRuns.length;
-    await evaluate(`${blockedActions}.querySelector('button[aria-label="Preview publication"]').click()`);
+    await evaluate(`${blockedActions}.querySelector('button[aria-label="Why publication is unavailable"]').click()`);
+    await waitFor("document.querySelector('[aria-label=\"Publication unavailable\"]')?.textContent.includes('generated inputs (tsi)')");
     assert.equal(previewRuns.length,previewCount,"Generated runs cannot open publication previews");
-    await evaluate(`${blockedActions}.querySelector('span[tabindex="0"]').focus()`);
-    await waitFor("document.querySelector('[role=tooltip]')?.textContent.includes('generated inputs (tsi)')");
-    await evaluate(`${blockedActions}.querySelector('span[tabindex="0"]').blur()`);
-    await waitFor("!document.querySelector('[role=tooltip]')");
+    await evaluate(`${blockedActions}.querySelector('button[aria-label="Why publication is unavailable"]').click()`);
+    await waitFor("!document.querySelector('[aria-label=\"Publication unavailable\"]')");
     await evaluate(`${actions}.querySelector('button[aria-label="Preview publication"]').click()`);
     await waitFor("[...document.querySelectorAll('[role=dialog] button')].some(e=>e.textContent.trim()==='Confirm publication' && !e.disabled)");
     assert.equal(previewRuns.at(-1),"morning-fixture");
@@ -619,6 +651,17 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     for(const route of protectedRoutes) {
       await call("Page.navigate",{url:origin+route});
       await waitFor("location.pathname === '/login' && document.body.innerText.includes('Sign In to System')");
+    }
+    if (profileLoad) {
+      // A fresh login navigation must not request the map engine before sign-in.
+      await call("Page.navigate",{url:origin+"/login"});
+      await waitFor("location.pathname === '/login' && document.body.innerText.includes('Sign In to System')");
+      const loginResources=await evaluate("performance.getEntriesByType('resource').map(r=>new URL(r.name).pathname)");
+      assert(!loginResources.some(name=>name.includes('/maplibre-') && name.endsWith('.js')),"Login must keep the map library deferred");
+      const file=path.join(artifacts,"load-profile.json");
+      const profile=JSON.parse(fs.readFileSync(file,"utf8"));
+      profile.loginRequestedMapEngine=false;
+      fs.writeFileSync(file,JSON.stringify(profile,null,2));
     }
     await evaluate(auth("dispatcher"));
     await call("Page.navigate",{url:origin+"/incident-review"});

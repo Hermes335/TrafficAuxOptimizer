@@ -48,7 +48,7 @@ export function Header({ onOpenNavigation, navigationOpen }: { onOpenNavigation:
         </button>
         <div className="hidden h-9 w-9 shrink-0 place-items-center rounded-lg bg-amber-400 text-slate-950 md:grid"><Route className="h-5 w-5" /></div>
         <div className="min-w-0">
-          <div className="truncate text-sm font-bold tracking-tight text-slate-900 sm:text-base"><span className="sm:hidden">Traffic DSS</span><span className="hidden sm:inline">Traffic Deployment DSS</span></div>
+          <div className="truncate text-sm font-bold tracking-tight text-slate-900 sm:text-base">TrafficOffOptimizer</div>
           <div className="text-xs text-slate-500">Iloilo City operations</div>
         </div>
       </div>

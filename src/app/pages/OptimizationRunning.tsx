@@ -7,7 +7,6 @@ import { Link, useNavigate } from "react-router";
 import PrettyCurve from "../components/PrettyCurve";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusBadge } from "../components/StatusBadge";
-import { ErrorFeedback } from "../components/ErrorFeedback";
 import {
   cancelOptimizationRun,
   fetchOptimizationStatus,
@@ -118,8 +117,6 @@ export function OptimizationRunning() {
           ? "text-gray-700"
         : "text-white";
 
-  const [cancelError, setCancelError] = useState<string | null>(null);
-
   const handleCancelRun = async () => {
     if (!runId) {
       navigate("/optimization");
@@ -128,11 +125,10 @@ export function OptimizationRunning() {
 
     try {
       await cancelOptimizationRun(runId);
-      setCancelError(null);
       navigate("/optimization");
     } catch (cancelError: unknown) {
       const message = cancelError instanceof Error ? cancelError.message : "Failed to cancel optimization run";
-      setCancelError(message);
+      throw new Error(message);
     }
   };
 
@@ -262,18 +258,6 @@ export function OptimizationRunning() {
           </div>
 
           {error && <p role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{error}</p>}
-
-          {/* Show error feedback if cancel failed */}
-          {cancelError && (
-            <div className="mb-4">
-              <ErrorFeedback
-                error={cancelError}
-                onRetry={handleCancelRun}
-                onDismiss={() => setCancelError(null)}
-                retryLabel="Retry Cancel"
-              />
-            </div>
-          )}
 
           <div role="progressbar" aria-label="Optimization progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}
             className="mb-2 h-4 overflow-hidden rounded-full bg-gray-200">

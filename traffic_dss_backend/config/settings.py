@@ -201,7 +201,7 @@ SIMPLE_JWT = {
 }
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Traffic Deployment DSS API",
+    "TITLE": "TrafficOffOptimizer API",
     "DESCRIPTION": "Backend APIs for traffic deployment decision support.",
     "VERSION": "1.0.0",
 }

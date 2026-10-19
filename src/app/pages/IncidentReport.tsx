@@ -215,7 +215,7 @@ export function IncidentReport() {
   return <main className="min-h-screen bg-slate-50 text-slate-900">
     <header className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
-        <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-400 text-slate-950"><MapPin size={22} /></span><div><p className="text-sm font-bold tracking-tight">TrafficAux</p><p className="text-xs text-slate-500">Community incident reporting</p></div></div>
+        <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-400 text-slate-950"><MapPin size={22} /></span><div><p className="text-sm font-bold tracking-tight">TrafficOffOptimizer</p><p className="text-xs text-slate-500">Community incident reporting</p></div></div>
         {isAuthenticated && <Link to="/" className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 sm:text-sm"><ArrowLeft size={16} />Dashboard</Link>}
       </div>
     </header>
@@ -286,7 +286,7 @@ export function IncidentReport() {
           </div>
         </div>
       </form>}
-      <footer className="mt-7 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500"><p>TrafficAux · Iloilo incident reporting</p>{!isEditing && <button type="button" onClick={async () => {
+      <footer className="mt-7 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500"><p>TrafficOffOptimizer · Iloilo incident reporting</p>{!isEditing && <button type="button" onClick={async () => {
         try { await navigator.clipboard.writeText(`${window.location.origin}/incident-report`); setLinkCopied(true); }
         catch { setLinkCopied(false); }
       }} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 font-medium text-slate-600 hover:bg-slate-100"><Link2 size={15} />{linkCopied ? "Link copied" : "Copy report link"}</button>}</footer>

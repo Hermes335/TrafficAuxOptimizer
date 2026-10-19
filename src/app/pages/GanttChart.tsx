@@ -225,10 +225,11 @@ export function GanttChart() {
     setPublishNotice(null);
     try {
       const result = await clearDeploymentSchedule(shiftFilter !== "all" ? shiftFilter : undefined, day);
-      await reloadSchedule();
       setPublishNotice(`Cleared ${result.cleared} deployment${result.cleared === 1 ? "" : "s"}.`);
+      try { await reloadSchedule(); }
+      catch { setPublishError("The schedule was cleared, but the display could not be refreshed. Refresh the schedule to see the current records."); }
     } catch (clearError: unknown) {
-      setPublishError(clearError instanceof Error ? clearError.message : "Failed to clear deployment schedule. Try again after checking backend logs.");
+      throw new Error(clearError instanceof Error ? clearError.message : "Failed to clear deployment schedule. Please try again.");
     } finally {
       setClearingSchedule(false);
     }

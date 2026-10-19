@@ -110,12 +110,19 @@ it("failed deletion displays the API error and keeps the bottleneck and selected
   fireEvent.click(trash());
   fireEvent.click(screen.getByRole("button", {name: "Remove"}));
   expect((await screen.findByRole("alert")).textContent).toContain("Cannot remove bottleneck with active incidents or deployments.");
-  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(screen.getByRole("alertdialog")).toBeTruthy();
+  expect(within(screen.getByRole("alertdialog")).getByRole("button", {name: "Remove"})).toHaveProperty("disabled", false);
   expect(row().getAttribute("data-selected")).toBe("true");
   expect(within(document.getElementById("dashboard-details")!).getByText("Bottleneck Details")).toBeTruthy();
   expect(backend.deleteDashboardBottleneck).toHaveBeenCalledExactlyOnceWith("B-ONE");
   expect(fixture.reload).not.toHaveBeenCalled();
   expect(trash()).toHaveProperty("disabled", false);
+  vi.mocked(backend.deleteDashboardBottleneck).mockResolvedValueOnce(undefined);
+  fixture.bottlenecks = fixture.bottlenecks.filter(node => node.id !== "B-ONE");
+  fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", {name:"Remove"}));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(backend.deleteDashboardBottleneck).toHaveBeenCalledTimes(2);
+  expect(fixture.reload).toHaveBeenCalledTimes(1);
 });
 
 it.each([

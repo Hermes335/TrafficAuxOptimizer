@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const { spawn } = require('node:child_process');
 const root = path.resolve(__dirname, '..');
 const executable = require('./python-path.cjs')(root);
+if (!process.argv.includes('--stop')) require('./check-backend-runtime.cjs').checkBackendRuntime(root, executable);
 const child = spawn(executable, [path.join(__dirname, 'cloudflare-demo.py'), ...process.argv.slice(2)], {
   cwd: root, env: process.env, stdio: 'inherit', windowsHide: true,
 });
