@@ -24,6 +24,17 @@ def background_traffic_allowed():
     return not settings.TRAFFIC_POLL_ONLY_WHEN_ACTIVE or traffic_viewers_active()
 
 
+def traffic_poll_due():
+    # Heartbeats fill the gap when beat's schedule and the shared cooldown are
+    # out of phase. Continuous unattended mode keeps its existing beat schedule.
+    if not settings.TRAFFIC_POLL_ONLY_WHEN_ACTIVE:
+        return False
+    try:
+        return not bool(cache.get(POLL_KEY))
+    except Exception:
+        return False
+
+
 def claim_traffic_poll():
     if not settings.TRAFFIC_POLL_ONLY_WHEN_ACTIVE:
         return True

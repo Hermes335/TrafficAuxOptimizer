@@ -98,9 +98,13 @@ signed-in tab is visible. With `TRAFFIC_POLL_ONLY_WHEN_ACTIVE=True` (the default
 traffic polling pauses after 180 seconds without a heartbeat. Hidden tabs,
 signed-out users, ordinary API polling and health checks do not extend presence.
 Multiple visible users share the lease; one closing the app cannot pause others.
-Returning queues a traffic refresh, with a shared five-minute cooldown preventing
-duplicate provider calls from overlapping users and scheduled jobs. Requests
-already in progress can finish; queued work rechecks activity before collecting.
+Returning requests a traffic refresh when due, with a shared five-minute cooldown
+preventing duplicate provider calls from overlapping users and scheduled jobs.
+Visible-tab heartbeats also queue a refresh after the cooldown expires, so a
+scheduled poll arriving early does not defer collection until the next beat cycle.
+If enqueueing fails, the endpoint returns a retryable 503 and releases its queue
+guard; the next visible heartbeat retries even though viewer presence is active.
+Requests already in progress can finish; queued work rechecks activity before collecting.
 Missing/unavailable presence cache pauses traffic polling to conserve quota.
 
 This pauses the background traffic collection task, including its fallback
