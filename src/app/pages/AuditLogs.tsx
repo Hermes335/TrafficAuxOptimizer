@@ -50,22 +50,22 @@ export function AuditLogs() {
   }, [error]);
 
   return (
-    <div className="flex h-full flex-col gap-4 bg-gray-50 p-6">
+    <div className="flex h-full min-w-0 flex-col gap-4 bg-gray-50 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold">Audit Logs</h1>
         <p className="text-sm text-gray-600">System activity and backend change history</p>
       </div>
 
-      <div className="rounded-xl border bg-white p-4">
+      <div className="min-w-0 rounded-xl border bg-white p-4">
         <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-gray-700">
           <ShieldCheck className="h-4 w-4 text-yellow-500" />
           Latest Events
         </div>
 
-        <div className="mb-3 flex gap-3">
-          <button disabled={page === 1 || loading} onClick={() => setPage(p => p - 1)}>Previous</button>
-          <span>Page {page} of {Math.max(1, Math.ceil(count / 25))}</span>
-          <button disabled={page * 25 >= count || loading} onClick={() => setPage(p => p + 1)}>Next</button>
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+          <button className="min-h-10 rounded-lg border px-3 disabled:opacity-50" disabled={page === 1 || loading} onClick={() => setPage(p => p - 1)}>Previous</button>
+          <span className="text-slate-600">Page {page} of {Math.max(1, Math.ceil(count / 25))}</span>
+          <button className="min-h-10 rounded-lg border px-3 disabled:opacity-50" disabled={page * 25 >= count || loading} onClick={() => setPage(p => p + 1)}>Next</button>
         </div>
         {loading && <LoadingState label="Loading audit logs..." />}
 
@@ -86,7 +86,27 @@ export function AuditLogs() {
         )}
 
         {!loading && !permissionDenied && !error && logs.length > 0 && (
-          <div className="overflow-auto">
+          <>
+          <ul className="space-y-3 md:hidden" aria-label="Audit events">
+            {logs.map((entry) => (
+              <li key={entry.id} className="min-w-0 rounded-lg border border-slate-200 p-3 text-sm [overflow-wrap:anywhere]">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">{entry.action}</span>
+                  <span className="font-medium text-slate-900">{entry.resource}</span>
+                </div>
+                <p className="flex items-start gap-1.5 text-xs text-slate-600">
+                  <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>{operationalDate(new Date(entry.timestamp))} · {operationalTime(entry.timestamp)} Manila</span>
+                </p>
+                <p className="mt-1 text-xs text-slate-600">User #{entry.user}</p>
+                <details className="mt-2">
+                  <summary className="cursor-pointer py-2 font-medium text-slate-700">View changes</summary>
+                  <pre className="max-h-64 overflow-y-auto whitespace-pre-wrap rounded bg-slate-50 p-2 text-xs text-slate-600 [overflow-wrap:anywhere]">{JSON.stringify(entry.changes, null, 2)}</pre>
+                </details>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-auto md:block">
             <table className="w-full min-w-[860px] border-collapse text-sm">
               <thead>
                 <tr className="border-b bg-gray-50 text-left text-xs uppercase tracking-wide text-gray-500">
@@ -123,6 +143,7 @@ export function AuditLogs() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </div>

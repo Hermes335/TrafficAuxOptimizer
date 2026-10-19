@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, TriangleAlert } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { previewPublication, publishDeploymentsFromOptimization, type PublicationAssignment, type PublicationPreview, type PublishOptimizationDeploymentsRequest } from "../services/backend";
 import { operationalDate, operationalTime } from "../services/operationalTime";
 
@@ -27,6 +27,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
   runId: string; date?: string; mode?: string; onPublished?: () => Promise<void>; syntheticSources?: string[] | null; compact?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [warningOpen, setWarningOpen] = useState(false);
   const [reviewRunId, setReviewRunId] = useState(runId);
   const [day, setDay] = useState(date ?? operationalDate());
   const [overrideReason, setOverrideReason] = useState("");
@@ -91,15 +92,18 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
       setOpen(value);
       if (value) { setReviewRunId(runId); setDay(date ?? operationalDate()); setOverrideReason(""); setOverrideDraft(""); setPreview(null); pending.current = null; }
     }}>
-      {compact && publicationWarning ? <Tooltip>
-        <TooltipTrigger asChild>
-          <span tabIndex={0} role="group" aria-label={`Publication unavailable. ${publicationWarning}`}
-            className="inline-flex w-full cursor-help rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-yellow-500 focus-visible:ring-offset-2">
-            {publicationTrigger}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent side="top" sideOffset={6} className="max-w-64">{publicationWarning}</TooltipContent>
-      </Tooltip> : publicationTrigger}
+      {compact && publicationWarning ? <Popover open={warningOpen} onOpenChange={setWarningOpen}>
+        <PopoverTrigger asChild>
+          <button type="button" aria-label="Why publication is unavailable" className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-amber-200 bg-amber-100 px-3 text-sm font-semibold text-amber-900 hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2">
+            <TriangleAlert aria-hidden="true" className={`h-4 w-4 ${syntheticSources?.length ? "text-red-700" : "text-amber-800"}`} />Preview
+          </button>
+        </PopoverTrigger>
+        <PopoverContent aria-label="Publication unavailable" side="top" sideOffset={6} collisionPadding={12} className="max-w-[calc(100vw-2rem)] space-y-2 text-sm">
+          <h3 className="font-semibold text-slate-900">Cannot publish this run</h3>
+          <p className="break-words text-slate-600">{publicationWarning}</p>
+          <button type="button" onClick={() => setWarningOpen(false)} className="min-h-9 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Got it</button>
+        </PopoverContent>
+      </Popover> : publicationTrigger}
       <DialogContent className="flex max-h-[90vh] flex-col overflow-hidden sm:max-w-2xl">
         <DialogTitle className="shrink-0 pr-8">Review schedule replacement</DialogTitle>
         <DialogDescription>Review the effective time and assignment changes. Eligibility, staffing, and input freshness are checked again when you publish.</DialogDescription>

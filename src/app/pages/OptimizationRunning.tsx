@@ -1,7 +1,8 @@
+import { usePageState } from "../contexts/PageStateContext";
 import { RememberedDetails } from "../components/RememberedDetails";
 import { operationalTime } from "../services/operationalTime";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { TrendingUp, Users, AlertCircle, Target, Clock, Activity, CheckCircle2, XCircle, ChevronLeft, AlertTriangle } from "lucide-react";
+import { TrendingUp, Users, AlertCircle, Target, Clock, Activity, CheckCircle2, XCircle, ChevronLeft, ChevronDown, AlertTriangle } from "lucide-react";
 import { Link, useNavigate } from "react-router";
 import PrettyCurve from "../components/PrettyCurve";
 import { ConfirmDialog } from "../components/ConfirmDialog";
@@ -25,6 +26,7 @@ export function OptimizationRunning() {
   const navigate = useNavigate();
   const query = useMemo(() => new URLSearchParams(window.location.search), []);
   const existingRunId = query.get("run_id");
+  const [configurationExpanded, setConfigurationExpanded] = usePageState("progress.configurationExpanded", false);
   const [runId, setRunId] = useState<string | null>(existingRunId);
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -198,19 +200,230 @@ export function OptimizationRunning() {
   }, [existingRunId, query]);
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full min-w-0 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
+      {/* Center Panel - Progress */}
+      <div className="order-1 flex min-w-0 shrink-0 flex-col bg-gray-50 p-4 sm:p-6 xl:order-2 xl:flex-1 xl:overflow-y-auto xl:p-8">
+        <div className="mb-8">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+            <div className="flex min-w-0 flex-1 basis-full items-start gap-3 sm:basis-80">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-yellow-400 sm:h-12 sm:w-12">
+                <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
+              </div>
+              <div className="min-w-0">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <h1 className="break-words text-xl font-bold sm:text-2xl">{progress}% Optimization Progress</h1>
+                  <StatusBadge status={status?.status || "queued"} size="md" />
+                </div>
+                <p className="text-gray-600">
+                  {status?.status === "completed"
+                    ? "Optimization complete."
+                    : status?.status === "failed"
+                      ? "Optimization failed. Check backend logs and retry."
+                      : status?.status === "cancelled"
+                        ? "Optimization cancelled."
+                        : latestFitnessLabel}
+                </p>
+                {completionSummary && <p className="mt-1 text-sm text-green-700">{completionSummary}</p>}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {status?.status === "completed" && (
+                <Link
+                  to="/gantt-chart"
+                  className="inline-flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500"
+                >
+                  Review Schedule
+                  <ChevronLeft className="h-4 w-4 rotate-180" />
+                </Link>
+              )}
+              <Link
+                to="/optimization"
+                className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                Back
+              </Link>
+              {isRunActive && (
+                <ConfirmDialog
+                  title="Cancel Optimization Run?"
+                  description="This will stop the currently running genetic algorithm. The run ID will be marked as cancelled and results will not be saved."
+                  confirmText="Cancel Run"
+                  isDangerous
+                  onConfirm={handleCancelRun}
+                  trigger={
+                    <button className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100">
+                      <XCircle className="h-4 w-4" />
+                      Cancel Run
+                    </button>
+                  }
+                />
+              )}
+            </div>
+          </div>
+
+          {error && <p role="alert" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{error}</p>}
+
+          {/* Show error feedback if cancel failed */}
+          {cancelError && (
+            <div className="mb-4">
+              <ErrorFeedback
+                error={cancelError}
+                onRetry={handleCancelRun}
+                onDismiss={() => setCancelError(null)}
+                retryLabel="Retry Cancel"
+              />
+            </div>
+          )}
+
+          <div role="progressbar" aria-label="Optimization progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}
+            className="mb-2 h-4 overflow-hidden rounded-full bg-gray-200">
+            <div
+              className="h-full bg-yellow-400 transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Fitness Convergence Curve */}
+        {error && <p role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-800">{error}</p>}
+        <div className="mb-6 min-w-0 rounded-xl bg-white p-3 shadow-sm sm:p-6 xl:flex-1">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="mb-1 flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-yellow-500" />
+                <h2 className="font-semibold">Fitness Convergence Curve</h2>
+              </div>
+              <p className="text-sm text-gray-600">{latestFitnessLabel}</p>
+            </div>
+            <div className={`rounded-full px-3 py-1 ${statusToneClass}`}>
+              <span className="text-sm font-medium">{status?.status ? `${status.status} stream` : "LIVE STREAM"}</span>
+            </div>
+          </div>
+
+          {/* Legend and Axis Label */}
+          <div className="mb-4 flex flex-col gap-2">
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-yellow-400" />
+                <span className="text-gray-700">Best Fitness (Per Generation)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full bg-gray-400" />
+                <span className="text-gray-700">Running mean of best fitness</span>
+              </div>
+            </div>
+            {/* Y-axis indicator properly positioned to avoid overlap */}
+            <div className="text-xs font-semibold text-gray-500 mt-2">Fitness Score &rarr;</div>
+          </div>
+
+          {/* Chart with axis labels */}
+          <div className="relative h-64 min-w-0 sm:h-80">
+            <PrettyCurve
+              values={convergenceData.map((d) => d.bestFitness)}
+              secondaryValues={convergenceData.map((d) => d.avgFitness)}
+              color="#facc15"
+              colorSecondary="#6b7280"
+            />
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-lg bg-yellow-50 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-yellow-600" />
+                <span className="font-medium">GEN {currentGen} · LIMIT {totalGenerations}</span>
+              </div>
+              <p className="text-sm text-gray-600">
+                {status?.status === "completed"
+                  ? status.estimated_completion ? `Finished at ${operationalTime(status.estimated_completion)}` : "Run finished."
+                  : !isRunActive ? latestFitnessLabel
+                    : status?.estimated_completion ? `Estimated completion ${operationalTime(status.estimated_completion)}`
+                      : "Estimating completion from backend stream..."}
+              </p>
+            </div>
+            <div className="rounded-lg bg-blue-50 p-4">
+              <div className="mb-2 flex items-center gap-2">
+                <Users className="h-5 w-5 text-blue-600" />
+                <span className="font-medium">CANDIDATE PLANS (ESTIMATE)</span>
+              </div>
+              <p className="text-sm text-gray-600">{candidatePlans}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-gray-500 sm:text-sm">
+          <span className="min-w-0 break-all">{runId ? `Run ${runId}` : "Awaiting run start"}</span>
+          <div className="flex flex-wrap gap-x-6 gap-y-1">
+            <span>{status?.status ?? "starting"}</span>
+            <span>{status?.current_generation ? `${status.current_generation} generations streamed` : "Awaiting first generation"}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Right Panel - Performance Monitoring */}
+      <aside aria-label="Algorithm metrics" className="order-2 min-w-0 shrink-0 border-t bg-white p-4 sm:p-6 xl:order-3 xl:w-80 xl:overflow-y-auto xl:border-l xl:border-t-0">
+        <h2 className="mb-6 font-semibold">ALGORITHM METRICS</h2>
+
+        <div className="mb-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+          <div className="rounded-lg border-2 border-yellow-400 bg-yellow-50 p-4">
+            <div className="mb-1 flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-yellow-600" />
+              <span className="text-xs text-gray-600">Best Fitness Score</span>
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="text-3xl font-bold">{fitnessScore.toFixed(1)}</div>
+              <div className="mb-1 text-sm text-yellow-600">SCORE</div>
+            </div>
+            <div className="mt-2 flex items-center gap-1 text-sm text-green-600">
+              <TrendingUp className="h-4 w-4" />
+              {fitnessDeltaFromStart >= 0 ? "+" : ""}
+              {fitnessDeltaFromStart.toFixed(2)} from Gen 1
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-gray-50 p-4">
+            <div className="mb-1 text-xs text-gray-600">Mean of best fitness</div>
+            <div className="flex items-end gap-2">
+              <div className="text-2xl font-bold">{averageFitness.toFixed(1)}</div>
+              <div className="mb-1 text-sm text-gray-600">SCORE</div>
+            </div>
+            <div className="mt-2 flex items-center gap-1 text-sm text-gray-600">
+              Based on {convergenceData.length} streamed generations
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-gray-50 p-4">
+            <div className="mb-1 text-xs text-gray-600">{status?.status === "completed" ? "Generations completed" : "Current Generation"}</div>
+            <div className="flex items-end gap-2">
+              <div className="text-2xl font-bold">{currentGen}</div>
+              <div className="mb-1 text-sm text-gray-600">of {totalGenerations} max</div>
+            </div>
+            <div className="mt-2 flex items-center gap-1 text-sm text-gray-600">
+              {progress}% complete
+            </div>
+          </div>
+        </div>
+
+        <div className="rounded-lg bg-gray-50 p-4 text-center">
+          <div className="mb-2 text-sm text-gray-600">BACKEND RESULT VIEW</div>
+          <Link
+            to={runId ? `/optimization-engine?run_id=${encodeURIComponent(runId)}` : "/optimization-engine"}
+            className="flex items-center justify-center gap-2 rounded-lg bg-yellow-400 px-3 py-3 font-medium text-slate-950 hover:bg-yellow-500"
+          >
+            <span className="rotate-90">⟳</span>
+            Open Result Details
+          </Link>
+        </div>
+      </aside>
+
       {/* Left Panel - Configuration */}
-      <div className="w-80 flex-shrink-0 border-r bg-white overflow-y-auto p-6">
+      <aside aria-label="Run configuration" className="order-3 min-w-0 shrink-0 border-t bg-white p-4 sm:p-6 xl:order-1 xl:w-80 xl:overflow-y-auto xl:border-r xl:border-t-0">
+        <button type="button" aria-expanded={configurationExpanded} aria-controls="run-configuration" onClick={() => setConfigurationExpanded(value => !value)} className="flex min-h-11 w-full items-center justify-between gap-3 rounded-lg text-left text-sm font-semibold text-slate-800 xl:hidden">Run configuration<ChevronDown aria-hidden="true" className={`h-4 w-4 shrink-0 transition-transform ${configurationExpanded ? "rotate-180" : ""}`} /></button>
+        <div id="run-configuration" className={`${configurationExpanded ? "block" : "hidden"} pt-4 xl:block xl:pt-0`}>
         <div className="mb-6">
           <div className={`mb-2 inline-block rounded px-3 py-1 text-sm font-medium ${statusToneClass}`}>
             {status?.status ? status.status.toUpperCase() : "STARTING"}
           </div>
-          <h2 className="text-lg font-bold">Session ID: {runId ?? "Starting..."}</h2>
-          {error && (
-            <div className="mt-2 rounded-lg border border-yellow-200 bg-yellow-50 p-2 text-xs text-yellow-700">
-              {error}
-            </div>
-          )}
+          <h2 className="break-all text-sm font-semibold sm:text-base">Session ID: {runId ?? "Starting..."}</h2>
           <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700">
             <div className="mb-1 flex items-center gap-1 font-semibold">
               <AlertTriangle className="h-3.5 w-3.5" />
@@ -384,219 +597,9 @@ export function OptimizationRunning() {
           </div>
         </div>
 
-      </div>
-
-      {/* Center Panel - Progress */}
-      <div className="flex flex-1 flex-col min-w-0 bg-gray-50 p-8 overflow-y-auto">
-        <div className="mb-8">
-          <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
-            <div className="flex min-w-[240px] flex-1 items-start gap-3">
-              <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-yellow-400">
-                <ProgressStatusIcon className={`h-8 w-8 ${progressIconClass} ${isRunActive ? "animate-spin" : ""}`} />
-              </div>
-              <div>
-                <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-bold">{progress}% Optimization Progress</h1>
-                  <StatusBadge status={status?.status || "queued"} size="md" />
-                </div>
-                <p className="text-gray-600">
-                  {status?.status === "completed"
-                    ? "Optimization complete."
-                    : status?.status === "failed"
-                      ? "Optimization failed. Check backend logs and retry."
-                      : status?.status === "cancelled"
-                        ? "Optimization cancelled."
-                        : latestFitnessLabel}
-                </p>
-                {completionSummary && <p className="mt-1 text-sm text-green-700">{completionSummary}</p>}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {status?.status === "completed" && (
-                <Link
-                  to="/gantt-chart"
-                  className="inline-flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500"
-                >
-                  Review Schedule
-                  <ChevronLeft className="h-4 w-4 rotate-180" />
-                </Link>
-              )}
-              <Link
-                to="/optimization"
-                className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Back
-              </Link>
-              {isRunActive && (
-                <ConfirmDialog
-                  title="Cancel Optimization Run?"
-                  description="This will stop the currently running genetic algorithm. The run ID will be marked as cancelled and results will not be saved."
-                  confirmText="Cancel Run"
-                  isDangerous
-                  onConfirm={handleCancelRun}
-                  trigger={
-                    <button className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100">
-                      <XCircle className="h-4 w-4" />
-                      Cancel Run
-                    </button>
-                  }
-                />
-              )}
-            </div>
-          </div>
-
-          {/* Show error feedback if cancel failed */}
-          {cancelError && (
-            <div className="mb-4">
-              <ErrorFeedback
-                error={cancelError}
-                onRetry={handleCancelRun}
-                onDismiss={() => setCancelError(null)}
-                retryLabel="Retry Cancel"
-              />
-            </div>
-          )}
-
-          <div role="progressbar" aria-label="Optimization progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}
-            className="mb-2 h-4 overflow-hidden rounded-full bg-gray-200">
-            <div
-              className="h-full bg-yellow-400 transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
         </div>
+      </aside>
 
-        {/* Fitness Convergence Curve */}
-        {error && <p role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-800">{error}</p>}
-        <div className="mb-8 flex-1 rounded-xl bg-white p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <div className="mb-1 flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-yellow-500" />
-                <h2 className="font-semibold">Fitness Convergence Curve</h2>
-              </div>
-              <p className="text-sm text-gray-600">{latestFitnessLabel}</p>
-            </div>
-            <div className={`rounded-full px-3 py-1 ${statusToneClass}`}>
-              <span className="text-sm font-medium">{status?.status ? `${status.status} stream` : "LIVE STREAM"}</span>
-            </div>
-          </div>
-
-          {/* Legend and Axis Label */}
-          <div className="mb-4 flex flex-col gap-2">
-            <div className="flex gap-6 text-sm">
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-yellow-400" />
-                <span className="text-gray-700">Best Fitness (Per Generation)</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full bg-gray-400" />
-                <span className="text-gray-700">Running mean of best fitness</span>
-              </div>
-            </div>
-            {/* Y-axis indicator properly positioned to avoid overlap */}
-            <div className="text-xs font-semibold text-gray-500 mt-2">Fitness Score &rarr;</div>
-          </div>
-
-          {/* Chart with axis labels */}
-          <div className="relative h-80">
-            <PrettyCurve
-              values={convergenceData.map((d) => d.bestFitness)}
-              secondaryValues={convergenceData.map((d) => d.avgFitness)}
-              color="#facc15"
-              colorSecondary="#6b7280"
-            />
-          </div>
-
-          <div className="mt-4 grid grid-cols-2 gap-4">
-            <div className="rounded-lg bg-yellow-50 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <TrendingUp className="h-5 w-5 text-yellow-600" />
-                <span className="font-medium">GEN {currentGen} · LIMIT {totalGenerations}</span>
-              </div>
-              <p className="text-sm text-gray-600">
-                {status?.status === "completed"
-                  ? status.estimated_completion ? `Finished at ${operationalTime(status.estimated_completion)}` : "Run finished."
-                  : !isRunActive ? latestFitnessLabel
-                    : status?.estimated_completion ? `Estimated completion ${operationalTime(status.estimated_completion)}`
-                      : "Estimating completion from backend stream..."}
-              </p>
-            </div>
-            <div className="rounded-lg bg-blue-50 p-4">
-              <div className="mb-2 flex items-center gap-2">
-                <Users className="h-5 w-5 text-blue-600" />
-                <span className="font-medium">CANDIDATE PLANS (ESTIMATE)</span>
-              </div>
-              <p className="text-sm text-gray-600">{candidatePlans}</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between text-sm text-gray-500">
-          <span>{runId ? `Run ${runId}` : "Awaiting run start"}</span>
-          <div className="flex gap-6">
-            <span>{status?.status ?? "starting"}</span>
-            <span>{status?.current_generation ? `${status.current_generation} generations streamed` : "Awaiting first generation"}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Right Panel - Performance Monitoring */}
-      <div className="w-80 border-l bg-white p-6">
-        <h2 className="mb-6 font-semibold">ALGORITHM METRICS</h2>
-
-        <div className="mb-6 space-y-4">
-          <div className="rounded-lg border-2 border-yellow-400 bg-yellow-50 p-4">
-            <div className="mb-1 flex items-center gap-2">
-              <TrendingUp className="h-4 w-4 text-yellow-600" />
-              <span className="text-xs text-gray-600">Best Fitness Score</span>
-            </div>
-            <div className="flex items-end gap-2">
-              <div className="text-3xl font-bold">{fitnessScore.toFixed(1)}</div>
-              <div className="mb-1 text-sm text-yellow-600">SCORE</div>
-            </div>
-            <div className="mt-2 flex items-center gap-1 text-sm text-green-600">
-              <TrendingUp className="h-4 w-4" />
-              {fitnessDeltaFromStart >= 0 ? "+" : ""}
-              {fitnessDeltaFromStart.toFixed(2)} from Gen 1
-            </div>
-          </div>
-
-          <div className="rounded-lg bg-gray-50 p-4">
-            <div className="mb-1 text-xs text-gray-600">Mean of best fitness</div>
-            <div className="flex items-end gap-2">
-              <div className="text-2xl font-bold">{averageFitness.toFixed(1)}</div>
-              <div className="mb-1 text-sm text-gray-600">SCORE</div>
-            </div>
-            <div className="mt-2 flex items-center gap-1 text-sm text-gray-600">
-              Based on {convergenceData.length} streamed generations
-            </div>
-          </div>
-
-          <div className="rounded-lg bg-gray-50 p-4">
-            <div className="mb-1 text-xs text-gray-600">{status?.status === "completed" ? "Generations completed" : "Current Generation"}</div>
-            <div className="flex items-end gap-2">
-              <div className="text-2xl font-bold">{currentGen}</div>
-              <div className="mb-1 text-sm text-gray-600">of {totalGenerations} max</div>
-            </div>
-            <div className="mt-2 flex items-center gap-1 text-sm text-gray-600">
-              {progress}% complete
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-lg bg-gray-50 p-4 text-center">
-          <div className="mb-2 text-sm text-gray-600">BACKEND RESULT VIEW</div>
-          <Link
-            to={runId ? `/optimization-engine?run_id=${encodeURIComponent(runId)}` : "/optimization-engine"}
-            className="flex items-center justify-center gap-2 rounded-lg bg-yellow-400 py-3 font-medium text-white hover:bg-yellow-500"
-          >
-            <span className="rotate-90">⟳</span>
-            Open Result Details
-          </Link>
-        </div>
-      </div>
     </div>
   );
 }

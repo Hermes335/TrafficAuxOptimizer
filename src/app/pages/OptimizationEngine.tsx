@@ -110,14 +110,14 @@ export function OptimizationEngine() {
   const assignments = bestSolution?.assignments ?? [];
 
   return (
-    <div className="h-full overflow-y-auto bg-gray-50 p-8">
+    <div className="h-full min-w-0 overflow-y-auto bg-gray-50 p-4 [overflow-wrap:anywhere] sm:p-6 lg:p-8">
       <div className="mx-auto max-w-7xl">
         <div className="mb-6 flex items-start justify-between flex-wrap gap-4">
           <div className="min-w-0">
             <h1 className="mb-2 text-3xl font-bold">Optimization Engine</h1>
             <p className="text-gray-600">Backend-run optimization output and performance metrics.</p>
           </div>
-          <div className="text-right flex-shrink-0">
+          <div className="w-full min-w-0 sm:w-auto sm:max-w-full sm:text-right">
             <div className="mb-2 flex justify-end gap-2">
               <Link
                 to="/optimization"
@@ -128,7 +128,7 @@ export function OptimizationEngine() {
               </Link>
             </div>
             <div className="text-sm text-gray-600">RUN ID</div>
-            <div className="text-lg font-semibold">{runId ?? "Pending"}</div>
+            <div className="break-all text-sm font-semibold sm:text-base">{runId ?? "Pending"}</div>
           </div>
         </div>
 
@@ -141,15 +141,15 @@ export function OptimizationEngine() {
           </div>
         )}
 
-        <div className="mb-6 flex items-center gap-3 min-w-0">
+        <div className="mb-6 flex min-w-0 flex-wrap items-center gap-2">
           <div className="flex-shrink-0">
             <StatusBadge status={status?.status || "queued"} size="md" />
           </div>
-          <span className="text-sm text-gray-600 min-w-0">Run ID: <code className="font-mono font-semibold">{runId ?? "Pending"}</code></span>
+          <span className="min-w-0 break-all text-xs text-gray-600 sm:text-sm">Run ID: <code className="font-mono font-semibold">{runId ?? "Pending"}</code></span>
         </div>
 
-        <div className="mb-8 rounded-xl bg-white p-6 shadow-sm">
-          <div className="mb-4 grid grid-cols-4 gap-4">
+        <div className="mb-6 min-w-0 rounded-xl bg-white p-3 shadow-sm sm:p-6">
+          <div className="mb-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
             <StatCard label="Progress" value={`${progress}%`} icon={<Clock className="h-4 w-4" />} />
             <StatCard
               label="Best Fitness"
@@ -181,7 +181,7 @@ export function OptimizationEngine() {
             </div>
 
             {/* Legend */}
-            <div className="flex gap-4 text-sm">
+            <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-yellow-400" />
                 <span className="text-gray-700">Best Fitness</span>
@@ -192,7 +192,7 @@ export function OptimizationEngine() {
               </div>
             </div>
 
-            <div className="h-80">
+            <div className="h-64 min-w-0 sm:h-80">
               <PrettyCurve
                 values={convergenceData.map((p) => p.bestFitness)}
                 secondaryValues={convergenceData.map((p) => p.avgFitness)}
@@ -204,8 +204,8 @@ export function OptimizationEngine() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-6">
-          <div className="col-span-2 rounded-xl bg-white p-6 shadow-sm">
+        <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-6">
+          <div className="min-w-0 rounded-xl bg-white p-4 shadow-sm sm:p-6 xl:col-span-2">
             <h2 className="mb-4 text-xl font-semibold">Top Solution Assignments</h2>
             {assignments.length === 0 && (
               <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
@@ -225,8 +225,8 @@ export function OptimizationEngine() {
                   grouped.set(key, existing);
                 }
                 return Array.from(grouped.entries()).map(([bnId, officers]) => (
-                  <div key={bnId} className="rounded-lg border p-4">
-                    <div className="mb-2 flex items-center justify-between">
+                  <div key={bnId} className="min-w-0 rounded-lg border p-3 sm:p-4">
+                    <div className="mb-2 flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <div className="text-xs text-gray-500">{bnId}</div>
                         <div className="font-medium">{officers[0]?.bottleneck_name ?? "Unknown"}</div>
@@ -252,8 +252,8 @@ export function OptimizationEngine() {
             </div>
           </div>
 
-          <div className="space-y-4">
-            <div className="rounded-xl bg-white p-6 shadow-sm">
+          <div className="min-w-0 space-y-4">
+            <div className="min-w-0 rounded-xl bg-white p-4 shadow-sm sm:p-6">
               <h3 className="mb-3 font-semibold">Solution Summary</h3>
               <p className="mb-3 text-xs text-gray-600">Travel time is a model estimate using congestion-adjusted speed and straight-line distance; missing officer coordinates use 3 km. Location coverage counts distinct nodes.</p>
               <p className="mb-3 text-sm">Unfilled staffing requirements: {bestSolution?.staffing_shortages ? Object.entries(bestSolution.staffing_shortages).map(([node, count]) => `${node}: ${count}`).join(", ") || "None" : "Unavailable in this saved run"}</p>
@@ -293,7 +293,7 @@ export function OptimizationEngine() {
             </RememberedDetails>}
             {/* Pareto Front Visualization */}
             {results?.pareto_curve_data && results.pareto_curve_data.length > 0 && (
-              <div className="rounded-xl bg-white p-6 shadow-sm">
+              <div className="min-w-0 rounded-xl bg-white p-4 shadow-sm sm:p-6">
                 <div className="mb-4 flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-yellow-500" />
                   <h2 className="font-semibold">Pareto Front (Trade-off Analysis)</h2>
@@ -356,14 +356,14 @@ export function OptimizationEngine() {
                 </div>
 
                 {/* Legend for scatter */}
-                <div className="mb-4 flex gap-4 text-xs">
+                <div className="mb-4 flex flex-wrap gap-x-4 gap-y-2 text-xs">
                   <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-full bg-green-500" /> High Balance (70%+)</div>
                   <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-full bg-yellow-400" /> Medium (40-70%)</div>
                   <div className="flex items-center gap-1.5"><div className="h-3 w-3 rounded-full bg-red-500" /> Low Balance (&lt;40%)</div>
                 </div>
 
                 {/* Data Table */}
-                <div className="grid grid-cols-5 gap-2 text-xs font-medium text-gray-500 mb-2">
+                <div className="mb-2 hidden grid-cols-5 gap-2 text-xs font-medium text-gray-500 md:grid">
                   <span>Solution</span>
                   <span>Coverage</span>
                   <span>Response</span>
@@ -373,12 +373,12 @@ export function OptimizationEngine() {
                 {results.pareto_curve_data.map((point, i) => {
                   const balanceColor = (point.resource_balance ?? 0) >= 70 ? "text-green-600" : (point.resource_balance ?? 0) >= 40 ? "text-yellow-600" : "text-red-600";
                   return (
-                    <div key={i} className="grid grid-cols-5 gap-2 border-t py-2 text-sm">
-                      <span className="font-medium text-gray-900">#{i + 1}</span>
-                      <span>{point.coverage?.toFixed(1) ?? point.coverage_efficiency?.toFixed(1) ?? "—"}%</span>
-                      <span>{point.inverse_response_time?.toFixed(1) ?? "—"}%</span>
-                      <span>{point.weather_responsiveness?.toFixed(1) ?? "—"}%</span>
-                      <span className={balanceColor}>{point.resource_balance?.toFixed(1) ?? "—"}%</span>
+                    <div key={i} className="grid grid-cols-2 gap-x-4 gap-y-2 border-t py-3 text-sm md:grid-cols-5 md:gap-2 md:py-2">
+                      <span className="col-span-2 font-medium text-gray-900 md:col-span-1"><span className="md:hidden">Solution </span>#{i + 1}</span>
+                      <span><span className="block text-xs text-gray-500 md:hidden">Coverage</span>{point.coverage?.toFixed(1) ?? point.coverage_efficiency?.toFixed(1) ?? "—"}%</span>
+                      <span><span className="block text-xs text-gray-500 md:hidden">Response</span>{point.inverse_response_time?.toFixed(1) ?? "—"}%</span>
+                      <span><span className="block text-xs text-gray-500 md:hidden">Weather</span>{point.weather_responsiveness?.toFixed(1) ?? "—"}%</span>
+                      <span className={balanceColor}><span className="block text-xs text-gray-500 md:hidden">Balance</span>{point.resource_balance?.toFixed(1) ?? "—"}%</span>
                     </div>
                   );
                 })}
@@ -396,7 +396,7 @@ export function OptimizationEngine() {
             )}
 
             {canManage && status?.status === "completed" && (
-              <div className="rounded-xl bg-white p-6 shadow-sm">
+              <div className="min-w-0 rounded-xl bg-white p-4 shadow-sm sm:p-6">
                 <h2 className="mb-3 font-semibold">Publish Deployment</h2>
                 <p className="mb-3 text-sm text-gray-600">
                   Publish the top solution as the deployment schedule for this shift.
@@ -436,11 +436,11 @@ export function OptimizationEngine() {
 function StatCard({ label, value, icon }: { label: string; value: string; icon: React.ReactNode }) {
   return (
     <div className="rounded-lg border p-4">
-      <div className="mb-1 flex items-center gap-2 text-xs text-gray-600">
+      <div className="mb-1 flex items-start gap-2 text-xs text-gray-600 [&_svg]:shrink-0">
         {icon}
         <span>{label}</span>
       </div>
-      <div className="text-2xl font-bold">{value}</div>
+      <div className="break-words text-xl font-bold sm:text-2xl">{value}</div>
     </div>
   );
 }

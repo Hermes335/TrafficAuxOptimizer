@@ -58,13 +58,13 @@ export function GanttTimeline({deployments, viewMode, day=operationalDate(), shi
     <div className="max-h-[65vh] overflow-auto" tabIndex={0} aria-label="Scroll deployment timeline">
       <div style={{minWidth:240+(endHour-startHour)*76}}>
         <div className="sticky top-0 z-20 flex h-11 border-b bg-slate-50">
-          <div className="sticky left-0 z-20 w-44 shrink-0 border-r bg-slate-50 px-3 py-3 text-xs font-semibold sm:w-60 sm:px-4">{viewMode === "officer" ? "Officer / shift" : "Area / intersection"}</div>
+          <div className="sticky left-0 z-20 w-36 shrink-0 border-r bg-slate-50 px-3 py-3 text-xs font-semibold sm:w-60 sm:px-4">{viewMode === "officer" ? "Officer / shift" : "Area / intersection"}</div>
           <div className="relative flex-1">{hours.map((hour,i)=><span key={hour} className="absolute top-3 text-xs text-slate-600" style={{left:`${100*i/(hours.length-1)}%`,transform:i===hours.length-1?"translateX(-100%)":i?"translateX(-50%)":"none"}}>{String(hour).padStart(2,"0")}:00</span>)}</div>
         </div>
         {!rows.length && <p className="p-8 text-sm text-slate-500">No assignments or locations match this view. Create an assignment or publish a recommendation.</p>}
         {rows.map(row=><div key={row.id} className="flex border-b last:border-b-0" style={{minHeight:row.lanes*36+36}}>
-          <div className="sticky left-0 z-10 flex w-44 shrink-0 flex-col justify-center border-r bg-white px-3 py-2 sm:w-60 sm:px-4">
-            <span className="text-xs text-slate-600">{row.area}</span><span className="truncate text-sm font-medium" title={row.label}>{row.label}</span>
+          <div className="sticky left-0 z-10 flex w-36 shrink-0 flex-col justify-center border-r bg-white px-3 py-2 sm:w-60 sm:px-4">
+            <span className="truncate text-xs text-slate-600" title={row.area}>{row.area}</span><span className="truncate text-sm font-medium" title={row.label}>{row.label}</span>
           </div>
           <div className="relative flex-1 bg-slate-50/40">
             {viewMode==="officer"&&<div className="absolute inset-0 bg-slate-50" title="Unassigned time outside recorded assignments, breaks and travel"/>}

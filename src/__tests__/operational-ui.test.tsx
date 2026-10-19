@@ -64,6 +64,26 @@ it("successful save refreshes persisted data; refresh retry never repeats POST",
   expect(backend.createPOI).toHaveBeenCalledWith(expect.not.objectContaining({id:expect.anything()}));
 });
 
+it("repositioning a collapsed marker keeps its draft and saves the new location", async () => {
+  vi.mocked(backend.createPOI).mockResolvedValue({id:992} as backend.POI);
+  const onSaved = vi.fn().mockResolvedValue(undefined);
+  const props = {kind:"poi" as const, onSaved, onCancel:vi.fn()};
+  const {rerender} = render(<MarkerCreationForm {...props} point={{latitude:10.7,longitude:122.5}} />);
+  fireEvent.change(screen.getByLabelText("Name"), {target:{value:"School draft"}});
+  fireEvent.change(screen.getByLabelText("Type"), {target:{value:"school"}});
+  fireEvent.click(screen.getByRole("button", {name:"Choose location on map"}));
+  expect(screen.queryByRole("button", {name:"Create"})).toBeNull();
+  expect(backend.createPOI).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", {name:"Continue marker details"})).toHaveProperty("ariaExpanded", "false");
+  rerender(<MarkerCreationForm {...props} point={{latitude:10.73,longitude:122.57}} />);
+  await screen.findByRole("button", {name:"Create"});
+  expect(screen.getByLabelText("Name")).toHaveProperty("value", "School draft");
+  expect(screen.getByLabelText("Type")).toHaveProperty("value", "school");
+  fireEvent.click(screen.getByRole("button", {name:"Create"}));
+  await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1));
+  expect(backend.createPOI).toHaveBeenCalledExactlyOnceWith({name:"School draft",category:"school",latitude:10.73,longitude:122.57,priority_boost:1});
+});
+
 it("failed incident resolution keeps the saved incident visible", async () => {
   render(<MemoryRouter><IncidentTicker incidents={[{id:12,text:"Keep me",type:"major"}]} onRemoveIncident={vi.fn().mockRejectedValue(new Error("Resolution failed"))} /></MemoryRouter>);
   fireEvent.click(screen.getByRole("button",{name:"Remove incident"}));
@@ -128,6 +148,22 @@ it("a saved run with generated inputs explains why publication is unavailable", 
   expect(screen.getByRole("button", {name: "Preview publication"})).toHaveProperty("disabled", true);
   expect(screen.getByRole("alert").textContent).toContain("generated inputs (road_priority_weight, tsi)");
   expect(backend.previewPublication).not.toHaveBeenCalled();
+});
+
+it.each([
+  {mode:"operational", syntheticSources:["tsi"], reason:"generated inputs (tsi)"},
+  {mode:"shadow", syntheticSources:[], reason:"Shadow recommendation"},
+])("compact $mode warnings open by tap without requesting publication", async ({mode, syntheticSources, reason}) => {
+  render(<PublishScheduleButton runId="blocked-run" compact mode={mode} syntheticSources={syntheticSources} />);
+  const trigger = screen.getByRole("button", {name:"Why publication is unavailable"});
+  expect(trigger).toHaveProperty("disabled", false);
+  fireEvent.click(trigger);
+  expect((await screen.findByText(text => text.includes(reason))).textContent).toContain(reason);
+  expect(screen.queryByText("Review schedule replacement")).toBeNull();
+  expect(backend.previewPublication).not.toHaveBeenCalled();
+  expect(backend.publishDeploymentsFromOptimization).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", {name:"Got it"}));
+  await waitFor(() => expect(screen.queryByText("Cannot publish this run")).toBeNull());
 });
 
 it("live deployment and incident events refresh all affected collections; failures preserve data", async () => {
