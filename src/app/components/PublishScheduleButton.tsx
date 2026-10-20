@@ -36,6 +36,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [publishedSkillWarnings, setPublishedSkillWarnings] = useState<string[]>([]);
   const [attempt, setAttempt] = useState(0);
   const pending = useRef<PublishOptimizationDeploymentsRequest | null>(null);
   const submitting = useRef(false);
@@ -62,6 +63,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
     };
     try {
       const result = await publishDeploymentsFromOptimization(pending.current);
+      setPublishedSkillWarnings(result.skill_warnings ?? []);
       setNotice(`Published ${result.created} assignments for ${day} · ${result.shift}.`);
       setOpen(false); pending.current = null;
       try { await onPublished?.(); }
@@ -125,6 +127,11 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
             <summary className="cursor-pointer font-medium">Input warnings ({preview.input_issues.length})</summary>
             <ul className="mt-2 list-disc space-y-1 pl-4">{preview.input_issues.map(issue => <li key={issue}>{issue}</li>)}</ul>
           </details>}
+          {!!preview.skill_warnings?.length && <section aria-label="Skill review notes" className="space-y-2 rounded border border-sky-200 bg-sky-50 p-3 text-sky-950">
+            <h3 className="font-medium">Skill review notes</h3>
+            <p className="text-xs">These notes do not block publication or require an override. Review the recorded skills before confirming.</p>
+            <ul className="list-disc space-y-1 pl-4">{preview.skill_warnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+          </section>}
         </div>}
         {!preview && !error && <p role="status">Checking assignments…</p>}
         {error && <p role="alert" className="break-words rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Cannot publish: {error}</p>}
@@ -146,5 +153,9 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
     {!compact && mode === "shadow" && <p role="status" className="mt-2 text-sm text-amber-800">Shadow recommendation — export for comparison; publication is disabled.</p>}
     {!compact && Boolean(syntheticSources?.length) && <p role="alert" className="mt-2 max-w-sm text-sm text-red-700">{syntheticWarning}</p>}
     {notice && <p role="status" className="mt-2 text-sm text-green-800">{notice}</p>}
+    {notice && !!publishedSkillWarnings.length && <details className="mt-2 max-w-lg rounded border border-sky-200 bg-sky-50 p-3 text-xs text-sky-950">
+      <summary className="cursor-pointer font-medium">Published schedule skill notes</summary>
+      <ul className="mt-2 list-disc space-y-1 pl-4">{publishedSkillWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
+    </details>}
   </div>;
 }

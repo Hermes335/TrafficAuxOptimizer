@@ -7,11 +7,11 @@ import * as backend from "../app/services/backend";
 vi.mock("../app/services/backend", async original => ({
   ...await original<typeof import("../app/services/backend")>(),
   fetchOfficersPage: vi.fn(), createDashboardOfficer: vi.fn(),
-  updateDashboardOfficer: vi.fn(), deleteDashboardOfficer: vi.fn(),
+  updateDashboardOfficer: vi.fn(), deleteDashboardOfficer: vi.fn(), fetchOfficerSkillPolicy: vi.fn(),
 }));
 
 const alpha: backend.DashboardOfficerRecord = {
-  id: 1, name: "Officer Alpha", badge_number: "ALPHA", shift: "morning", status: "available", skills: ["First aid"],
+  id: 1, name: "Officer Alpha", badge_number: "ALPHA", shift: "morning", status: "available", skills: ["first_aid"],
 };
 const beta: backend.DashboardOfficerRecord = {
   id: 2, name: "Officer Beta", badge_number: "BETA", shift: "afternoon", status: "deployed", skills: [],
@@ -33,6 +33,13 @@ async function roster() {
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(backend.fetchOfficersPage).mockResolvedValue(page());
+  vi.mocked(backend.fetchOfficerSkillPolicy).mockResolvedValue({version: "skills-v1", skills: [
+    {value: "first_aid", label: "First aid"},
+    {value: "traffic_control", label: "Traffic control"},
+    {value: "intersection_management", label: "Intersection management"},
+    {value: "school_crossing", label: "School crossing"},
+    {value: "incident_response", label: "Incident response"},
+  ]});
 });
 
 it("keeps search and filters together, resets pagination, and clears all filters", async () => {
@@ -79,12 +86,13 @@ it("creates an officer from the labelled editor and preserves a failed draft for
   fireEvent.change(screen.getByLabelText(/^Badge number/), {target: {value: " GAMMA "}});
   fireEvent.change(screen.getByLabelText("Shift"), {target: {value: "morning"}});
   fireEvent.change(screen.getByLabelText("Status"), {target: {value: "unavailable"}});
-  fireEvent.change(screen.getByLabelText(/^Skills/), {target: {value: " First aid, , Driving "}});
+  fireEvent.click(await screen.findByRole("checkbox", {name: "First aid"}));
+  fireEvent.click(screen.getByRole("checkbox", {name: "Traffic control"}));
   vi.mocked(backend.createDashboardOfficer).mockRejectedValueOnce(new Error("Badge already exists"));
   fireEvent.click(screen.getByRole("button", {name: "Create Officer"}));
   expect((await screen.findByRole("alert")).textContent).toContain("Badge already exists");
   expect(backend.createDashboardOfficer).toHaveBeenCalledWith({
-    name: "Officer Gamma", badge_number: "GAMMA", shift: "morning", status: "unavailable", skills: ["First aid", "Driving"],
+    name: "Officer Gamma", badge_number: "GAMMA", shift: "morning", status: "unavailable", skills: ["first_aid", "traffic_control"],
   });
   expect(screen.getByLabelText(/^Officer name/)).toHaveProperty("value", "  Officer Gamma  ");
   expect(screen.getByRole("button", {name: "Create Officer"})).toHaveProperty("disabled", false);
@@ -92,6 +100,47 @@ it("creates an officer from the labelled editor and preserves a failed draft for
   fireEvent.click(screen.getByRole("button", {name: "Create Officer"}));
   await waitFor(() => expect(screen.queryByLabelText(/^Officer name/)).toBeNull());
   expect(backend.createDashboardOfficer).toHaveBeenCalledTimes(2);
+});
+
+it("preserves unknown skill labels and punctuation while allowing individual removal", async () => {
+  const legacyOfficer = {...alpha, skills: ["first_aid", "Driving, heavy vehicles", "Radio"]};
+  vi.mocked(backend.fetchOfficersPage).mockResolvedValue(page([legacyOfficer]));
+  await roster();
+  fireEvent.click(screen.getByRole("button", {name: "Edit Officer Alpha"}));
+  expect(await screen.findByRole("checkbox", {name: "First aid"})).toHaveProperty("checked", true);
+  expect(screen.getByRole("button", {name: "Save changes"})).toHaveProperty("disabled", true);
+  fireEvent.click(screen.getByRole("button", {name: "Remove skill Radio"}));
+  fireEvent.click(screen.getByRole("checkbox", {name: "School crossing"}));
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(backend.updateDashboardOfficer).toHaveBeenCalledWith(1, expect.objectContaining({
+    skills: ["first_aid", "Driving, heavy vehicles", "school_crossing"],
+  })));
+});
+
+it("keeps an unchanged skill selection clean when it is toggled off and back on", async () => {
+  vi.mocked(backend.fetchOfficersPage).mockResolvedValue(page([{...alpha, skills: ["first_aid", "traffic_control"]}]));
+  await roster();
+  fireEvent.click(screen.getByRole("button", {name: "Edit Officer Alpha"}));
+  const firstAid = await screen.findByRole("checkbox", {name: "First aid"});
+  fireEvent.click(firstAid);
+  expect(screen.getByRole("button", {name: "Save changes"})).toHaveProperty("disabled", false);
+  fireEvent.click(firstAid);
+  expect(screen.getByRole("button", {name: "Save changes"})).toHaveProperty("disabled", true);
+});
+
+it("retains saved skills when catalog loading fails and can retry without discarding edits", async () => {
+  vi.mocked(backend.fetchOfficerSkillPolicy).mockRejectedValueOnce(new Error("Offline"));
+  vi.mocked(backend.fetchOfficersPage).mockResolvedValue(page([{...alpha, skills: ["first_aid", "Driving"]}]));
+  await roster();
+  fireEvent.click(screen.getByRole("button", {name: "Edit Officer Alpha"}));
+  await screen.findByRole("button", {name: "Retry skill choices"});
+  fireEvent.change(screen.getByLabelText(/^Officer name/), {target: {value: "Updated name"}});
+  fireEvent.click(screen.getByRole("button", {name: "Retry skill choices"}));
+  expect(await screen.findByRole("checkbox", {name: "First aid"})).toHaveProperty("checked", true);
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(backend.updateDashboardOfficer).toHaveBeenCalledWith(1, expect.objectContaining({
+    name: "Updated name", skills: ["first_aid", "Driving"],
+  })));
 });
 
 it("asks before discarding changes and keeps the draft when editing continues", async () => {

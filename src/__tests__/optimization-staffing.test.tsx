@@ -41,6 +41,24 @@ it("keeps historical results readable without inventing a staffing target or res
   await screen.findByText("Historical junction");
   expect(screen.queryByText(/Staffing target:/)).toBeNull();
   expect(screen.queryByText(/Officers in reserve:/)).toBeNull();
+  expect(screen.getByText("Skills were not assessed for this saved assignment.")).toBeTruthy();
+});
+
+it("uses saved skill explanations and distinguishes unmatched from locations without a preference", async () => {
+  const match = {policy_version: "skills-v1", preferred_skills: ["school_crossing"], matched_skills: ["school_crossing"], status: "matched" as const, explanation: "Saved school crossing match."};
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    top_solutions: [{assignments: [
+      {officer_id: 1, badge_number: "ALPHA", bottleneck_id: "A", bottleneck_name: "School", skill_match: match},
+      {officer_id: 2, badge_number: "BETA", bottleneck_id: "A", bottleneck_name: "School", skill_match: {...match, matched_skills: [], status: "no_recorded_match", explanation: "Saved assignment satisfies staffing; no recorded preference match."}},
+      {officer_id: 3, badge_number: "GAMMA", bottleneck_id: "B", bottleneck_name: "Road", skill_match: {...match, preferred_skills: [], matched_skills: [], status: "not_applicable", explanation: "Saved location has no specific preference."}},
+    ]}],
+  });
+  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  await screen.findByText("Recorded skill match: School crossing.");
+  expect(screen.getByText("Saved school crossing match.")).toBeTruthy();
+  expect(screen.getByText("No recorded skill match.")).toBeTruthy();
+  expect(screen.getByText("No specific skill preference.")).toBeTruthy();
+  expect(screen.queryByText("Skills were not assessed for this saved assignment.")).toBeNull();
 });
 
 it("does not increase staffing weight just because the roster has surplus capacity", () => {

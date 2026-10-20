@@ -1,5 +1,6 @@
 from django.utils import timezone
 from rest_framework import serializers
+from .skills import normalize_skills
 
 from .models import (
     AuditLog,
@@ -72,6 +73,20 @@ class BottleneckSerializer(serializers.ModelSerializer):
 class OfficerSerializer(serializers.ModelSerializer):
     current_latitude = FiniteFloatField(required=False, allow_null=True, min_value=-90, max_value=90)
     current_longitude = FiniteFloatField(required=False, allow_null=True, min_value=-180, max_value=180)
+
+    def validate_skills(self, value):
+        if not isinstance(value, list) or any(not isinstance(tag, str) for tag in value):
+            raise serializers.ValidationError("Provide skills as a list of text labels.")
+        if len(value) > 50:
+            raise serializers.ValidationError("Provide no more than 50 skill labels.")
+        if any(not tag.strip() or len(tag.strip()) > 100 for tag in value):
+            raise serializers.ValidationError("Each skill must contain 1–100 characters.")
+        return normalize_skills(value)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        data["skills"] = normalize_skills(instance.skills)
+        return data
 
     def validate(self, data):
         status = data.get("status", getattr(self.instance, "status", "available"))

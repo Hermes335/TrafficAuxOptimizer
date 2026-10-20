@@ -5,6 +5,7 @@ import { CheckCircle2, ChevronLeft, ChevronRight, Pencil, Search, Trash2, UserRo
 import { useOfficerManagement } from "../hooks/useOfficerManagement";
 import { fetchOfficersPage, type DashboardOfficerRecord } from "../services/backend";
 import { OfficerEditor } from "./OfficerManagement/OfficerEditor";
+import { officerSkillLabel } from "../services/officerSkills";
 
 const PAGE_SIZE = 25;
 const statusLabels = { available: "Available", deployed: "Deployed", off_duty: "Off duty", unavailable: "Unavailable" };
@@ -211,7 +212,7 @@ export function OfficerManagement() {
                 <td className="block min-w-0 lg:table-cell lg:px-3 lg:py-3"><span className="mb-1 block text-xs text-slate-500 lg:hidden">Shift</span><span className="text-sm text-slate-700">{officer.shift === "morning" ? "Morning" : "Afternoon"}</span><span className="block text-xs text-slate-500">{officer.shift === "morning" ? "6 AM–2 PM" : "2 PM–10 PM"}</span></td>
                 <td className="block min-w-0 lg:table-cell lg:px-3 lg:py-3"><span className="mb-1 block text-xs text-slate-500 lg:hidden">Status</span><span className={`inline-flex max-w-full items-center gap-1.5 rounded-full px-2 py-1 text-xs font-medium ${statusTones[officer.status]}`}><span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />{statusLabels[officer.status]}</span></td>
                 <td className="col-span-2 block min-w-0 lg:table-cell lg:px-3 lg:py-3"><span className="mb-1 block text-xs text-slate-500 lg:hidden">Skills</span>
-                  {skills.length ? <div className="flex flex-wrap gap-1">{skills.slice(0, 2).map((skill, index) => <span key={index} className="max-w-full break-words rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{skill}</span>)}{skills.length > 2 && <details className="max-w-full text-xs text-slate-600"><summary className="cursor-pointer rounded px-1 py-0.5 font-medium">+{skills.length - 2} more</summary><div className="mt-1 flex flex-wrap gap-1">{skills.slice(2).map((skill, index) => <span key={index} className="max-w-full break-words rounded bg-slate-100 px-2 py-0.5">{skill}</span>)}</div></details>}</div> : <span className="text-xs text-slate-400">Not specified</span>}
+                  {skills.length ? <div className="flex flex-wrap gap-1">{skills.slice(0, 2).map((skill, index) => <span key={index} className="max-w-full break-words rounded bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{officerSkillLabel(skill)}</span>)}{skills.length > 2 && <details className="max-w-full text-xs text-slate-600"><summary className="cursor-pointer rounded px-1 py-0.5 font-medium">+{skills.length - 2} more</summary><div className="mt-1 flex flex-wrap gap-1">{skills.slice(2).map((skill, index) => <span key={index} className="max-w-full break-words rounded bg-slate-100 px-2 py-0.5">{officerSkillLabel(skill)}</span>)}</div></details>}</div> : <span className="text-xs text-slate-400">Not specified</span>}
                 </td>
                 <td className="col-span-2 block lg:table-cell lg:px-4 lg:py-3"><div className="flex flex-wrap items-center gap-2 lg:flex-nowrap lg:justify-end">
                   <button type="button" aria-label={`Edit ${officer.name}`} disabled={busy || refreshing} onClick={() => startEditing(officer)} className={secondaryButton}><Pencil aria-hidden="true" className="h-3.5 w-3.5" />Edit</button>

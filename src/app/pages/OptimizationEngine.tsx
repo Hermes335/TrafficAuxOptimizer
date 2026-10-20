@@ -9,6 +9,7 @@ import { ResponsiveContainer, ComposedChart, Scatter, Cell, CartesianGrid, XAxis
 import { Link } from "react-router";
 import PrettyCurve from "../components/PrettyCurve";
 import { StatusBadge } from "../components/StatusBadge";
+import { officerSkillLabel } from "../services/officerSkills";
 import {
   fetchOptimizationResults,
   fetchOptimizationStatus,
@@ -207,6 +208,7 @@ export function OptimizationEngine() {
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-6">
           <div className="min-w-0 rounded-xl bg-white p-4 shadow-sm sm:p-6 xl:col-span-2">
             <h2 className="mb-4 text-xl font-semibold">Top Solution Assignments</h2>
+            {assignments.length > 0 && <p className="mb-4 text-xs leading-relaxed text-gray-600">Skills are a preference, alongside coverage and assignment constraints. Explanations reflect the saved run{results?.input_snapshot?.skill_policy_version ? ` (${results.input_snapshot.skill_policy_version})` : ""}.</p>}
             {assignments.length === 0 && (
               <div className="rounded-lg bg-gray-50 p-4 text-sm text-gray-600">
                 {bestSolution?.time_periods?.length && bestSolution.time_periods.every(p=>p.requirements.every(r=>r.required===0))
@@ -246,6 +248,18 @@ export function OptimizationEngine() {
                         </span>
                       ))}
                     </div>
+                    <details className="mt-3 rounded-lg bg-slate-50 p-3 text-xs">
+                      <summary className="cursor-pointer font-medium text-slate-700">Skill preferences</summary>
+                      <ul className="mt-2 space-y-3 text-slate-600">
+                        {officers.map((assignment, index) => <li key={index} className="space-y-1">
+                          <p className="font-medium text-slate-800">{assignment.badge_number ?? `Officer ${assignment.officer_id ?? "unknown"}`}{assignment.start_time && assignment.end_time ? ` · ${operationalTime(assignment.start_time)}–${operationalTime(assignment.end_time)}` : ""}</p>
+                          {assignment.skill_match ? <>
+                            <p>{assignment.skill_match.status === "matched" ? `Recorded skill match: ${assignment.skill_match.matched_skills.map(officerSkillLabel).join(", ")}.` : assignment.skill_match.status === "not_applicable" ? "No specific skill preference." : "No recorded skill match."}</p>
+                            <p>{assignment.skill_match.explanation}</p>
+                          </> : <p>Skills were not assessed for this saved assignment.</p>}
+                        </li>)}
+                      </ul>
+                    </details>
                   </div>
                 ));
               })()}

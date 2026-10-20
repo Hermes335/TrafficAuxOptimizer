@@ -74,3 +74,26 @@ it("submits selected times and keeps the editor open on an overlap error",async(
   expect(backend.saveDeploymentAssignment).toHaveBeenCalledWith(expect.objectContaining({officer:1,bottleneck:"A",
     start_time:`${day}T07:00:00+08:00`,end_time:`${day}T08:00:00+08:00`}),undefined);
 });
+
+it("ranks recorded matches first but preserves and saves an unmatched officer when the location changes", async () => {
+  const saved = vi.fn().mockResolvedValue(undefined), close = vi.fn();
+  const roster = [...officers, {...officers[0], id: 2, badge_number: "BETA", name: "Officer Beta", skills: ["school_crossing"]},
+    {...officers[0], id: 3, badge_number: "OFFDUTY", status: "off_duty" as const, skills: ["school_crossing"]},
+    {...officers[0], id: 4, badge_number: "GAMMA", skills: ["school_crossing", "traffic_control"]}];
+  const locations = [{...nodes[0], preferred_skills: ["school_crossing", "traffic_control"]}, {id: "B", name: "Ordinary road", preferred_skills: []}];
+  render(<AssignmentEditor assignment={null} day={day} initialShift="morning" officers={roster} nodes={locations} onClose={close} onSaved={saved} />);
+  fireEvent.change(screen.getByLabelText("Officer"), {target: {value: "1"}});
+  fireEvent.change(screen.getByLabelText("Intersection"), {target: {value: "A"}});
+  const select = screen.getByLabelText("Officer") as HTMLSelectElement;
+  expect(Array.from(select.options).map(option => option.value)).toEqual(["", "2", "4", "1"]);
+  expect(select.value).toBe("1");
+  expect(screen.getByText("No recorded skill match. This officer can still be assigned.")).toBeTruthy();
+  expect(screen.getByRole("button", {name: "Save assignment"})).toHaveProperty("disabled", false);
+  fireEvent.change(screen.getByLabelText("Intersection"), {target: {value: "B"}});
+  expect(select.value).toBe("1");
+  expect(screen.getByText("No specific skill preference for this location.")).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("Intersection"), {target: {value: "A"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save assignment"}));
+  await waitFor(() => expect(close).toHaveBeenCalled());
+  expect(backend.saveDeploymentAssignment).toHaveBeenCalledWith(expect.objectContaining({officer: 1, bottleneck: "A"}), undefined);
+});

@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { UserRound, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import type { useOfficerManagement } from "../../hooks/useOfficerManagement";
+import { OfficerSkillSelector } from "../../components/OfficerSkillSelector";
 
 interface OfficerEditorProps {
   management: ReturnType<typeof useOfficerManagement>;
@@ -123,9 +124,7 @@ export function OfficerEditor({ management, onClose, returnFocusRef }: OfficerEd
 
                 <section aria-labelledby={`${id}-skills-heading`} className="border-t border-slate-100 pt-5">
                   <h3 id={`${id}-skills-heading`} className="sr-only">Officer skills</h3>
-                  <label htmlFor={`${id}-skills`} className={labelClass}>Skills <span aria-hidden="true" className="font-normal text-slate-400">(optional)</span></label>
-                  <input id={`${id}-skills`} placeholder="Skills (comma-separated)" value={management.officerSkillsInput} onChange={event => management.setOfficerSkillsInput(event.target.value)} className={inputClass} aria-describedby={`${id}-skills-help`} />
-                  <p id={`${id}-skills-help`} className="mt-1.5 text-xs text-slate-500">Separate skills with commas, for example: first aid, traffic control.</p>
+                  <OfficerSkillSelector value={management.officerSkills} onChange={management.setOfficerSkills} disabled={busy} />
                 </section>
               </div>
 

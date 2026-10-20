@@ -1,5 +1,6 @@
 import { usePageState } from "../contexts/PageStateContext";
 import { useLayoutEffect } from "react";
+import { uniqueOfficerSkills } from "../services/officerSkills";
 import {
   createDashboardOfficer,
   deleteDashboardOfficer,
@@ -11,22 +12,18 @@ interface UseOfficerManagementOptions {
   reloadOfficers: () => Promise<void>;
 }
 
-function parseOfficerSkills(value: string): string[] {
-  return value.split(",").map(skill => skill.trim()).filter(Boolean);
+function officerFormSnapshot(name: string, badge: string, shift: string, status: string, skills: string[]): string {
+  return JSON.stringify([name.trim(), badge.trim(), shift, status, uniqueOfficerSkills(skills).sort()]);
 }
 
-function officerFormSnapshot(name: string, badge: string, shift: string, status: string, skills: string): string {
-  return JSON.stringify([name.trim(), badge.trim(), shift, status, parseOfficerSkills(skills)]);
-}
-
-const blankOfficerForm = officerFormSnapshot("", "", "afternoon", "available", "");
+const blankOfficerForm = officerFormSnapshot("", "", "afternoon", "available", []);
 
 export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOptions) {
   const [officerName, setOfficerName] = usePageState("rosterForm.officerName", "");
   const [officerBadge, setOfficerBadge] = usePageState("rosterForm.officerBadge", "");
   const [officerShift, setOfficerShift] = usePageState<"morning" | "afternoon">("rosterForm.officerShift", "afternoon");
   const [officerStatus, setOfficerStatus] = usePageState<"available" | "deployed" | "off_duty" | "unavailable">("rosterForm.officerStatus", "available");
-  const [officerSkillsInput, setOfficerSkillsInput] = usePageState("rosterForm.officerSkillsInput", "");
+  const [officerSkills, setOfficerSkills] = usePageState<string[]>("rosterForm.officerSkills", []);
   const [addingOfficer, setAddingOfficer] = usePageState("rosterForm.addingOfficer", false);
   const [editingOfficerId, setEditingOfficerId] = usePageState<number | null>("rosterForm.editingOfficerId", null);
   const [savingOfficer, setSavingOfficer] = usePageState("rosterForm.savingOfficer", false);
@@ -35,7 +32,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
   const [officerNotice, setOfficerNotice] = usePageState<string | null>("rosterForm.notice", null);
   const [editBaseline, setEditBaseline] = usePageState("rosterForm.editBaseline", blankOfficerForm);
   const officerFormDirty = (addingOfficer || editingOfficerId !== null)
-    && officerFormSnapshot(officerName, officerBadge, officerShift, officerStatus, officerSkillsInput) !== editBaseline;
+    && officerFormSnapshot(officerName, officerBadge, officerShift, officerStatus, officerSkills) !== editBaseline;
   const officerFieldErrors: { name?: string; badge?: string } = {};
   if (!officerName.trim()) officerFieldErrors.name = "Enter the officer's name.";
   else if (officerName.trim().length > 255) officerFieldErrors.name = "Use 255 characters or fewer.";
@@ -55,7 +52,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
     setOfficerBadge("");
     setOfficerShift("afternoon");
     setOfficerStatus("available");
-    setOfficerSkillsInput("");
+    setOfficerSkills([]);
     setEditBaseline(blankOfficerForm);
   };
 
@@ -82,7 +79,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
       setOfficerError("Check the officer name and badge number before saving.");
       return;
     }
-    const skills = parseOfficerSkills(officerSkillsInput);
+    const skills = uniqueOfficerSkills(officerSkills);
     operation.pending = true;
     setSavingOfficer(true);
     setOfficerError(null);
@@ -110,14 +107,14 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
 
   const startEditingOfficer = (officer: DashboardOfficerRecord) => {
     if (operation.pending || editingOfficerId === officer.id) return;
-    const skillsInput = (officer.skills ?? []).join(", ");
+    const skills = uniqueOfficerSkills(officer.skills ?? []);
     setEditingOfficerId(officer.id);
     setOfficerName(officer.name);
     setOfficerBadge(officer.badge_number);
     setOfficerShift(officer.shift);
     setOfficerStatus(officer.status);
-    setOfficerSkillsInput(skillsInput);
-    setEditBaseline(officerFormSnapshot(officer.name, officer.badge_number, officer.shift, officer.status, skillsInput));
+    setOfficerSkills(skills);
+    setEditBaseline(officerFormSnapshot(officer.name, officer.badge_number, officer.shift, officer.status, skills));
     setAddingOfficer(false);
     setOfficerError(null);
     setOfficerNotice(null);
@@ -130,7 +127,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
       setOfficerError("Check the officer name and badge number before saving.");
       return;
     }
-    const skills = parseOfficerSkills(officerSkillsInput);
+    const skills = uniqueOfficerSkills(officerSkills);
     operation.pending = true;
     setSavingOfficer(true);
     setOfficerError(null);
@@ -186,7 +183,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
     officerBadge, setOfficerBadge,
     officerShift, setOfficerShift,
     officerStatus, setOfficerStatus,
-    officerSkillsInput, setOfficerSkillsInput,
+    officerSkills, setOfficerSkills,
     addingOfficer, setAddingOfficer: (...args: Parameters<typeof setAddingOfficer>) => { if (!operation.pending) setAddingOfficer(...args); },
     editingOfficerId, setEditingOfficerId: (...args: Parameters<typeof setEditingOfficerId>) => { if (!operation.pending) setEditingOfficerId(...args); },
     savingOfficer,

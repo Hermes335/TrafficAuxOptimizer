@@ -31,7 +31,8 @@ class RecommendationExportView(APIView):
         writer.writerow(["Run_ID", "Session_ID", "Mode", "Operational_Date", "Shift", "Captured_At", "Timezone",
             "Bottleneck_ID", "Location", "App_Recommended_Officers", "Recommended_Badges", "App_TSI",
             "App_Weather_Factor", "Traffic_Source", "Traffic_Status", "Published", "Supervisor_Decision", "Date_Source",
-            "Period_Start", "Period_End", "Required_Officers", "Requirement_Reason", "Area"])
+            "Period_Start", "Period_End", "Required_Officers", "Requirement_Reason", "Area",
+            "Skill_Policy_Version", "Preferred_Skills", "Skill_Match_Statuses", "Matched_Skills", "Skill_Match_Reasons"])
         captured = parse_datetime(snapshot.get("captured_at", ""))
         timestamp = captured.astimezone(MANILA).isoformat() if captured and captured.tzinfo else ""
         assignments = top[0].get("assignments") or []
@@ -47,6 +48,13 @@ class RecommendationExportView(APIView):
                     assigned = [a for a in assigned if parse_datetime(a["start_time"]) <= instant < parse_datetime(a["end_time"])]
                 requirement = next((r for r in period["requirements"] if r["bottleneck_id"] == node["id"]), {}) if period else {}
                 badges = ";".join(officers.get(a.get("officer_id"), {}).get("badge_number", "") for a in assigned)
+                # Historical evidence comes only from the saved recommendation.
+                # Older runs have blank skill columns; today's roster cannot assess them retroactively.
+                assessed = [(officers.get(a.get("officer_id"), {}).get("badge_number", str(a.get("officer_id", ""))), a["skill_match"])
+                    for a in assigned if isinstance(a.get("skill_match"), dict)]
+                skill_statuses = " | ".join(f"{badge}: {match.get('status', '')}" for badge, match in assessed)
+                matched_skills = " | ".join(f"{badge}: {';'.join(match.get('matched_skills') or [])}" for badge, match in assessed)
+                skill_reasons = " | ".join(f"{badge}: {match.get('explanation', '')}" for badge, match in assessed)
                 provenance = node.get("provenance") or {}
                 writer.writerow([csv_text(value) for value in [run.run_id, run.parameters.get("session_id"),
                     run.parameters.get("mode", "legacy_unknown"), target_date, run.parameters.get("shift"),
@@ -56,5 +64,7 @@ class RecommendationExportView(APIView):
                     "Published by supervisor" if published else "Unknown (legacy)" if legacy else "Pending",
                     "Input capture date (legacy)" if legacy else "Recorded operational date",
                     period["start_time"] if period else "", period["end_time"] if period else "",
-                    requirement.get("required", ""), requirement.get("reason", ""), node.get("area_name", "")]])
+                    requirement.get("required", ""), requirement.get("reason", ""), node.get("area_name", ""),
+                    snapshot.get("skill_policy_version", ""), ";".join(node.get("preferred_skills") or []),
+                    skill_statuses, matched_skills, skill_reasons]])
         return response

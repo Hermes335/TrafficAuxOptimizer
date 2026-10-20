@@ -12,6 +12,7 @@ from core.models import Bottleneck, Incident, Officer, OfficerTimeBlock, Optimiz
 from core.realtime import broadcast
 from core.staffing import required_staffing, staffing_windows
 from core.operational_time import shift_window, operational_date
+from core.skills import SKILL_POLICY_VERSION, normalize_skills, preferred_skills_for
 from .engine import GeneticDeploymentOptimizer
 from .scheduling import run_schedule, plan_periods
 from .progress_store import save_progress
@@ -25,10 +26,11 @@ def capture_inputs(params):
     day = date.fromisoformat(str(params.get("operational_date") or operational_date()))
     start, end = shift_window(params.get("shift", "afternoon"), day)
     officers = list(Officer.objects.filter(is_deleted=False, status__in=["available", "deployed"],
-        shift=params.get("shift", "afternoon")).order_by("id").values("id", "badge_number", "current_latitude", "current_longitude"))
+        shift=params.get("shift", "afternoon")).order_by("id").values("id", "badge_number", "current_latitude", "current_longitude", "skills"))
     bottlenecks = []
     blocks = list(OfficerTimeBlock.objects.filter(is_deleted=False, start_time__lt=end, end_time__gt=start))
     for officer in officers:
+        officer["skills"] = normalize_skills(officer["skills"])
         officer["time_blocks"] = [{"start_time": b.start_time.isoformat(), "end_time": b.end_time.isoformat(), "kind": b.kind}
                                   for b in blocks if b.officer_id == officer["id"]]
     latest = TrafficData.objects.filter(bottleneck_id=OuterRef("pk"), is_deleted=False).order_by("-timestamp", "-id")
@@ -36,11 +38,13 @@ def capture_inputs(params):
         latest_traffic_id=Subquery(latest.values("pk")[:1])).prefetch_related(Prefetch("incidents",
         queryset=Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"]), to_attr="snapshot_incidents")))
     observations = TrafficData.objects.in_bulk([b.latest_traffic_id for b in rows if b.latest_traffic_id])
+    skill_incidents = list(Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"]))
     for b in rows:
         observation = observations.get(b.latest_traffic_id)
         staffing_target = required_staffing(b, b.snapshot_incidents, start)
         bottlenecks.append({
             "id": b.id, "name": b.name, "latitude": b.latitude, "longitude": b.longitude,
+            "bottleneck_type": b.bottleneck_type, "preferred_skills": preferred_skills_for(b, skill_incidents),
             "road_priority_weight": b.road_priority_weight, "tsi": b.tsi,
             "min_officers_required": staffing_target, "max_officers_allowed": b.max_officers_allowed,
             "staffing_target": staffing_target, "configured_min_officers_required": b.min_officers_required,
@@ -70,8 +74,8 @@ def run_optimization(self, run_id):
         with transaction.atomic():
             lock_schedule()
             officers, bottlenecks, weather = capture_inputs(params)
-            incidents = list(Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"],
-                latitude__isnull=False, longitude__isnull=False).values("latitude", "longitude", "severity", "incident_type"))
+            incidents = list(Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"])
+                .values("bottleneck_id", "latitude", "longitude", "severity", "incident_type", "status"))
             pois = list(POI.objects.filter(is_deleted=False, is_active=True).values("latitude", "longitude", "priority_boost"))
             captured_at = timezone.now().isoformat()
         wif = float(weather.weather_impact_factor) if weather else 1.0
@@ -88,6 +92,7 @@ def run_optimization(self, run_id):
             "captured_at": captured_at, "operational_date": params.get("operational_date"),
             "mode": params.get("mode", "operational"), "session_id": params.get("session_id", ""),
             "schema_version": 4, "engine_version": settings.BACKEND_VERSION, "seed": seed,
+            "skill_policy_version": SKILL_POLICY_VERSION,
             "allocation_policy_version": GeneticDeploymentOptimizer.ALLOCATION_POLICY_VERSION}
         periods = plan_periods(bottlenecks, officers)
         total_generations = params.get("generations", 300) * max(1, len(periods))

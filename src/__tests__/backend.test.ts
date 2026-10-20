@@ -1,12 +1,23 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { AuthProvider, useAuth } from "../app/contexts/AuthContext";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
-import { fetchAllPages, fetchDashboardOfficers, fetchPOIs, fetchIncident, createPOI, createMapIncident, resolveIncident, getFallbackDashboardSnapshot, previewPublication } from "../app/services/backend";
+import { fetchAllPages, fetchDashboardOfficers, fetchOfficerSkillPolicy, fetchPOIs, fetchIncident, createPOI, createMapIncident, resolveIncident, getFallbackDashboardSnapshot, previewPublication } from "../app/services/backend";
 import { SESSION_EVENT } from "../app/services/session";
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {status, headers: {"Content-Type": "application/json"}});
 beforeEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 afterEach(() => vi.unstubAllGlobals());
+
+it("loads officer skill choices through the authenticated dashboard endpoint", async () => {
+  localStorage.setItem("auth_token", "catalog-token");
+  const policy = {version: "skills-v1", skills: [{value: "first_aid", label: "First aid"}]};
+  const request = vi.fn(async () => json(policy));
+  vi.stubGlobal("fetch", request);
+  expect(await fetchOfficerSkillPolicy()).toEqual(policy);
+  expect(request).toHaveBeenCalledWith(expect.stringContaining("/api/dashboard/skill-policy/"), expect.objectContaining({
+    headers: expect.objectContaining({Authorization: "Bearer catalog-token"}),
+  }));
+});
 
 it("shares one rotating refresh across simultaneous 401 responses and synchronizes the session", async () => {
   localStorage.setItem("auth_token", "old"); localStorage.setItem("refresh_token", "rotate-me");

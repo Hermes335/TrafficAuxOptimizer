@@ -2,6 +2,7 @@ import { usePageState, useResetPageState } from "../../contexts/PageStateContext
 import { useState } from "react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "../../components/ui/dialog";
 import { StaffingProfileFields, staffingProfile } from "../../components/StaffingProfileFields";
+import { matchingOfficerSkills, officerSkillLabel } from "../../services/officerSkills";
 import { saveDeploymentAssignment, updateDashboardBottleneck, type BottleneckOption, type DashboardOfficerRecord,
   type DeploymentAssignmentPayload, type DeploymentScheduleItem } from "../../services/backend";
 
@@ -24,6 +25,13 @@ export function AssignmentEditor({assignment, day, initialShift, officers, nodes
   const [kind,setKind]=usePageState<DeploymentAssignmentPayload["assignment_type"]>(prefix + "kind", (assignment?.assignment_type ?? "static") as DeploymentAssignmentPayload["assignment_type"]);
   const [busy,setBusy]=usePageState(prefix + "busy", false);const [error,setError]=useState<string|null>(null);
   const [reason,setReason]=usePageState(prefix + "reason", "");
+  const selectedNode = nodes.find(current => current.id === node);
+  const preferredSkills = selectedNode?.preferred_skills;
+  const selectedOfficer = officers.find(current => String(current.id) === officer);
+  const matchedSkills = matchingOfficerSkills(selectedOfficer?.skills ?? [], preferredSkills ?? []);
+  const eligibleOfficers = officers.filter(current => current.shift === shift && ["available", "deployed"].includes(current.status))
+    .sort((left, right) => Number(matchingOfficerSkills(right.skills, preferredSkills ?? []).length > 0)
+      - Number(matchingOfficerSkills(left.skills, preferredSkills ?? []).length > 0));
   const submit=async(cancel=false)=>{
     setBusy(true);setError(null);
     try {
@@ -37,8 +45,13 @@ export function AssignmentEditor({assignment, day, initialShift, officers, nodes
     <DialogTitle>{assignment?"Edit assignment":"Add timed assignment"}</DialogTitle><DialogDescription>Set the officer, intersection and time window for {day} in Asia/Manila. Overlaps, shift limits and location capacity are checked before saving.</DialogDescription>
     <form onSubmit={e=>{e.preventDefault();void submit();}} className="space-y-3">
       <label className="grid gap-1 text-sm">Shift<select disabled={!!assignment||busy} value={shift} onChange={e=>{const value=e.target.value as typeof shift;setShift(value);setOfficer("");setStart(value==="morning"?"06:00":"14:00");setEnd(value==="morning"?"14:00":"22:00");}} className={inputClass}><option value="morning">Morning · 06:00–14:00</option><option value="afternoon">Afternoon · 14:00–22:00</option></select></label>
-      <label className="grid gap-1 text-sm">Officer<select required disabled={busy} value={officer} onChange={e=>setOfficer(e.target.value)} className={inputClass}><option value="">Select officer</option>{officers.filter(o=>o.shift===shift&&["available","deployed"].includes(o.status)).map(o=><option key={o.id} value={o.id}>{o.badge_number} · {o.name}</option>)}</select></label>
       <label className="grid gap-1 text-sm">Intersection<select required disabled={busy} value={node} onChange={e=>setNode(e.target.value)} className={inputClass}><option value="">Select intersection</option>{nodes.map(n=><option key={n.id} value={n.id}>{n.area_name ? n.area_name+" / ":""}{n.name}</option>)}</select></label>
+      <label className="grid gap-1 text-sm">Officer<select required disabled={busy} value={officer} onChange={e=>setOfficer(e.target.value)} className={inputClass}><option value="">Select officer</option>{eligibleOfficers.map(current=><option key={current.id} value={current.id}>{current.badge_number} · {current.name}{matchingOfficerSkills(current.skills, preferredSkills ?? []).length ? " · Skill match" : ""}</option>)}</select></label>
+      {selectedNode && <section aria-label="Assignment skill preferences" className="space-y-1.5 rounded-lg bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">
+        <p className="font-medium text-slate-800">{preferredSkills === undefined ? "Skill preferences unavailable" : preferredSkills.length ? `Preferred skills: ${preferredSkills.map(officerSkillLabel).join(", ")}` : "No specific skill preference for this location."}</p>
+        {selectedOfficer && !!preferredSkills?.length && <p>{matchedSkills.length ? `Recorded match: ${matchedSkills.map(officerSkillLabel).join(", ")}.` : "No recorded skill match. This officer can still be assigned."}</p>}
+        <p>Matching officers appear first. Skills are a preference; availability, time conflicts and staffing limits are checked when saving.</p>
+      </section>}
       <div className="grid grid-cols-2 gap-3"><label className="grid gap-1 text-sm">Start time<input type="time" required disabled={busy} value={start} onChange={e=>setStart(e.target.value)} className={inputClass}/></label><label className="grid gap-1 text-sm">End time<input type="time" required disabled={busy} value={end} onChange={e=>setEnd(e.target.value)} className={inputClass}/></label></div>
       <label className="grid gap-1 text-sm">Assignment type<select disabled={busy} value={kind} onChange={e=>setKind(e.target.value as typeof kind)} className={inputClass}><option value="static">Static post</option><option value="mobile">Mobile patrol</option><option value="response">Rapid response</option></select></label>
       <label className="grid gap-1 text-sm">Override reason<textarea value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} disabled={busy} className={inputClass} placeholder="Required when adding excess staffing or reducing staffing below the requirement."/></label>

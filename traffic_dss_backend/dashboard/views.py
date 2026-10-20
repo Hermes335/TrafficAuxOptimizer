@@ -19,6 +19,7 @@ from core.models import Bottleneck, Deployment, Incident, Officer, OptimizationR
 from core.serializers import BottleneckSerializer, OfficerSerializer, IncidentCreateSerializer, IncidentResponseSerializer, POISerializer
 from core.mutations import record_mutation
 from core.permissions import IsSupervisor, SupervisorWrite
+from core.skills import SKILL_OPTIONS, SKILL_POLICY_VERSION, preferred_skills_for
 
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ class DashboardBottlenecksView(APIView):
 			.order_by("id")
 		)
 		candidate_pool = list(
-			Officer.objects.filter(is_deleted=False)
+			Officer.objects.filter(is_deleted=False, shift=scope_shift, status__in=["available", "deployed"])
 			.order_by("name")
 			.prefetch_related(
 				Prefetch(
@@ -118,6 +119,7 @@ class DashboardBottlenecksView(APIView):
 		)
 		weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
 		wif = float(weather.weather_impact_factor) if weather else None
+		skill_incidents = list(Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"]))
 
 		paginator = PageNumberPagination()
 		page = paginator.paginate_queryset(bottlenecks, request, view=self)
@@ -162,7 +164,9 @@ class DashboardBottlenecksView(APIView):
 			if not operational_alerts:
 				operational_alerts.append("Coverage stable")
 
-			candidate_rankings = rank_candidates_for_bottleneck(b, candidate_pool, active_incident=active_incident)
+			preferences = preferred_skills_for(b, skill_incidents)
+			candidate_rankings = rank_candidates_for_bottleneck(b, candidate_pool, active_incident=active_incident,
+				preferred_skills=preferences, weather_impact_factor=wif if wif is not None else 1)
 			best_candidate = candidate_rankings[0] if candidate_rankings else None
 			if best_candidate is not None and best_candidate["score"] < 50:
 				operational_alerts.append("Preferred officer quality below threshold")
@@ -189,6 +193,7 @@ class DashboardBottlenecksView(APIView):
 					"min_officers_required": b.min_officers_required,
 					"max_officers_allowed": b.max_officers_allowed,
 					"area_name": b.area_name, "signal_status": b.signal_status, "staffing_periods": b.staffing_periods,
+					"preferred_skills": preferences,
 					"staffing_windows": staffing_windows(b, scope_start, scope_end, b.active_incidents),
 					"staffing_gap": staffing_gap,
 					"coverage_status": coverage_status,
@@ -198,6 +203,14 @@ class DashboardBottlenecksView(APIView):
 				}
 			)
 		return paginator.get_paginated_response(rows)
+
+
+class DashboardSkillPolicyView(APIView):
+	permission_classes = [permissions.IsAuthenticated]
+	throttle_scope = "operational_read"
+
+	def get(self, request):
+		return Response({"version": SKILL_POLICY_VERSION, "skills": SKILL_OPTIONS})
 
 
 class DashboardOfficersView(APIView):

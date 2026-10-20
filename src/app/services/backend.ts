@@ -519,6 +519,7 @@ export interface OptimizationResults {
       bottleneck_name?: string;
       start_time?: string;
       end_time?: string;
+      skill_match?: OfficerSkillMatch;
     }>;
   }>;
   pareto_curve_data?: ParetoPoint[];
@@ -526,6 +527,7 @@ export interface OptimizationResults {
   synthetic_data_used?: string[] | null;
   input_snapshot?: {
     captured_at: string;
+    skill_policy_version?: string;
     bottlenecks: Array<{id: string; tsi: number; road_priority_weight: number; provenance: {source: string; data_status: string; is_stale: boolean; is_synthetic: boolean; observed_at: string | null}}>;
     weather: {source: string; data_status: string; is_stale: boolean; is_synthetic: boolean; assumption?: string};
   };
@@ -613,6 +615,7 @@ export interface PublishOptimizationDeploymentsResponse {
   created: number;
   skipped: Array<{ officer_id?: number; bottleneck_id?: string }>;
   shift: string;
+  skill_warnings?: string[];
   start_time: string;
   end_time: string;
 }
@@ -677,6 +680,26 @@ export interface BottleneckOption extends Partial<StaffingProfile> {
   id: string;
   name: string;
   staffing_windows?: StaffingWindow[];
+  preferred_skills?: string[];
+}
+
+export interface OfficerSkillPolicy {
+  version: string;
+  skills: Array<{ value: string; label: string }>;
+}
+
+export interface OfficerSkillMatch {
+  policy_version: string;
+  preferred_skills: string[];
+  matched_skills: string[];
+  status: "matched" | "no_recorded_match" | "not_applicable";
+  explanation: string;
+}
+
+export async function fetchOfficerSkillPolicy(): Promise<OfficerSkillPolicy> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/dashboard/skill-policy/`);
+  if (!response.ok) throw new Error(await extractApiError(response, "Unable to load officer skill choices."));
+  return response.json() as Promise<OfficerSkillPolicy>;
 }
 
 export interface DashboardBottleneckPayload extends Partial<StaffingProfile> {

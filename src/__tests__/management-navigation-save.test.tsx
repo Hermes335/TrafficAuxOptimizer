@@ -11,7 +11,7 @@ import * as backend from "../app/services/backend";
 vi.mock("../app/services/backend", async original => ({
   ...await original<typeof import("../app/services/backend")>(),
   fetchOfficersPage: vi.fn(), createDashboardOfficer: vi.fn(), updateDashboardOfficer: vi.fn(),
-  deleteDashboardOfficer: vi.fn(), updateDashboardBottleneck: vi.fn(), deleteDashboardBottleneck: vi.fn(),
+  deleteDashboardOfficer: vi.fn(), updateDashboardBottleneck: vi.fn(), deleteDashboardBottleneck: vi.fn(), fetchOfficerSkillPolicy: vi.fn(),
 }));
 const officer: backend.DashboardOfficerRecord = {id: 1, name: "Officer Alpha", badge_number: "ALPHA", shift: "morning", status: "available", skills: []};
 const snapshot: backend.DashboardSnapshot = {...backend.getFallbackDashboardSnapshot(), bottlenecks: [
@@ -31,6 +31,7 @@ function navigate() { fireEvent.click(screen.getByText("Navigate")); }
 beforeEach(() => {
   vi.resetAllMocks();
   vi.mocked(backend.fetchOfficersPage).mockResolvedValue({results: [officer], count: 1, next: null});
+  vi.mocked(backend.fetchOfficerSkillPolicy).mockResolvedValue({version: "skills-v1", skills: []});
 });
 
 it.each(["create", "update"] as const)("keeps the roster %s form locked across navigation and refreshes the returned page after success", async action => {

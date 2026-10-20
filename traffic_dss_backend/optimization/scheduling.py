@@ -1,9 +1,10 @@
 """Optimize captured time periods and preserve feasible officer continuity."""
 from copy import deepcopy
 from datetime import datetime
-from math import ceil
 
+from core.skills import preferred_skills_for
 from .engine import GeneticDeploymentOptimizer, GARunResult
+from .matching import match_officers
 
 
 def plan_periods(bottlenecks, officers=()):
@@ -16,49 +17,13 @@ def plan_periods(bottlenecks, officers=()):
 
 
 def _continuous_assignments(engine, officers, nodes, proposed, previous, start, wif):
-    """Match desired posts to officers, keeping continuing posts first.
-
-    A move after a previous post needs an unassigned gap at least as long as the
-    existing travel model estimates. Initially officers may be prepositioned.
-    """
-    by_node = {b["id"]: b for b in nodes}
-    by_officer = {o["id"]: o for o in officers}
-    slots = [a["bottleneck_id"] for a in proposed]
-    preferred = {(a["officer_id"], a["bottleneck_id"]) for a in proposed}
-    options = []
-    for node_id in slots:
-        node = by_node[node_id]
-        eligible = []
-        for officer in officers:
-            prior = previous.get(officer["id"])
-            origin = officer if not prior else {**officer, "current_latitude": prior["latitude"], "current_longitude": prior["longitude"]}
-            minutes = engine._distance_km(origin, node) / max(8, 28 * (1 - float(node.get("tsi", 0)))) * 60 * wif
-            continuing = bool(prior and prior["node_id"] == node_id)
-            if prior and not continuing and (start - prior["end"]).total_seconds() < ceil(minutes * 60):
-                continue
-            eligible.append((not continuing, (officer["id"], node_id) not in preferred, minutes, officer["id"]))
-        options.append([row[-1] for row in sorted(eligible)])
-    matched = {}
-
-    def match(slot, visited):
-        for officer_id in options[slot]:
-            if officer_id in visited:
-                continue
-            visited.add(officer_id)
-            if officer_id not in matched or match(matched[officer_id], visited):
-                matched[officer_id] = slot
-                return True
-        return False
-
-    for slot in sorted(range(len(slots)), key=lambda i: len(options[i])):
-        match(slot, set())
-    return [{"officer_id": officer_id, "badge_number": by_officer[officer_id].get("badge_number"),
-             "bottleneck_id": slots[slot], "bottleneck_name": by_node[slots[slot]].get("name")}
-            for officer_id, slot in sorted(matched.items())]
+    return match_officers(engine, officers, nodes, proposed, previous, start, wif)
 
 
 def run_schedule(*, officers, bottlenecks, parameters, weather_impact_factor=1, incidents=None,
                  pois=None, seed=0, progress_callback=None, cancel_check=None):
+    bottlenecks = [{**node, "preferred_skills": node.get("preferred_skills", preferred_skills_for(node, incidents or []))}
+                   for node in deepcopy(bottlenecks)]
     periods = plan_periods(bottlenecks, officers)
     if not periods:
         return GeneticDeploymentOptimizer().run(officers=officers, bottlenecks=bottlenecks, parameters=parameters,
@@ -105,8 +70,19 @@ def run_schedule(*, officers, bottlenecks, parameters, weather_impact_factor=1, 
             node_index = {b["id"]: idx for idx, b in enumerate(nodes)}
             officer_nodes = {a["officer_id"]: node_index[a["bottleneck_id"]] for a in assignments}
             chromosome = [officer_nodes.get(o["id"], -1) for o in available]
-            metrics = engine._evaluate(chromosome, available, nodes, weather_impact_factor,
-                                       engine._clamp_parameters(parameters), engine._compute_incident_boosts(nodes, incidents or []))
+            # Match and score from the same period-specific origins and POI-adjusted priorities.
+            metric_nodes = deepcopy(nodes)
+            if pois:
+                engine._apply_poi_boosts(metric_nodes, pois)
+            origins = [{**officer, "current_latitude": previous[rank][officer["id"]]["latitude"],
+                        "current_longitude": previous[rank][officer["id"]]["longitude"]}
+                       if officer["id"] in previous[rank] else officer for officer in available]
+            distances = engine._precompute_distance_matrix(origins, metric_nodes)
+            metrics = engine._evaluate(chromosome, available, metric_nodes, weather_impact_factor,
+                                       engine._clamp_parameters(parameters), engine._compute_incident_boosts(metric_nodes, incidents or []), distances)
+            visualization = engine._compute_pareto_visualization(metrics, available, metric_nodes, chromosome, weather_impact_factor)
+            for key in ("weather_responsiveness", "resource_balance"):
+                total[key] = total.get(key, 0) + visualization[key] * (end-start).total_seconds()/duration_total
             shortages = {b["id"]: b["staffing_target"] - chromosome.count(i) for i, b in enumerate(nodes)
                          if chromosome.count(i) < b["staffing_target"]}
             total["constraints_violated"] |= metrics["constraints_violated"] or bool(shortages)
@@ -114,7 +90,7 @@ def run_schedule(*, officers, bottlenecks, parameters, weather_impact_factor=1, 
                 total["staffing_shortages"][node_id] = max(shortage, total["staffing_shortages"].get(node_id, 0))
             for node in nodes:
                 total["staffing_targets"][node["id"]] = max(node["staffing_target"], total["staffing_targets"].get(node["id"], 0))
-            for key in ("fitness", "coverage_efficiency", "avg_response_time", "resource_utilization", "staffing_efficiency", "road_priority_coverage"):
+            for key in ("fitness", "coverage_efficiency", "avg_response_time", "resource_utilization", "staffing_efficiency", "road_priority_coverage", "response_time_score"):
                 total[key] = total.get(key, 0) + metrics[key] * (end - start).total_seconds() / duration_total
             reserve = len(available) - len(assignments)
             total["reserve_officers"] = min(total["reserve_officers"], reserve)
@@ -130,4 +106,17 @@ def run_schedule(*, officers, bottlenecks, parameters, weather_impact_factor=1, 
                     total["assignments"].append({**assignment, "start_time": start.isoformat(), "end_time": end.isoformat()})
                 previous[rank][assignment["officer_id"]] = {"node_id": node["id"], "latitude": node["latitude"],
                                                           "longitude": node["longitude"], "end": end}
-    return GARunResult(totals[0]["fitness"] if totals else (history[-1] if history else 0), totals, history, "completed", converged_early=converged)
+    # Re-rank the final feasible schedules, not the period proposals.
+    fronts = engine._fast_non_dominated_sort([(None, total) for total in totals])
+    ranks = {idx: rank for rank, front in enumerate(fronts) for idx in front}
+    ordered = sorted(enumerate(totals), key=lambda row: (row[1]["constraints_violated"], ranks[row[0]], -row[1]["fitness"]))
+    pareto = [{**{key: total.get(key, 0) for key in ("fitness", "coverage_efficiency", "avg_response_time",
+               "resource_utilization", "road_priority_coverage", "weather_responsiveness", "resource_balance")},
+               "coverage": total["coverage_efficiency"],
+               "inverse_response_time": max(0, 100-total["avg_response_time"]*2)}
+              for idx, total in ordered if ranks[idx] == 0 and not total["constraints_violated"]]
+    totals = [total for _, total in ordered]
+    for rank, total in enumerate(totals, 1):
+        total["rank"] = rank
+    return GARunResult(totals[0]["fitness"] if totals else (history[-1] if history else 0), totals, history,
+                       "completed", pareto_curve_data=pareto, converged_early=converged)

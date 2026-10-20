@@ -7,6 +7,8 @@ from random import Random, randint
 from math import inf
 
 from geopy.distance import geodesic
+from core.skills import preferred_skills_for, skill_match
+from .matching import match_officers
 
 
 @dataclass
@@ -22,7 +24,7 @@ class GARunResult:
 class GeneticDeploymentOptimizer:
     """NSGA-II multi-objective optimizer for officer-to-bottleneck assignments."""
 
-    ALLOCATION_POLICY_VERSION = "timed-demand-v2"
+    ALLOCATION_POLICY_VERSION = "timed-demand-skills-v3"
 
     def __init__(self, seed: int | None = None):
         if seed is None:
@@ -702,6 +704,9 @@ class GeneticDeploymentOptimizer:
         if not bottlenecks or (not officers and any(self._staffing_targets(bottlenecks))):
             return GARunResult(best_fitness=0.0, top_solutions=[], generation_fitness=[], status="failed")
 
+        bottlenecks = [{**node, "preferred_skills": node.get("preferred_skills", preferred_skills_for(node, incidents or []))}
+                       for node in bottlenecks]
+
         config = self._clamp_parameters(parameters)
 
         # Pre-compute incident boosts for each bottleneck
@@ -784,14 +789,10 @@ class GeneticDeploymentOptimizer:
                         if no_improvement_count >= 3:
                             # Early stop
                             best_population = scored
-                            top_solutions = self._build_top_solutions(
-                                best_population[:3], officers, bottlenecks, weather_impact_factor
-                            )
-                            pareto_data = self._build_pareto_data(
-                                best_population[:5], officers, bottlenecks, weather_impact_factor
-                            )
+                            top_solutions, pareto_data = self._finalize_solutions(
+                                best_population[:3], officers, bottlenecks, weather_impact_factor, config, incident_boosts)
                             return GARunResult(
-                                best_fitness=best_score,
+                                best_fitness=top_solutions[0]["fitness"] if top_solutions else best_score,
                                 top_solutions=top_solutions,
                                 generation_fitness=[round(item, 4) for item in generation_fitness],
                                 status="completed",
@@ -848,16 +849,36 @@ class GeneticDeploymentOptimizer:
         scored = [item[4] for item in scored_with_keys]
 
         best_population = scored
-        top_solutions = self._build_top_solutions(best_population[:3], officers, bottlenecks, weather_impact_factor)
-        pareto_data = self._build_pareto_data(best_population[:5], officers, bottlenecks, weather_impact_factor)
+        top_solutions, pareto_data = self._finalize_solutions(
+            best_population[:3], officers, bottlenecks, weather_impact_factor, config, incident_boosts)
 
         return GARunResult(
-            best_fitness=generation_fitness[-1] if generation_fitness else 0.0,
+            best_fitness=top_solutions[0]["fitness"] if top_solutions else 0.0,
             top_solutions=top_solutions,
             generation_fitness=[round(item, 4) for item in generation_fitness],
             status="completed",
             pareto_curve_data=pareto_data,
         )
+
+    def _finalize_solutions(self, population, officers, bottlenecks, wif, config, incident_boosts):
+        """Reassign the chosen posts, then score/rank the actual officer identities."""
+        node_index = {node["id"]: i for i, node in enumerate(bottlenecks)}
+        finalized = []
+        for chromosome, _metrics in population:
+            proposed = [{"officer_id": officers[i]["id"], "bottleneck_id": bottlenecks[idx]["id"]}
+                        for i, idx in enumerate(chromosome) if 0 <= idx < len(bottlenecks)]
+            assignments = match_officers(self, officers, bottlenecks, proposed, wif=wif)
+            choices = {row["officer_id"]: node_index[row["bottleneck_id"]] for row in assignments}
+            actual = [choices.get(officer["id"], -1) for officer in officers]
+            metrics = self._evaluate(actual, officers, bottlenecks, wif, config, incident_boosts)
+            finalized.append((actual, metrics))
+        fronts = self._fast_non_dominated_sort(finalized)
+        ranks = {idx: rank for rank, front in enumerate(fronts) for idx in front}
+        ordered = sorted(enumerate(finalized), key=lambda row: (row[1][1]["constraints_violated"], ranks[row[0]], -row[1][1]["fitness"]))
+        pareto = [row for idx, row in ordered if ranks[idx] == 0 and not row[1]["constraints_violated"]]
+        finalized = [row for _, row in ordered]
+        return (self._build_top_solutions(finalized, officers, bottlenecks, wif),
+                self._build_pareto_data(pareto, officers, bottlenecks, wif))
 
     def _build_top_solutions(
         self,
@@ -879,6 +900,7 @@ class GeneticDeploymentOptimizer:
                     "badge_number": officer.get("badge_number"),
                     "bottleneck_id": bottleneck.get("id"),
                     "bottleneck_name": bottleneck.get("name"),
+                    "skill_match": skill_match(officer.get("skills", []), bottleneck.get("preferred_skills", [])),
                 })
             top_solutions.append({
                 "rank": rank,

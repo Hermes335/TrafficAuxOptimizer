@@ -18,6 +18,7 @@ from core.operational_time import MANILA, operational_date, shift_window
 from core.realtime import broadcast
 from core.utils import write_audit_log
 from core.staffing import required_staffing, staffing_windows
+from core.skills import SKILL_POLICY_VERSION, normalize_skills, preferred_skills_for, skill_match
 from datetime import datetime
 from geopy.distance import geodesic
 from optimization.input_policy import input_issues
@@ -212,6 +213,43 @@ def save_assignment(actor, payload, deployment_id=None):
     return candidate
 
 
+def publication_skill_warnings(snapshot, candidates, current_nodes, officers):
+    """Skill advice is rechecked without turning preferences into eligibility rules."""
+    if not snapshot.get("skill_policy_version"):
+        return ["Skills were not assessed for this saved run. Re-run optimization to include skill preferences."]
+    warnings = []
+    if snapshot["skill_policy_version"] != SKILL_POLICY_VERSION:
+        warnings.append("The skill preference policy changed since this run. Re-run optimization to use the current policy.")
+    saved_officers = {row.get("id"): row for row in snapshot.get("officers", []) if isinstance(row, dict)}
+    saved_nodes = {row.get("id"): row for row in snapshot.get("bottlenecks", []) if isinstance(row, dict)}
+    nodes = {node.pk: node for node in current_nodes}
+    incidents = list(Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"]))
+    preferences = {node.pk: preferred_skills_for(node, incidents) for node in current_nodes}
+    checked_officers, checked_nodes, checked_pairs = set(), set(), set()
+    for candidate in candidates:
+        officer, node = officers[candidate.officer_id], nodes[candidate.bottleneck_id]
+        saved_officer = saved_officers.get(officer.pk, {})
+        saved_node = saved_nodes.get(node.pk, {})
+        if officer.pk not in checked_officers:
+            checked_officers.add(officer.pk)
+            if "skills" not in saved_officer:
+                warnings.append(f"The saved skill record for officer {officer.badge_number} is unavailable. Review their current skills.")
+            elif set(normalize_skills(saved_officer["skills"])) != set(normalize_skills(officer.skills)):
+                warnings.append(f"Skills recorded for officer {officer.badge_number} changed since optimization. Review the assignment or run optimization again.")
+        if node.pk not in checked_nodes:
+            checked_nodes.add(node.pk)
+            if "preferred_skills" not in saved_node:
+                warnings.append(f"Saved skill preferences for {node.name} are unavailable. Review the current preferences.")
+            elif normalize_skills(saved_node["preferred_skills"]) != preferences[node.pk]:
+                warnings.append(f"Preferred skills at {node.name} changed since optimization. Review the assignment or run optimization again.")
+        pair = (officer.pk, node.pk)
+        if pair not in checked_pairs:
+            checked_pairs.add(pair)
+            if skill_match(officer.skills, preferences[node.pk])["status"] == "no_recorded_match":
+                warnings.append(f"Officer {officer.badge_number} has no recorded match for the preferred skills at {node.name}. This preference does not prevent assignment.")
+    return warnings
+
+
 @transaction.atomic
 def publish(actor, payload, preview=False):
     nodes, officers = lock_schedule()
@@ -348,6 +386,7 @@ def publish(actor, payload, preview=False):
                 gaps.append(f"{node.name} at {moment.astimezone(MANILA):%H:%M}: {count} proposed / {required} required.")
     if gaps:
         raise ScheduleConflict({"detail": "Current staffing requirements are not met. Re-run optimization.", "staffing_gaps": gaps})
+    skill_warnings = publication_skill_warnings(snapshot, candidates, current_nodes, officers)
     before_rows = [assignment_snapshot(d) for d in old]
     for candidate in candidates:
         candidate.source = "optimized"
@@ -359,7 +398,7 @@ def publish(actor, payload, preview=False):
         "staff_added": sorted(set(d.officer_id for d in candidates) - set(d.officer_id for d in old)),
         "staff_removed": sorted(set(d.officer_id for d in old) - set(d.officer_id for d in candidates)),
         "replaced": len(old), "conflicts": [], "expected_revision": version,
-        "captured_at": snapshot.get("captured_at"), "input_issues": issues,
+        "captured_at": snapshot.get("captured_at"), "input_issues": issues, "skill_warnings": skill_warnings,
         "time_periods": solutions[0].get("time_periods", []),
         "added_assignments": [d for d in after_rows if (d["officer_id"], d["bottleneck_id"], d["start_time"], d["end_time"]) not in old_pairs],
         "removed_assignments": [d for d in before_rows if (d["officer_id"], d["bottleneck_id"], d["start_time"], d["end_time"]) not in new_pairs]}
@@ -392,7 +431,7 @@ def publish(actor, payload, preview=False):
     revision.assignments = [assignment_snapshot(candidate) for candidate in candidates]
     revision.save(update_fields=["response", "assignments"])
     schedule_event(actor, "publish", {"run_id": run.run_id, "revision_id": revision.pk,
-        "created": len(candidates), "input_override_reason": reason, "input_issues": issues,
+        "created": len(candidates), "input_override_reason": reason, "input_issues": issues, "skill_warnings": skill_warnings,
         "previous_assignments": before_rows, "assignments": after_rows})
     return json_result
 

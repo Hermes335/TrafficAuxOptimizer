@@ -111,17 +111,22 @@ it("publication preview uses saved run shift and requires confirmation", async (
     run_id:"morning-run",shift:"morning",start_time:"2026-09-23T22:00:00Z",end_time:"2026-09-24T06:00:00Z",
     operational_date:"2026-09-24",created:2,skipped:[],staff_added:[2,3],staff_removed:[1],replaced:1,conflicts:[],
     expected_revision:"reviewed-schedule",captured_at:"2026-09-23T22:00:00Z",input_issues:[],added_assignments:[],removed_assignments:[],
+    skill_warnings:["Officer skills changed after this recommendation was generated."],
   });
-  vi.mocked(backend.publishDeploymentsFromOptimization).mockResolvedValue({created:2,shift:"morning"} as backend.PublishOptimizationDeploymentsResponse);
+  vi.mocked(backend.publishDeploymentsFromOptimization).mockResolvedValue({created:2,shift:"morning",skill_warnings:["Published with the reviewed skill advisory."]} as backend.PublishOptimizationDeploymentsResponse);
   render(<PublishScheduleButton runId="morning-run" date="2026-09-24" />);
   fireEvent.click(screen.getByText("Preview publication"));
   expect(await screen.findByText("morning")).toBeTruthy();
   expect(backend.publishDeploymentsFromOptimization).not.toHaveBeenCalled();
+  expect(screen.getByRole("region", {name: "Skill review notes"}).textContent).toContain("Officer skills changed");
+  expect(screen.getByText("Confirm publication")).toHaveProperty("disabled", false);
   fireEvent.click(screen.getByText("Confirm publication"));
   await waitFor(()=>expect(backend.publishDeploymentsFromOptimization).toHaveBeenCalledWith(expect.objectContaining({
     run_id:"morning-run",operational_date:"2026-09-24",replace_existing:true,
     expected_revision:"reviewed-schedule",idempotency_key:expect.any(String),
   })));
+  expect(await screen.findByText("Published schedule skill notes")).toBeTruthy();
+  expect(screen.getByText("Published with the reviewed skill advisory.")).toBeTruthy();
 });
 
 it("publishes a timed recommendation using its saved assignment windows", async () => {
