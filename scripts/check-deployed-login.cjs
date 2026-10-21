@@ -36,6 +36,8 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
     let loginStatus;
     let loginOrigin;
     let trafficActivityStatus;
+    let loginSubmitted = false;
+    const protectedRequestsBeforeLogin = new Set();
     const pending = new Map();
     socket.onmessage = message => {
       const event = JSON.parse(message.data);
@@ -45,6 +47,9 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
         pending.delete(event.id);
         clearTimeout(request.timeout);
         event.error ? request.reject(new Error(event.error.message)) : request.resolve(event.result);
+      } else if (event.method === 'Network.requestWillBeSent') {
+        const pathname = new URL(event.params.request.url).pathname;
+        if (!loginSubmitted && pathname.startsWith('/api/dashboard/')) protectedRequestsBeforeLogin.add(pathname);
       } else if (event.method === 'Network.responseReceived') {
         const response = event.params.response;
         if (new URL(response.url).pathname === '/api/auth/login/') {
@@ -78,6 +83,11 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
       await wait(200);
     }
     if (!ready) throw new Error('The deployed login form did not load.');
+    if (process.argv.includes('--login-requests')) {
+      await wait(1000);
+      if (protectedRequestsBeforeLogin.size) throw new Error('The public sign-in page requested protected dashboard data.');
+      console.log('PASS: public sign-in page makes no protected dashboard requests.');
+    }
     await evaluate(`(() => {
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set;
       for (const [id, value] of ${JSON.stringify([['username', credentials.username], ['password', credentials.password]])}) {
@@ -88,6 +98,7 @@ const wait = milliseconds => new Promise(resolve => setTimeout(resolve, millisec
       }
     })()`);
     await wait(100);
+    loginSubmitted = true;
     await evaluate("document.querySelector('button[type=submit]').click()");
     let pathname;
     for (let attempt = 0; attempt < 100; attempt++) {

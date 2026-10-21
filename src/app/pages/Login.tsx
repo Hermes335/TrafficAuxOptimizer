@@ -3,21 +3,8 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../contexts/AuthContext";
 import { LoadingState } from "../components/LoadingState";
 import { Eye, EyeOff, Shield, AlertTriangle, LogIn, MapPin, CheckCircle2 } from "lucide-react";
-import { fetchDashboardKpis, fetchDashboardSnapshot } from "../services/backend";
 import { LoginError } from "../services/loginErrors";
 import { loginDestination } from "../services/loginDestination";
-
-type LoginStats = {
-  deployedOfficers: number | null;
-  monitoredIntersections: number | null;
-  avgResponseMinutes: number | null;
-};
-
-const fallbackStats: LoginStats = {
-  deployedOfficers: null,
-  monitoredIntersections: null,
-  avgResponseMinutes: null,
-};
 
 export function Login() {
   const { login, logout, user, isAuthenticated, isLoading: authLoading, error, clearError } = useAuth();
@@ -37,33 +24,8 @@ export function Login() {
   const [localError, setLocalError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<"username" | "password" | "credentials" | null>(null);
   const [showPasswordHelp, setShowPasswordHelp] = useState(false);
-  const [stats, setStats] = useState<LoginStats>(fallbackStats);
 
   const displayError = localError || error;
-
-  useEffect(() => {
-    let active = true;
-
-    Promise.all([fetchDashboardKpis(), fetchDashboardSnapshot()])
-      .then(([kpis, snapshot]) => {
-        if (!active) return;
-
-        setStats({
-          deployedOfficers: kpis.deployed_officers,
-          monitoredIntersections: snapshot.bottlenecks.length,
-          avgResponseMinutes: kpis.avg_response_time,
-        });
-      })
-      .catch(() => {
-        if (active) {
-          setStats(fallbackStats);
-        }
-      });
-
-    return () => {
-      active = false;
-    };
-  }, []);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -241,21 +203,22 @@ export function Login() {
 
               <div className="mt-9 grid grid-cols-3 gap-3">
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">{stats.deployedOfficers ?? "—"}</div>
+                  <div aria-hidden="true" className="text-4xl font-black text-yellow-400">—</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Deployed</div>
                   <div className="text-sm text-slate-300">Active Officers</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">{stats.monitoredIntersections ?? "—"}</div>
+                  <div aria-hidden="true" className="text-4xl font-black text-yellow-400">—</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Monitored</div>
                   <div className="text-sm text-slate-300">Intersections</div>
                 </div>
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 backdrop-blur-sm">
-                  <div className="text-4xl font-black text-yellow-400">{stats.avgResponseMinutes?.toFixed(1) ?? "—"}</div>
+                  <div aria-hidden="true" className="text-4xl font-black text-yellow-400">—</div>
                   <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">Minutes</div>
                   <div className="text-sm text-slate-300">Avg Response</div>
                 </div>
               </div>
+              <p className="mt-3 text-xs text-slate-300">Sign in to view current operational figures.</p>
             </div>
           </div>
         </section>

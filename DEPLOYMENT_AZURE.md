@@ -89,6 +89,24 @@ Both checks read credentials privately from the ignored provisioning file.
 After demo records have been edited, use `--existing-data` with the first check
 to verify access and WebSockets without requiring the original seeded records.
 
+For routine verification with existing operational records, run:
+
+    node scripts/check-cloudflare-demo.cjs --azure --existing-data --workflows
+    node scripts/check-deployed-login.cjs --azure --traffic-activity --login-requests
+
+The workflow check verifies the response formats used by schedule review,
+publication provenance, officer skills, incident review, run history, and run
+readiness for both shifts. Readiness is checked without starting a run or
+publishing a schedule; an ended shift or staffing shortage can legitimately be
+reported in a successful readiness response. The browser check also rejects
+protected dashboard requests made by the public sign-in page before login.
+
+Vercel deploys the frontend independently of the Azure backend. A successful
+Vercel build does not install new API endpoints or database migrations on the VM.
+Deploy the matching backend code and required migrations before releasing a
+frontend that uses new endpoints, then run these checks. An HTTP 404 from a
+required workflow endpoint fails verification even if `/api/health/` is healthy.
+
 See DEPLOYMENT_VERCEL.md for the full hosted verification checklist.
 
 ## Background traffic quota

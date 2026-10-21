@@ -94,6 +94,44 @@ async function main() {
   console.log(process.argv.includes('--existing-data')
     ? 'PASS: demo login and authenticated roster/map requests with existing data'
     : 'PASS: demo login and authenticated fictional roster/map requests');
+  if (process.argv.includes('--workflows')) {
+    const headers = { Authorization: `Bearer ${access}`, Origin: frontend, 'Content-Type': 'application/json' };
+    const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(new Date());
+    const scope = new URLSearchParams({ date: day, shift: 'all' });
+    for (const [route, field] of [
+      ['/api/dashboard/skill-policy/', 'skills'],
+      ['/api/dashboard/pois/', 'results'],
+      ['/api/deployments/schedule/?' + scope, 'results'],
+      ['/api/deployments/review/?' + scope, 'issues'],
+      ['/api/deployments/provenance/?' + scope, 'shifts'],
+      ['/api/deployments/revisions/?date=' + day, 'results'],
+      ['/api/optimization/history/?page=1&page_size=10', 'results'],
+      ['/api/incidents/locations/', null],
+      ['/api/incidents/review/', 'results'],
+    ]) {
+      response = await request(route, { headers });
+      assert.equal(response.status, 200, `Workflow endpoint failed: ${route}`);
+      const payload = await response.json();
+      assert.ok(Array.isArray(field ? payload[field] : payload), `Unexpected workflow response: ${route}`);
+    }
+    for (const shift of ['morning', 'afternoon']) {
+      response = await request('/api/optimization/readiness/', { method: 'POST', headers,
+        body: JSON.stringify({ operational_date: day, shift, mode: 'operational' }),
+      });
+      assert.equal(response.status, 200, `Run readiness failed for ${shift}`);
+      const readiness = await response.json();
+      assert.equal(readiness.operational_date, day);
+      assert.equal(readiness.shift, shift);
+      assert.equal(readiness.mode, 'operational');
+      assert.equal(typeof readiness.ready, 'boolean');
+      assert.equal(typeof readiness.summary?.active_locations, 'number');
+      for (const field of ['blockers', 'warnings', 'periods', 'traffic']) {
+        assert.ok(Array.isArray(readiness[field]), `Missing readiness field: ${field}`);
+      }
+      assert.ok(readiness.weather && typeof readiness.weather === 'object');
+    }
+    console.log('PASS: schedule, roster, incident, history, and readiness API compatibility; no schedule changed');
+  }
   const socketUrl = url.replace('https:', 'wss:') + '/ws/dashboard/';
   await checkSocket(socketUrl + '?token=' + encodeURIComponent(access), frontend, true);
   await checkSocket(socketUrl, frontend, false);
