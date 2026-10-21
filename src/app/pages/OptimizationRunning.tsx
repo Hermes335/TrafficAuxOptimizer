@@ -9,6 +9,7 @@ import { ConfirmDialog } from "../components/ConfirmDialog";
 import { StatusBadge } from "../components/StatusBadge";
 import {
   cancelOptimizationRun,
+  fetchOptimizationResults,
   fetchOptimizationStatus,
   runOptimization,
   subscribeToOptimizationStream,
@@ -30,19 +31,25 @@ export function OptimizationRunning() {
   const [status, setStatus] = useState<OptimizationStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [convergenceData, setConvergenceData] = useState<ConvergencePoint[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const startPromise = useRef<ReturnType<typeof runOptimization> | null>(null);
   const acceptedStatus = useRef<OptimizationStatus | null>(null);
+  const historyRequest = useRef<{ runId: string; promise: ReturnType<typeof fetchOptimizationResults> } | null>(null);
 
   const progress = getOptimizationProgress(status);
   const completionSummary = getOptimizationCompletionSummary(status);
 
   const currentGen = status?.current_generation ?? 0;
   const totalGenerations = status?.total_generations ?? 0;
-  const fitnessScore = status?.current_fitness ?? 0;
+  const finalScheduleScore = status?.status === "completed" && Number.isFinite(status.current_fitness)
+    ? status.current_fitness : null;
+  const fitnessScore = status?.status === "completed" ? finalScheduleScore : convergenceData[convergenceData.length - 1]?.bestFitness ?? null;
   const averageFitness = useMemo(() => {
     if (convergenceData.length === 0) {
-      return 0;
+      return null;
     }
     const total = convergenceData.reduce((sum, point) => sum + point.bestFitness, 0);
     return total / convergenceData.length;
@@ -50,7 +57,7 @@ export function OptimizationRunning() {
 
   const fitnessDeltaFromStart = useMemo(() => {
     if (convergenceData.length < 2) {
-      return 0;
+      return null;
     }
     return convergenceData[convergenceData.length - 1].bestFitness - convergenceData[0].bestFitness;
   }, [convergenceData]);
@@ -143,12 +150,12 @@ export function OptimizationRunning() {
       latest = {...acceptedStatus.current, ...latest};
       acceptedStatus.current = latest;
       setStatus(latest); setError(latest.error ?? null);
-      if (latest.current_generation > 0) {
+      if (latest.status === "running" && Number.isInteger(latest.current_generation) && latest.current_generation > 0 && Number.isFinite(latest.current_fitness)) {
         setConvergenceData(previous => {
           const next = upsertConvergencePoint(previous, {
             id: `point-${latest.current_generation}`, generation: latest.current_generation,
             bestFitness: latest.current_fitness ?? 0, avgFitness: 0,
-          });
+          }).sort((left, right) => left.generation - right.generation);
           let total = 0;
           return next.map((point, index) => { total += point.bestFitness; return {...point, avgFitness: total / (index + 1)}; });
         });
@@ -194,6 +201,36 @@ export function OptimizationRunning() {
     }
     return () => { active = false; unsubscribe?.(); if (pollTimer) window.clearInterval(pollTimer); };
   }, [existingRunId, query]);
+
+  useEffect(() => {
+    if (!runId || status?.status !== "completed") return;
+    let active = true;
+    setHistoryLoading(true);
+    setHistoryLoaded(false);
+    setHistoryError(null);
+    // StrictMode's replacement effect subscribes to the same request.
+    if (historyRequest.current?.runId !== runId) {
+      historyRequest.current = {runId, promise: fetchOptimizationResults(runId)};
+    }
+    historyRequest.current.promise.then(results => {
+      if (!active) return;
+      const scores = results.fitness_scores;
+      if (!Array.isArray(scores) || !scores.length || scores.some(score => typeof score !== "number" || !Number.isFinite(score))) {
+        throw new Error("Saved search history is missing or invalid.");
+      }
+      let total = 0;
+      setConvergenceData(scores.map((score, index) => {
+        total += score;
+        return {id: `saved-${index + 1}`, generation: index + 1, bestFitness: score, avgFitness: total / (index + 1)};
+      }));
+      setHistoryLoaded(true);
+    }).catch(() => {
+      if (active) setHistoryError("Saved search history is unavailable. Any received search points are shown below.");
+    }).finally(() => {
+      if (active) setHistoryLoading(false);
+    });
+    return () => { active = false; };
+  }, [runId, status?.status]);
 
   return (
     <div className="flex h-full min-w-0 flex-col overflow-y-auto xl:flex-row xl:overflow-hidden">
@@ -275,7 +312,7 @@ export function OptimizationRunning() {
             <div>
               <div className="mb-1 flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-yellow-500" />
-                <h2 className="font-semibold">Fitness Convergence Curve</h2>
+                <h2 className="font-semibold">Search Fitness Convergence</h2>
               </div>
               <p className="text-sm text-gray-600">{latestFitnessLabel}</p>
             </div>
@@ -289,20 +326,24 @@ export function OptimizationRunning() {
             <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-yellow-400" />
-                <span className="text-gray-700">Best Fitness (Per Generation)</span>
+                <span className="text-gray-700">Best search fitness (per generation)</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-gray-400" />
-                <span className="text-gray-700">Running mean of best fitness</span>
+                <span className="text-gray-700">Running mean of search fitness</span>
               </div>
             </div>
             {/* Y-axis indicator properly positioned to avoid overlap */}
-            <div className="text-xs font-semibold text-gray-500 mt-2">Fitness Score &rarr;</div>
+            <div className="text-xs font-semibold text-gray-500 mt-2">Search fitness &rarr;</div>
           </div>
+          {historyLoading && <p role="status" className="mb-3 text-xs text-slate-600">Loading saved search history…</p>}
+          {historyError && <p role="alert" className="mb-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-900">{historyError}</p>}
+          {status?.status === "completed" && <p className="mb-3 text-xs leading-relaxed text-slate-600">The graph shows search fitness. The final schedule is scored after assignment matching and across its planning periods, so its score can differ.</p>}
 
           {/* Chart with axis labels */}
           <div className="relative h-64 min-w-0 sm:h-80">
             <PrettyCurve
+              generations={convergenceData.map((d) => d.generation)}
               values={convergenceData.map((d) => d.bestFitness)}
               secondaryValues={convergenceData.map((d) => d.avgFitness)}
               color="#facc15"
@@ -338,7 +379,7 @@ export function OptimizationRunning() {
           <span className="min-w-0 break-all">{runId ? `Run ${runId}` : "Awaiting run start"}</span>
           <div className="flex flex-wrap gap-x-6 gap-y-1">
             <span>{status?.status ?? "starting"}</span>
-            <span>{status?.current_generation ? `${status.current_generation} generations streamed` : "Awaiting first generation"}</span>
+            <span>{convergenceData.length ? `${convergenceData.length} search generations shown` : "Awaiting search history"}</span>
           </div>
         </div>
       </div>
@@ -351,27 +392,27 @@ export function OptimizationRunning() {
           <div className="rounded-lg border-2 border-yellow-400 bg-yellow-50 p-4">
             <div className="mb-1 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-yellow-600" />
-              <span className="text-xs text-gray-600">Best Fitness Score</span>
+              <span className="text-xs text-gray-600">{status?.status === "completed" ? "Final schedule score" : "Latest search fitness"}</span>
             </div>
             <div className="flex items-end gap-2">
-              <div className="text-3xl font-bold">{fitnessScore.toFixed(1)}</div>
+              <div className="text-3xl font-bold">{fitnessScore === null ? "—" : fitnessScore.toFixed(1)}</div>
               <div className="mb-1 text-sm text-yellow-600">SCORE</div>
             </div>
-            <div className="mt-2 flex items-center gap-1 text-sm text-green-600">
+            {status?.status === "completed" ? <p className="mt-2 text-xs text-slate-600">Final assignments across the planning window.</p> : fitnessDeltaFromStart !== null && <div className="mt-2 flex items-center gap-1 text-sm text-green-600">
               <TrendingUp className="h-4 w-4" />
               {fitnessDeltaFromStart >= 0 ? "+" : ""}
-              {fitnessDeltaFromStart.toFixed(2)} from Gen 1
-            </div>
+              {fitnessDeltaFromStart.toFixed(2)} search change across shown generations
+            </div>}
           </div>
 
           <div className="rounded-lg bg-gray-50 p-4">
-            <div className="mb-1 text-xs text-gray-600">Mean of best fitness</div>
+            <div className="mb-1 text-xs text-gray-600">Mean search fitness</div>
             <div className="flex items-end gap-2">
-              <div className="text-2xl font-bold">{averageFitness.toFixed(1)}</div>
+              <div className="text-2xl font-bold">{averageFitness === null ? "—" : averageFitness.toFixed(1)}</div>
               <div className="mb-1 text-sm text-gray-600">SCORE</div>
             </div>
             <div className="mt-2 flex items-center gap-1 text-sm text-gray-600">
-              Based on {convergenceData.length} streamed generations
+              Based on {convergenceData.length} {historyLoaded ? "saved" : "received"} search generations
             </div>
           </div>
 
@@ -413,7 +454,7 @@ export function OptimizationRunning() {
               <AlertTriangle className="h-3.5 w-3.5" />
               Data Note
             </div>
-            <p>This run uses real traffic coordinates with synthetic variation for missing officers. Production deployment requires complete real data.</p>
+            <p>Input availability and freshness are checked when the run starts. Result details show its saved inputs; publication has separate checks.</p>
           </div>
           <div className="mt-3 flex items-center gap-2">
             <Link
@@ -482,7 +523,7 @@ export function OptimizationRunning() {
               <div className="mt-3 space-y-3 px-3">
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="text-gray-600">TSI Weight</span>
+                    <span className="text-gray-600">Coverage</span>
                     <span className="font-medium">{config.tsiWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
@@ -492,7 +533,7 @@ export function OptimizationRunning() {
 
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="text-gray-600">WIF Weight</span>
+                    <span className="text-gray-600">Estimated travel</span>
                     <span className="font-medium">{config.wifWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
@@ -502,7 +543,7 @@ export function OptimizationRunning() {
 
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="text-gray-600">RPW Weight</span>
+                    <span className="text-gray-600">Road priority</span>
                     <span className="font-medium">{config.rpwWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
@@ -512,7 +553,7 @@ export function OptimizationRunning() {
 
                 <div>
                   <div className="mb-1 flex items-center justify-between text-sm">
-                    <span className="text-gray-600">Staffing Efficiency</span>
+                    <span className="text-gray-600">Staffing efficiency</span>
                     <span className="font-medium">{config.resourceUtilizationWeight.toFixed(2)}</span>
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-gray-200">
@@ -538,8 +579,8 @@ export function OptimizationRunning() {
               <span className="font-medium text-gray-900">{status?.status ?? "starting"}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-gray-600">Latest Fitness</span>
-              <span className="font-medium text-gray-900">{fitnessScore.toFixed(4)}</span>
+              <span className="text-gray-600">{status?.status === "completed" ? "Final score" : "Search fitness"}</span>
+              <span className="font-medium text-gray-900">{fitnessScore === null ? "—" : fitnessScore.toFixed(4)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-gray-600">Last Update</span>

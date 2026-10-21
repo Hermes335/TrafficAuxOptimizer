@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor, renderHook } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, renderHook } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { popupCard, poiPopup } from "../app/services/mapPopup";
 import { operationalDate, operationalTime, operationalHour } from "../app/services/operationalTime";
@@ -146,6 +146,66 @@ it("publishes a timed recommendation using its saved assignment windows", async 
   expect(request).toMatchObject({run_id:"timed-run",expected_revision:"timed-review"});
   expect(request).not.toHaveProperty("start_time");
   expect(request).not.toHaveProperty("end_time");
+});
+
+const publicationPreview: backend.PublicationPreview = {
+  run_id: "saved-run", shift: "morning", start_time: "2026-10-21T06:00:00+08:00", end_time: "2026-10-21T14:00:00+08:00",
+  operational_date: "2026-10-21", created: 1, skipped: [], staff_added: [1], staff_removed: [], replaced: 0, conflicts: [],
+  expected_revision: "review-1", captured_at: "2026-10-21T05:55:00+08:00", input_issues: [], added_assignments: [], removed_assignments: [],
+};
+const staleInputError = () => Object.assign(new Error("Inputs are stale or unverified."), {
+  status: 409, input_issues: ["Weather: input is stale.", "Atrium: input is not verified."],
+});
+
+it("shows the specific inputs from a failed preview while keeping publication disabled", async () => {
+  vi.mocked(backend.previewPublication).mockRejectedValueOnce(staleInputError());
+  render(<PublishScheduleButton runId="saved-run" date="2026-10-21" />);
+  fireEvent.click(screen.getByRole("button", {name: "Preview publication"}));
+  await screen.findByText("Weather: input is stale.");
+  expect(screen.getByRole("list", {name: "Input issues blocking publication"}).textContent).toContain("Atrium: input is not verified.");
+  expect(screen.getByText("Cannot publish: Inputs are stale or unverified.")).toBeTruthy();
+  expect(screen.getByText(/Refresh preview rechecks this run's saved inputs/)).toBeTruthy();
+  expect(screen.getByRole("button", {name: "Confirm publication"})).toHaveProperty("disabled", true);
+  expect(backend.publishDeploymentsFromOptimization).not.toHaveBeenCalled();
+  expect(backend.previewPublication).toHaveBeenCalledWith(expect.objectContaining({input_override_reason: ""}));
+});
+
+it.each(["refresh", "date change", "reopen"] as const)("clears rejected input details on %s before the next preview resolves", async action => {
+  let resolvePreview!: (value: backend.PublicationPreview) => void;
+  const nextPreview = new Promise<backend.PublicationPreview>(resolve => {resolvePreview = resolve;});
+  vi.mocked(backend.previewPublication).mockRejectedValueOnce(staleInputError()).mockReturnValueOnce(nextPreview);
+  render(<PublishScheduleButton runId="saved-run" date="2026-10-21" />);
+  fireEvent.click(screen.getByRole("button", {name: "Preview publication"}));
+  await screen.findByText("Weather: input is stale.");
+  if (action === "refresh") fireEvent.click(screen.getByRole("button", {name: "Refresh preview"}));
+  else if (action === "date change") fireEvent.change(screen.getByLabelText("Operational date (Asia/Manila)"), {target: {value: "2026-10-22"}});
+  else {
+    fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
+    fireEvent.click(screen.getByRole("button", {name: "Preview publication"}));
+  }
+  expect(screen.queryByText("Weather: input is stale.")).toBeNull();
+  expect(screen.queryByRole("list", {name: "Input issues blocking publication"})).toBeNull();
+  expect(screen.getByRole("button", {name: "Confirm publication"})).toHaveProperty("disabled", true);
+  await act(async () => resolvePreview(publicationPreview));
+  await waitFor(() => expect(screen.getByRole("button", {name: "Confirm publication"})).toHaveProperty("disabled", false));
+  expect(screen.queryByText("Atrium: input is not verified.")).toBeNull();
+  expect(backend.publishDeploymentsFromOptimization).not.toHaveBeenCalled();
+});
+
+it("shows commit rejection input details and requires a fresh review before another publication attempt", async () => {
+  vi.mocked(backend.previewPublication).mockResolvedValue(publicationPreview);
+  vi.mocked(backend.publishDeploymentsFromOptimization).mockRejectedValueOnce(staleInputError());
+  render(<PublishScheduleButton runId="saved-run" date="2026-10-21" />);
+  fireEvent.click(screen.getByRole("button", {name: "Preview publication"}));
+  await waitFor(() => expect(screen.getByRole("button", {name: "Confirm publication"})).toHaveProperty("disabled", false));
+  fireEvent.click(screen.getByRole("button", {name: "Confirm publication"}));
+  await screen.findByText("Weather: input is stale.");
+  expect(screen.getByRole("button", {name: "Confirm publication"})).toHaveProperty("disabled", true);
+  expect(screen.queryByRole("button", {name: "Retry publication"})).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "Refresh preview"}));
+  expect(screen.queryByText("Weather: input is stale.")).toBeNull();
+  await waitFor(() => expect(screen.getByRole("button", {name: "Confirm publication"})).toHaveProperty("disabled", false));
+  expect(backend.publishDeploymentsFromOptimization).toHaveBeenCalledTimes(1);
 });
 
 it("a saved run with generated inputs explains why publication is unavailable", () => {

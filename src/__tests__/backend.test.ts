@@ -1,7 +1,7 @@
 import { renderHook, waitFor } from "@testing-library/react";
 import { AuthProvider, useAuth } from "../app/contexts/AuthContext";
 import { beforeEach, afterEach, expect, it, vi } from "vitest";
-import { fetchAllPages, fetchDashboardOfficers, fetchOfficerSkillPolicy, fetchPOIs, fetchIncident, createPOI, createMapIncident, resolveIncident, getFallbackDashboardSnapshot, previewPublication } from "../app/services/backend";
+import { fetchAllPages, fetchDashboardOfficers, fetchOfficerSkillPolicy, fetchOptimizationReadiness, fetchPOIs, fetchIncident, createPOI, createMapIncident, resolveIncident, getFallbackDashboardSnapshot, previewPublication, publishDeploymentsFromOptimization } from "../app/services/backend";
 import { SESSION_EVENT } from "../app/services/session";
 
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {status, headers: {"Content-Type": "application/json"}});
@@ -17,6 +17,19 @@ it("loads officer skill choices through the authenticated dashboard endpoint", a
   expect(request).toHaveBeenCalledWith(expect.stringContaining("/api/dashboard/skill-policy/"), expect.objectContaining({
     headers: expect.objectContaining({Authorization: "Bearer catalog-token"}),
   }));
+});
+
+it("posts readiness parameters with authentication and preserves backend validation messages", async () => {
+  localStorage.setItem("auth_token", "readiness-token");
+  const request = {shift: "morning", operational_date: "2099-01-01", mode: "shadow" as const, session_id: "Comparison"};
+  const response = {ready: true, shift: "morning", mode: "shadow", operational_date: "2099-01-01"};
+  const fetchMock = vi.fn().mockResolvedValueOnce(json(response)).mockResolvedValueOnce(json({detail: "Selected shift has ended."}, 400));
+  vi.stubGlobal("fetch", fetchMock);
+  expect(await fetchOptimizationReadiness(request)).toEqual(response);
+  expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/optimization/readiness/"), expect.objectContaining({
+    method: "POST", body: JSON.stringify(request), headers: expect.objectContaining({Authorization: "Bearer readiness-token"}),
+  }));
+  await expect(fetchOptimizationReadiness(request)).rejects.toThrow("Selected shift has ended.");
 });
 
 it("shares one rotating refresh across simultaneous 401 responses and synchronizes the session", async () => {
@@ -119,4 +132,25 @@ it("identifies an outdated backend when schedule preview returns 404", async () 
   vi.stubGlobal("fetch", vi.fn(async () => new Response("Not Found", {status: 404})));
   await expect(previewPublication({run_id: "saved-run", operational_date: "2026-09-25"}))
     .rejects.toThrow("Restart Django with the updated code");
+});
+
+it.each([
+  ["preview", previewPublication],
+  ["commit", publishDeploymentsFromOptimization],
+] as const)("preserves structured %s rejection details and status without changing the error message", async (_name, request) => {
+  const detail = "Inputs are stale or unverified. Refresh inputs and re-run, or record a supervisor override reason.";
+  vi.stubGlobal("fetch", vi.fn(async () => json({
+    detail, input_issues: ["Weather: input is stale.", null, 12, {unexpected: true}, "Atrium: input is not verified."],
+  }, 409)));
+  await expect(request({run_id: "saved-run", operational_date: "2026-10-21"})).rejects.toMatchObject({
+    message: detail, status: 409, input_issues: ["Weather: input is stale.", "Atrium: input is not verified."],
+  });
+});
+
+it.each([
+  ["preview", previewPublication, "Publication preview failed (HTTP 503)."],
+  ["commit", publishDeploymentsFromOptimization, "Failed to publish optimization deployment: 503"],
+] as const)("keeps the existing %s fallback for a non-JSON rejection", async (_name, request, message) => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("Service unavailable", {status: 503})));
+  await expect(request({run_id: "saved-run"})).rejects.toMatchObject({message, status: 503, input_issues: []});
 });

@@ -214,7 +214,8 @@ def test_input_capture_query_count_does_not_grow_per_node(schedule):
     Bottleneck.objects.bulk_create([Bottleneck(id=f"BATCH-{i}", name=f"Node {i}", district="Iloilo", latitude=10.7, longitude=122.5) for i in range(9)])
     with CaptureQueriesContext(connection) as second:
         capture_inputs({"shift": "morning"})
-    assert len(second) <= len(first) + 1 and len(second) <= 6
+    # Current/recent published origins add one constant query, independent of node count.
+    assert len(second) <= len(first) + 1 and len(second) <= 7
 
 
 def test_expired_worker_runs_are_terminal_and_late_worker_cannot_revive(schedule):

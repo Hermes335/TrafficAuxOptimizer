@@ -3,6 +3,7 @@ from heapq import heappop, heappush
 from math import ceil, floor, isfinite
 
 from core.skills import SKILL_OPTIONS, skill_match, skill_preference_score
+from .travel import transfer_seconds_available
 
 
 def match_officers(engine, officers, nodes, proposed, previous=None, start=None, wif=1):
@@ -28,7 +29,7 @@ def match_officers(engine, officers, nodes, proposed, previous=None, start=None,
                 minutes = engine._distance_km(origin, node) / max(8, 28*(1-float(node.get("tsi", 0)))) * 60 * wif
                 continuing = bool(prior and prior["node_id"] == node_id)
                 feasible = isfinite(minutes) and (not prior or continuing or
-                    (start-prior["end"]).total_seconds() >= ceil(minutes*60))
+                    transfer_seconds_available(officer, prior["end"], start) >= ceil(minutes*60))
                 preferences = node.get("preferred_skills", [])
                 skill_penalty = len(SKILL_OPTIONS)-skill_preference_score(officer.get("skills", []), preferences)
                 pair_costs[node_id] = ((int(not continuing), floor(minutes+0.5), skill_penalty,

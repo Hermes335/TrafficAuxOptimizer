@@ -5,6 +5,11 @@ import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { previewPublication, publishDeploymentsFromOptimization, type PublicationAssignment, type PublicationPreview, type PublishOptimizationDeploymentsRequest } from "../services/backend";
 import { operationalDate, operationalTime } from "../services/operationalTime";
 
+function publicationInputIssues(error: unknown): string[] {
+  return error instanceof Error && "input_issues" in error && Array.isArray(error.input_issues)
+    ? error.input_issues.filter((issue: unknown): issue is string => typeof issue === "string") : [];
+}
+
 function AssignmentChanges({ title, rows = [] }: { title: string; rows?: PublicationAssignment[] }) {
   return <section className="space-y-2">
     <h3 className="font-semibold">{title}</h3>
@@ -34,6 +39,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
   const [overrideDraft, setOverrideDraft] = useState("");
   const [preview, setPreview] = useState<PublicationPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [errorInputIssues, setErrorInputIssues] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [publishedSkillWarnings, setPublishedSkillWarnings] = useState<string[]>([]);
@@ -43,15 +49,19 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
   useEffect(() => {
     if (!open) return;
     let active = true;
-    setPreview(null); setError(null); pending.current = null;
+    setPreview(null); setError(null); setErrorInputIssues([]); pending.current = null;
     previewPublication({run_id: reviewRunId, operational_date: day, replace_existing: true, input_override_reason: overrideReason})
       .then(result => { if (active) setPreview(result); })
-      .catch(e => { if (active) setError(e instanceof Error ? e.message : "Preview failed."); });
+      .catch(e => {
+        if (!active) return;
+        setError(e instanceof Error ? e.message : "Preview failed.");
+        setErrorInputIssues(publicationInputIssues(e));
+      });
     return () => { active = false; };
   }, [open, reviewRunId, day, overrideReason, attempt]);
   async function publish() {
     if ((!preview && !pending.current) || submitting.current) return;
-    submitting.current = true; setBusy(true); setError(null);
+    submitting.current = true; setBusy(true); setError(null); setErrorInputIssues([]);
     // Preserve the exact request key/body after a lost response; the server replays its receipt.
     pending.current ??= {
       run_id: reviewRunId, operational_date: day, replace_existing: true,
@@ -70,6 +80,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
       catch { setNotice("Schedule published. Refresh failed; reload the board to see the saved schedule."); }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Publication failed.");
+      setErrorInputIssues(publicationInputIssues(e));
       if (e instanceof Error && "status" in e) {
         setPreview(null); pending.current = null; // A server rejection needs a new review.
       }
@@ -92,7 +103,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
     <Dialog open={open} onOpenChange={value => {
       if (busy) return;
       setOpen(value);
-      if (value) { setReviewRunId(runId); setDay(date ?? operationalDate()); setOverrideReason(""); setOverrideDraft(""); setPreview(null); pending.current = null; }
+      if (value) { setReviewRunId(runId); setDay(date ?? operationalDate()); setOverrideReason(""); setOverrideDraft(""); setPreview(null); setError(null); setErrorInputIssues([]); pending.current = null; }
     }}>
       {compact && publicationWarning ? <Popover open={warningOpen} onOpenChange={setWarningOpen}>
         <PopoverTrigger asChild>
@@ -112,7 +123,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
         <div className="min-h-0 space-y-4 overflow-y-auto pr-1">
         <p className="break-all">Run: <strong>{reviewRunId}</strong></p>
         <label className="grid gap-1">Operational date (Asia/Manila)
-          <input type="date" required value={day} disabled={busy} onChange={e => {setPreview(null); pending.current = null; setDay(e.target.value);}} className="rounded border p-2" />
+          <input type="date" required value={day} disabled={busy} onChange={e => {setPreview(null); setError(null); setErrorInputIssues([]); pending.current = null; setDay(e.target.value);}} className="rounded border p-2" />
         </label>
         {preview && <div className="space-y-3 text-sm">
           <p>Shift: <strong>{preview.shift}</strong> · Effective {operationalTime(preview.start_time)}–{operationalTime(preview.end_time)}</p>
@@ -134,18 +145,24 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
           </section>}
         </div>}
         {!preview && !error && <p role="status">Checking assignments…</p>}
-        {error && <p role="alert" className="break-words rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">Cannot publish: {error}</p>}
+        {error && <div role="alert" className="space-y-2 break-words rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          <p>Cannot publish: {error}</p>
+          {!!errorInputIssues.length && <>
+            <ul aria-label="Input issues blocking publication" className="list-disc space-y-1 pl-4">{errorInputIssues.map((issue, index) => <li key={index}>{issue}</li>)}</ul>
+            <p className="text-xs">Refresh preview rechecks this run's saved inputs. To use newer readings, refresh the inputs and run optimization again.</p>
+          </>}
+        </div>}
         <details>
           <summary className="text-sm">Supervisor override for stale or unverified inputs</summary>
           <label className="grid gap-1 text-sm">Reason (at least 10 characters; recorded in the audit log)
             <textarea value={overrideDraft} disabled={busy} onChange={e => setOverrideDraft(e.target.value)} className="rounded border p-2" />
           </label>
-          <button disabled={busy || overrideDraft.trim().length < 10} onClick={() => {setPreview(null); pending.current = null; setOverrideReason(overrideDraft.trim()); setAttempt(n => n + 1);}} className="mt-1 rounded border px-3 py-1 text-sm">Apply override and review</button>
+          <button disabled={busy || overrideDraft.trim().length < 10} onClick={() => {setPreview(null); setError(null); setErrorInputIssues([]); pending.current = null; setOverrideReason(overrideDraft.trim()); setAttempt(n => n + 1);}} className="mt-1 rounded border px-3 py-1 text-sm">Apply override and review</button>
         </details>
         </div>
         <div className="flex shrink-0 flex-wrap gap-2 border-t pt-3">
           <button disabled={busy} onClick={() => setOpen(false)} className="rounded border px-4 py-2">Cancel</button>
-          {error && !preview && <button disabled={busy} onClick={() => setAttempt(n => n + 1)} className="rounded border px-4 py-2">Refresh preview</button>}
+          {error && !preview && <button disabled={busy} onClick={() => {setError(null); setErrorInputIssues([]); setAttempt(n => n + 1);}} className="rounded border px-4 py-2">Refresh preview</button>}
           <button disabled={(!preview && !pending.current) || busy} onClick={publish} className="rounded bg-blue-700 px-4 py-2 text-white disabled:opacity-50">{busy ? "Publishing…" : pending.current ? "Retry publication" : "Confirm publication"}</button>
         </div>
       </DialogContent>

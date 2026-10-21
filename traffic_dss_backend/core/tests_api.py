@@ -3,7 +3,7 @@ from datetime import timedelta
 from unittest.mock import patch
 from django.contrib.auth import get_user_model
 from django.contrib.auth.models import Group
-from core.operational_time import shift_window
+from core.operational_time import operational_date, shift_window
 from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -215,8 +215,12 @@ def test_quick_optimize_enqueue_success_returns_queued(mock_delay):
     user.groups.add(Group.objects.get(name="supervisor"))
     client = APIClient()
     client.force_authenticate(user=user)
+    Bottleneck.objects.create(id="QUEUE-A", name="Queue test", latitude=10.72, longitude=122.56, min_officers_required=1)
+    Officer.objects.create(name="Queue officer", badge_number="QUEUE-A", shift="morning")
 
-    response = client.post("/api/dashboard/quick-optimize/", {"shift": "morning"}, format="json")
+    response = client.post("/api/dashboard/quick-optimize/", {
+        "shift": "morning", "operational_date": str(operational_date()+timedelta(days=1)),
+    }, format="json")
 
     assert response.status_code == 202
     assert response.json()["status"] == "queued"
@@ -233,9 +237,13 @@ def test_quick_optimize_enqueue_failure_returns_503_and_marks_run_failed(mock_de
     user.groups.add(Group.objects.get(name="supervisor"))
     client = APIClient()
     client.force_authenticate(user=user)
+    Bottleneck.objects.create(id="QUEUE-B", name="Queue test", latitude=10.72, longitude=122.56, min_officers_required=1)
+    Officer.objects.create(name="Queue officer", badge_number="QUEUE-B", shift="afternoon")
 
     with caplog.at_level("ERROR", logger="optimization"):
-        response = client.post("/api/dashboard/quick-optimize/", {"shift": "afternoon"}, format="json")
+        response = client.post("/api/dashboard/quick-optimize/", {
+            "shift": "afternoon", "operational_date": str(operational_date()+timedelta(days=1)),
+        }, format="json")
 
     assert response.status_code == 503
     assert response.json()["status"] == "failed"

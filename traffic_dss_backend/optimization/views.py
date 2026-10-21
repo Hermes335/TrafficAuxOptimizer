@@ -10,6 +10,7 @@ from core.serializers import OptimizationHistorySerializer
 from core.utils import write_audit_log
 from .progress_store import load_progress, save_progress
 from .services import OptimizationInput, start_run
+from .readiness import build_readiness
 
 
 class OptimizationConfigureView(APIView):
@@ -21,6 +22,16 @@ class OptimizationConfigureView(APIView):
         return Response({"valid": valid, "parameters": serializer.validated_data if valid else request.data,
             "errors": {k: str(v[0]) if isinstance(v, list) else str(v) for k, v in serializer.errors.items()}},
             status=200 if valid else 400)
+
+
+class OptimizationReadinessView(APIView):
+    permission_classes = [IsSupervisor]
+    throttle_scope = "operational_read"
+
+    def post(self, request):
+        serializer = OptimizationInput(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(build_readiness(serializer.validated_data))
 
 
 class OptimizationStartView(APIView):

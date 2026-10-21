@@ -1,11 +1,12 @@
-import { beforeEach, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { StrictMode } from "react";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { act, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { OptimizationEngine } from "../app/pages/OptimizationEngine";
 import { computeAutoWeights } from "../app/hooks/useOptimizationConfig";
 import * as backend from "../app/services/backend";
 
-vi.mock("../app/components/PrettyCurve", () => ({ default: () => null }));
+vi.mock("../app/components/PrettyCurve", () => ({ default: ({values, generations}: {values: number[]; generations: number[]}) => <><output aria-label="Search generation scores">{JSON.stringify(values)}</output><output aria-label="Search generation numbers">{JSON.stringify(generations)}</output></> }));
 vi.mock("../app/contexts/AuthContext", () => ({useAuth: () => ({user: {role: "dispatcher"}})}));
 vi.mock("../app/services/backend", () => ({
   fetchOptimizationStatus: vi.fn(), fetchOptimizationResults: vi.fn(),
@@ -17,6 +18,7 @@ beforeEach(() => {
   vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue({run_id:"staffing-test", status:"completed",
     current_generation:22, total_generations:300, current_fitness:96});
 });
+afterEach(() => vi.useRealTimers());
 
 it("shows the staffing target and reserves alongside actual roster utilization", async () => {
   vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id:"staffing-test", status:"completed",
@@ -28,8 +30,8 @@ it("shows the staffing target and reserves alongside actual roster utilization",
   render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
   expect(await screen.findByText("Staffing target: 2 officers")).toBeTruthy();
   expect(screen.getByText("Officers in reserve: 6")).toBeTruthy();
-  expect(screen.getByText("Staffing Efficiency: 100.0%")).toBeTruthy();
-  expect(screen.getByText("Resource Utilization: 25.0%")).toBeTruthy();
+  expect(screen.getByText("Staffing efficiency: 100.0%")).toBeTruthy();
+  expect(screen.getByText("Roster utilization: 25.0%")).toBeTruthy();
 });
 
 it("keeps historical results readable without inventing a staffing target or reserve count", async () => {
@@ -42,6 +44,8 @@ it("keeps historical results readable without inventing a staffing target or res
   expect(screen.queryByText(/Staffing target:/)).toBeNull();
   expect(screen.queryByText(/Officers in reserve:/)).toBeNull();
   expect(screen.getByText("Skills were not assessed for this saved assignment.")).toBeTruthy();
+  expect(screen.getByText(/Score breakdown unavailable for this saved run/)).toBeTruthy();
+  expect(screen.queryByRole("region", {name: "Saved planning window"})).toBeNull();
 });
 
 it("uses saved skill explanations and distinguishes unmatched from locations without a preference", async () => {
@@ -67,4 +71,126 @@ it("does not increase staffing weight just because the roster has surplus capaci
   const high = computeAutoWeights([...inputs[0]], inputs[1], [...inputs[2]], 80);
   expect(low.resourceUtilizationWeight).toBe(high.resourceUtilizationWeight);
   expect(low.reasons.join(" ")).toContain("surplus officers stay available");
+});
+
+it("keeps a final schedule score out of the curve while saved generation history loads", async () => {
+  let resolveResults!: (value: backend.OptimizationResults) => void;
+  vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    current_generation: 89, total_generations: 300, current_fitness: 92.295125});
+  vi.mocked(backend.fetchOptimizationResults).mockReturnValue(new Promise(resolve => {resolveResults = resolve;}));
+  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  await screen.findByText("Final schedule score");
+  expect(screen.getByLabelText("Search generation scores").textContent).toBe("[]");
+  await act(async () => resolveResults({run_id: "staffing-test", status: "completed",
+    fitness_scores: [89.6188, 89.9713], top_solutions: [{fitness: 92.295125, assignments: []}]}));
+  expect(screen.getByLabelText("Search generation scores").textContent).toBe("[89.6188,89.9713]");
+  expect(screen.getByText("92.30")).toBeTruthy();
+});
+
+it("does not fabricate a generation from the final score if saved result loading fails", async () => {
+  vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    current_generation: 89, total_generations: 300, current_fitness: 92.295125});
+  vi.mocked(backend.fetchOptimizationResults).mockRejectedValue(new Error("Saved results unavailable."));
+  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  await screen.findByText("Saved results unavailable.");
+  expect(screen.getByLabelText("Search generation scores").textContent).toBe("[]");
+  expect(screen.getByText("92.30")).toBeTruthy();
+});
+
+it("preserves generations 101 through 300 when displaying the last 200 saved scores", async () => {
+  const scores = Array.from({length: 300}, (_, index) => 89 + index / 1000);
+  vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    current_generation: 300, total_generations: 300, current_fitness: 92.295125});
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    fitness_scores: scores, top_solutions: []});
+  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  await screen.findByText("Final schedule score");
+  expect(JSON.parse(screen.getByLabelText("Search generation numbers").textContent ?? "[]")).toEqual(Array.from({length: 200}, (_, index) => index + 101));
+  expect(JSON.parse(screen.getByLabelText("Search generation scores").textContent ?? "[]")).toEqual(scores.slice(-200));
+});
+
+it("waits for slow status and result responses before polling again, then stops on completion", async () => {
+  vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout"]});
+  let resolveStatus!: (value: backend.OptimizationStatus) => void;
+  let resolveResults!: (value: backend.OptimizationResults) => void;
+  const running = {run_id: "staffing-test", status: "running", current_generation: 88,
+    total_generations: 300, current_fitness: 89.948};
+  vi.mocked(backend.fetchOptimizationStatus)
+    .mockReturnValueOnce(new Promise(resolve => {resolveStatus = resolve;}))
+    .mockResolvedValue({...running, status: "completed", current_generation: 89, current_fitness: 92.295125});
+  vi.mocked(backend.fetchOptimizationResults)
+    .mockReturnValueOnce(new Promise(resolve => {resolveResults = resolve;}))
+    .mockResolvedValue({run_id: "staffing-test", status: "completed", fitness_scores: [89.948, 89.9713], top_solutions: []});
+  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  await act(async () => {vi.advanceTimersByTime(6000);});
+  expect(backend.fetchOptimizationStatus).toHaveBeenCalledTimes(1);
+  await act(async () => resolveStatus(running));
+  await act(async () => {vi.advanceTimersByTime(6000);});
+  expect(backend.fetchOptimizationStatus).toHaveBeenCalledTimes(1);
+  expect(screen.getByText("Search fitness")).toBeTruthy();
+  await act(async () => resolveResults({run_id: "staffing-test", status: "running", top_solutions: []}));
+  await act(async () => {vi.advanceTimersByTime(2000);});
+  expect(backend.fetchOptimizationStatus).toHaveBeenCalledTimes(2);
+  expect(screen.getByText("Final schedule score")).toBeTruthy();
+  expect(screen.getByLabelText("Search generation scores").textContent).toBe("[89.948,89.9713]");
+  await act(async () => {vi.advanceTimersByTime(10000);});
+  expect(backend.fetchOptimizationStatus).toHaveBeenCalledTimes(2);
+});
+
+it("ignores a delayed response from the replaced StrictMode effect after completion", async () => {
+  let resolveOld!: (value: backend.OptimizationStatus) => void;
+  vi.mocked(backend.fetchOptimizationStatus)
+    .mockReturnValueOnce(new Promise(resolve => {resolveOld = resolve;}))
+    .mockResolvedValue({run_id: "staffing-test", status: "completed", current_generation: 89,
+      total_generations: 300, current_fitness: 92.295125});
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    fitness_scores: [89.948, 89.9713], top_solutions: []});
+  render(<StrictMode><MemoryRouter><OptimizationEngine /></MemoryRouter></StrictMode>);
+  await screen.findByText("Final schedule score");
+  await act(async () => resolveOld({run_id: "staffing-test", status: "running", current_generation: 70,
+    total_generations: 300, current_fitness: 89.9}));
+  expect(screen.getByText("Final schedule score")).toBeTruthy();
+  expect(screen.getByLabelText("Search generation scores").textContent).toBe("[89.948,89.9713]");
+  expect(backend.fetchOptimizationResults).toHaveBeenCalledTimes(1);
+});
+
+it("retries failed result loading and clears the old error after a successful review", async () => {
+  vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout"]});
+  vi.mocked(backend.fetchOptimizationResults)
+    .mockRejectedValueOnce(new Error("Temporary results failure"))
+    .mockResolvedValue({run_id: "staffing-test", status: "completed", fitness_scores: [89.9713], top_solutions: []});
+  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  await act(async () => {});
+  expect(screen.getByText("Temporary results failure")).toBeTruthy();
+  await act(async () => {vi.advanceTimersByTime(2000);});
+  expect(screen.queryByText("Temporary results failure")).toBeNull();
+  expect(screen.getByLabelText("Search generation scores").textContent).toBe("[89.9713]");
+  await act(async () => {vi.advanceTimersByTime(10000);});
+  expect(backend.fetchOptimizationStatus).toHaveBeenCalledTimes(2);
+});
+
+it.each(["operational", "shadow"] as const)("shows the saved %s planning window and final score instead of inventing full-shift coverage", async mode => {
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    parameters: {mode, shift: "morning", operational_date: "2099-01-01"},
+    top_solutions: [{fitness: 103.5, assignments: [], score_breakdown: {
+      version: "fitness-breakdown-v1", basis: "time_weighted_final_assignments", components: [],
+      incident_bonus: {score: 0, weight: 0.15, contribution: 0}, constraint_adjustment: 0, rounding_adjustment: 0, total: 103.5,
+    }}],
+    input_snapshot: {
+      captured_at: "2099-01-01T11:00:00+08:00", bottlenecks: [],
+      weather: {source: "live", data_status: "live", is_stale: false, is_synthetic: false},
+      planning_window: {
+        start_time: `2099-01-01T${mode === "shadow" ? "06:00" : "11:03"}:00+08:00`,
+        end_time: "2099-01-01T14:00:00+08:00", captured_at: "2099-01-01T11:00:00+08:00",
+        mode, review_lead_seconds: mode === "shadow" ? 0 : 120, baseline_revision: "saved-baseline",
+      },
+    },
+  });
+  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  await screen.findByRole("region", {name: "Saved planning window"});
+  expect(screen.getByRole("heading", {name: mode === "shadow" ? "Full shift · Shadow comparison" : "Remaining shift planning"})).toBeTruthy();
+  expect(screen.getByText("103.50")).toBeTruthy();
+  expect(screen.getByText("103.5000")).toBeTruthy();
+  if (mode === "operational") expect(screen.getByText(/allowed 2 minutes for review/)).toBeTruthy();
+  else expect(screen.getByText(/comparison covers the full selected shift and cannot be published/)).toBeTruthy();
 });

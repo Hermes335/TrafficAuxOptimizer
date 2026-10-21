@@ -1,6 +1,6 @@
 from hashlib import sha256
 from time import monotonic
-from datetime import date
+from datetime import date, timedelta
 
 from celery import shared_task
 from django.utils import timezone
@@ -14,21 +14,24 @@ from core.staffing import required_staffing, staffing_windows
 from core.operational_time import shift_window, operational_date
 from core.skills import SKILL_POLICY_VERSION, normalize_skills, preferred_skills_for
 from .engine import GeneticDeploymentOptimizer
-from .scheduling import run_schedule, plan_periods
+from .scheduling import run_schedule, plan_periods, search_count
 from .progress_store import save_progress
+from .planning import planning_window, capture_origins, add_transfer_boundaries, review_lead_seconds
 
 
 def _broadcast_progress(run_id, payload):
     broadcast(f"optimization_{run_id}", "optimization_event", payload)
 
 
-def capture_inputs(params):
-    day = date.fromisoformat(str(params.get("operational_date") or operational_date()))
-    start, end = shift_window(params.get("shift", "afternoon"), day)
+def capture_inputs(params, now=None):
+    now = now or timezone.now()
+    start, end = planning_window(params, now)
     officers = list(Officer.objects.filter(is_deleted=False, status__in=["available", "deployed"],
         shift=params.get("shift", "afternoon")).order_by("id").values("id", "badge_number", "current_latitude", "current_longitude", "skills"))
     bottlenecks = []
-    blocks = list(OfficerTimeBlock.objects.filter(is_deleted=False, start_time__lt=end, end_time__gt=start))
+    shift_start, shift_end = shift_window(params.get("shift", "afternoon"), date.fromisoformat(str(params.get("operational_date") or operational_date(now))))
+    block_start = now-timedelta(hours=2) if params.get("mode", "operational") == "operational" and shift_start <= now < shift_end else start
+    blocks = list(OfficerTimeBlock.objects.filter(is_deleted=False, start_time__lt=end, end_time__gt=block_start))
     for officer in officers:
         officer["skills"] = normalize_skills(officer["skills"])
         officer["time_blocks"] = [{"start_time": b.start_time.isoformat(), "end_time": b.end_time.isoformat(), "kind": b.kind}
@@ -49,7 +52,7 @@ def capture_inputs(params):
             "min_officers_required": staffing_target, "max_officers_allowed": b.max_officers_allowed,
             "staffing_target": staffing_target, "configured_min_officers_required": b.min_officers_required,
             "area_name": b.area_name, "signal_status": b.signal_status, "staffing_periods": b.staffing_periods,
-            "staffing_windows": staffing_windows(b, start, end, b.snapshot_incidents),
+            "staffing_windows": staffing_windows(b, start, end, b.snapshot_incidents) if start < end else [],
             "provenance": {"value_origin": "bottleneck.tsi", "source": observation.source if observation else "manual",
                 "is_synthetic": bool(observation and observation.is_synthetic),
                 "data_status": observation.data_status if observation else "unverified",
@@ -58,6 +61,9 @@ def capture_inputs(params):
                 "fetched_at": observation.fetched_at.isoformat() if observation and observation.fetched_at else None},
         })
     weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
+    capture_origins(officers, params, start, now)
+    if start < end:
+        add_transfer_boundaries(officers, start, end)
     return officers, bottlenecks, weather
 
 
@@ -71,13 +77,21 @@ def run_optimization(self, run_id):
     try:
         # Domain mutation services use this same lock order. Release before the search.
         from deployments.services import lock_schedule
+        from deployments.services import schedule_version
+        from .readiness import build_readiness
         with transaction.atomic():
             lock_schedule()
-            officers, bottlenecks, weather = capture_inputs(params)
+            captured_now = timezone.now()
+            officers, bottlenecks, weather = capture_inputs(params, now=captured_now)
+            readiness = build_readiness(params, now=captured_now, captured=(officers, bottlenecks, weather))
+            if not readiness["ready"]:
+                raise ValueError(" ".join(readiness["blockers"]))
             incidents = list(Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"])
                 .values("bottleneck_id", "latitude", "longitude", "severity", "incident_type", "status"))
             pois = list(POI.objects.filter(is_deleted=False, is_active=True).values("latitude", "longitude", "priority_boost"))
-            captured_at = timezone.now().isoformat()
+            captured_at = captured_now.isoformat()
+            planning_start, planning_end = planning_window(params, now=captured_now)
+            baseline_revision = schedule_version(params.get("shift", "afternoon"), date.fromisoformat(str(params.get("operational_date") or operational_date(captured_now))))
         wif = float(weather.weather_impact_factor) if weather else 1.0
         seed = int(sha256(run_id.encode()).hexdigest()[:8], 16)
         input_snapshot = {"officers": officers, "bottlenecks": [dict(b) for b in bottlenecks],
@@ -93,9 +107,14 @@ def run_optimization(self, run_id):
             "mode": params.get("mode", "operational"), "session_id": params.get("session_id", ""),
             "schema_version": 4, "engine_version": settings.BACKEND_VERSION, "seed": seed,
             "skill_policy_version": SKILL_POLICY_VERSION,
+            "readiness": readiness,
+            "planning_window": {"start_time": planning_start.isoformat(), "end_time": planning_end.isoformat(),
+                "captured_at": captured_at, "mode": params.get("mode", "operational"),
+                "review_lead_seconds": review_lead_seconds() if params.get("mode", "operational") == "operational" else 0,
+                "baseline_revision": baseline_revision},
             "allocation_policy_version": GeneticDeploymentOptimizer.ALLOCATION_POLICY_VERSION}
         periods = plan_periods(bottlenecks, officers)
-        total_generations = params.get("generations", 300) * max(1, len(periods))
+        total_generations = params.get("generations", 300) * max(1, search_count(bottlenecks, officers))
         params = {**params, "total_generations": total_generations, "time_period_count": len(periods)}
         OptimizationRun.objects.filter(pk=run.pk, status="running").update(parameters=params)
         last_heartbeat = [monotonic()]

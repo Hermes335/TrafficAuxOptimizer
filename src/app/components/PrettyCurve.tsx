@@ -4,6 +4,7 @@ import { ResponsiveContainer, ComposedChart, Line, XAxis, YAxis, Tooltip, Cartes
 export default function PrettyCurve({
   values,
   secondaryValues,
+  generations,
   height = 240,
   gradientId = "prettyGrad",
   color = "#facc15",
@@ -12,6 +13,7 @@ export default function PrettyCurve({
 }: {
   values: number[];
   secondaryValues?: number[];
+  generations?: number[];
   height?: number;
   gradientId?: string;
   color?: string;
@@ -21,11 +23,11 @@ export default function PrettyCurve({
   const data = useMemo(() => {
     if (!values || values.length === 0) return [];
     return values.map((v, i) => ({
-      x: i + 1,
+      x: generations?.[i] ?? i + 1,
       y: v,
       y2: secondaryValues ? secondaryValues[i] : undefined,
     }));
-  }, [values, secondaryValues]);
+  }, [values, secondaryValues, generations]);
 
   if (data.length === 0) {
     return <div className="h-60 flex items-center justify-center text-sm text-gray-500">No data</div>;
@@ -41,7 +43,7 @@ export default function PrettyCurve({
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2ff" vertical={false} />
-        <XAxis dataKey="x" tick={{ fontSize: 11 }} axisLine={false} />
+        <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} />
         <YAxis 
           domain={['auto', 'auto']}
           tickFormatter={yAxisFormatter ? yAxisFormatter : (v) => (Number.isInteger(v) ? v.toString() : v.toFixed(1))} 

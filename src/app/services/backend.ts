@@ -435,6 +435,44 @@ export interface OptimizationConfigResponse {
   errors?: Record<string, string | string[]>;
 }
 
+export interface OptimizationReadinessReading {
+  observed_at: string | null;
+  age_seconds: number | null;
+  data_status: string;
+  is_stale: boolean;
+  is_synthetic: boolean;
+}
+
+export interface OptimizationReadiness {
+  ready: boolean;
+  checked_at: string;
+  mode: "operational" | "shadow";
+  shift: "morning" | "afternoon";
+  operational_date: string;
+  planning_start: string | null;
+  planning_end: string | null;
+  blockers: string[];
+  warnings: string[];
+  summary: {
+    active_locations: number;
+    eligible_officers: number;
+    missing_officer_locations: number;
+    peak_required_officers: number;
+    max_staffing_shortage: number;
+  };
+  periods: Array<{ start_time: string; end_time: string; required_officers: number; available_officers: number; shortage: number }>;
+  traffic: Array<OptimizationReadinessReading & { bottleneck_id: string; name: string }>;
+  weather: OptimizationReadinessReading;
+}
+
+export async function fetchOptimizationReadiness(request: OptimizationRunRequest): Promise<OptimizationReadiness> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/optimization/readiness/`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request),
+  });
+  if (!response.ok) throw new Error(await extractApiError(response, "Unable to check run readiness."));
+  return response.json() as Promise<OptimizationReadiness>;
+}
+
 export async function fetchOptimizationConfig(
   request: OptimizationConfigRequest,
 ): Promise<OptimizationConfigResponse> {
@@ -493,7 +531,7 @@ export interface ParetoPoint {
 }
 
 export interface OptimizationResults {
-  parameters?: {mode?: "operational" | "shadow"; operational_date?: string; session_id?: string};
+  parameters?: {mode?: "operational" | "shadow"; operational_date?: string; session_id?: string; shift?: "morning" | "afternoon"};
   run_id: string;
   status: string;
   fitness_scores?: number[];
@@ -512,6 +550,7 @@ export interface OptimizationResults {
     reserve_officers?: number;
     time_periods?: SchedulePeriod[];
     generated_at?: string;
+    score_breakdown?: OptimizationScoreBreakdown;
     assignments?: Array<{
       officer_id?: number;
       badge_number?: string;
@@ -528,9 +567,27 @@ export interface OptimizationResults {
   input_snapshot?: {
     captured_at: string;
     skill_policy_version?: string;
+    planning_window?: {
+      start_time: string;
+      end_time: string;
+      captured_at: string;
+      mode: "operational" | "shadow";
+      review_lead_seconds: number;
+      baseline_revision: string;
+    };
     bottlenecks: Array<{id: string; tsi: number; road_priority_weight: number; provenance: {source: string; data_status: string; is_stale: boolean; is_synthetic: boolean; observed_at: string | null}}>;
     weather: {source: string; data_status: string; is_stale: boolean; is_synthetic: boolean; assumption?: string};
   };
+}
+
+export interface OptimizationScoreBreakdown {
+  version: string;
+  basis: "final_assignments" | "time_weighted_final_assignments";
+  components: Array<{ key: string; label: string; score: number; weight: number; contribution: number }>;
+  incident_bonus: { score: number; weight: number; contribution: number };
+  constraint_adjustment: number;
+  rounding_adjustment: number;
+  total: number;
 }
 
 export async function fetchOptimizationResults(runId: string): Promise<OptimizationResults> {
@@ -652,8 +709,7 @@ export async function publishDeploymentsFromOptimization(
   });
 
   if (!response.ok) {
-    const detail = await extractApiError(response, `Failed to publish optimization deployment: ${response.status}`);
-    throw Object.assign(new Error(detail), {status: response.status});
+    throw await extractPublicationError(response, `Failed to publish optimization deployment: ${response.status}`);
   }
 
   return response.json() as Promise<PublishOptimizationDeploymentsResponse>;
@@ -743,6 +799,16 @@ async function extractApiError(response: Response, fallback: string) {
     // Keep fallback when the backend does not return JSON detail.
   }
   return fallback;
+}
+
+async function extractPublicationError(response: Response, fallback: string) {
+  const payload = await response.clone().json().catch(() => null);
+  const inputIssues = Array.isArray(payload?.input_issues)
+    ? payload.input_issues.filter((issue: unknown): issue is string => typeof issue === "string") : [];
+  return Object.assign(new Error(await extractApiError(response, fallback)), {
+    status: response.status,
+    input_issues: inputIssues,
+  });
 }
 
 export async function fetchBottlenecks(date?: string, shift?: string): Promise<BottleneckOption[]> {
@@ -1096,7 +1162,7 @@ export async function previewPublication(payload: PublishOptimizationDeployments
   if (response.status === 404) {
     throw new Error("Schedule preview is unavailable on the running backend (HTTP 404). Restart Django with the updated code.");
   }
-  if (!response.ok) throw new Error(await extractApiError(response, `Publication preview failed (HTTP ${response.status}).`));
+  if (!response.ok) throw await extractPublicationError(response, `Publication preview failed (HTTP ${response.status}).`);
   return response.json();
 }
 export function fetchOfficersPage(page: number, search: string, status: string, shift: string) {

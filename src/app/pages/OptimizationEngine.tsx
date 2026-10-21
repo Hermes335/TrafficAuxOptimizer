@@ -10,6 +10,7 @@ import { Link } from "react-router";
 import PrettyCurve from "../components/PrettyCurve";
 import { StatusBadge } from "../components/StatusBadge";
 import { officerSkillLabel } from "../services/officerSkills";
+import { OptimizationScoreBreakdown } from "../components/OptimizationScoreBreakdown";
 import {
   fetchOptimizationResults,
   fetchOptimizationStatus,
@@ -50,56 +51,63 @@ export function OptimizationEngine() {
     let timer: number | undefined;
 
     const sync = async () => {
+      let finished = false;
       try {
         const latestStatus = await fetchOptimizationStatus(runId);
         if (!active) {
           return;
         }
         setStatus(latestStatus);
-        setConvergenceData((prev) =>
-          upsertConvergencePoint(prev, {
-            id: `status-${latestStatus.current_generation}`,
-            generation: latestStatus.current_generation,
-            bestFitness: latestStatus.current_fitness,
-            avgFitness: prev.length === 0
-              ? latestStatus.current_fitness
-              : ((prev[prev.length - 1].avgFitness * prev.length) + latestStatus.current_fitness) / (prev.length + 1),
-          }),
-        );
+        // Completion reports the finalized schedule score, not a GA generation.
+        // Saved fitness_scores below are authoritative for the search curve.
+        if (latestStatus.status === "running" && Number.isInteger(latestStatus.current_generation) && latestStatus.current_generation > 0 && Number.isFinite(latestStatus.current_fitness)) {
+          setConvergenceData((prev) => {
+            const next = upsertConvergencePoint(prev, {
+              id: `status-${latestStatus.current_generation}`,
+              generation: latestStatus.current_generation,
+              bestFitness: latestStatus.current_fitness,
+              avgFitness: 0,
+            }).sort((left, right) => left.generation - right.generation);
+            let total = 0;
+            return next.map((point, index) => {
+              total += point.bestFitness;
+              return {...point, avgFitness: total / (index + 1)};
+            });
+          });
+        }
 
         const latestResults = await fetchOptimizationResults(runId);
         if (!active) {
           return;
         }
         setResults(latestResults);
+        setError(null);
 
         if (Array.isArray(latestResults.fitness_scores) && latestResults.fitness_scores.length > 0) {
           const rebuilt = buildConvergenceFromScores(latestResults.fitness_scores);
           setConvergenceData(rebuilt.slice(-200));
         }
 
-        if (latestStatus.status === "completed" || ["failed", "cancelled"].includes(latestStatus.status)) {
-          if (timer) {
-            window.clearInterval(timer);
-            timer = undefined;
-          }
-        }
+        finished = ["completed", "failed", "cancelled"].includes(latestStatus.status);
       } catch (syncError: unknown) {
         if (!active) {
           return;
         }
         const message = syncError instanceof Error ? syncError.message : "Failed to fetch optimization results";
         setError(message);
+      } finally {
+        // Wait for both responses before polling again. A slow older request
+        // cannot overwrite newer results or revert a terminal run to running.
+        if (active && !finished) timer = window.setTimeout(sync, 2000);
       }
     };
 
-    sync();
-    timer = window.setInterval(sync, 2000);
+    void sync();
 
     return () => {
       active = false;
       if (timer) {
-        window.clearInterval(timer);
+        window.clearTimeout(timer);
       }
     };
   }, [runId]);
@@ -109,6 +117,10 @@ export function OptimizationEngine() {
 
   const bestSolution = results?.top_solutions?.[0];
   const assignments = bestSolution?.assignments ?? [];
+  const planningWindow = results?.input_snapshot?.planning_window;
+  const shiftStart = results?.parameters?.operational_date && results.parameters.shift
+    ? Date.parse(`${results.parameters.operational_date}T${results.parameters.shift === "morning" ? "06" : "14"}:00:00+08:00`) : null;
+  const plansRemainingShift = planningWindow?.mode === "operational" && shiftStart !== null && Date.parse(planningWindow.start_time) > shiftStart;
 
   return (
     <div className="h-full min-w-0 overflow-y-auto bg-gray-50 p-4 [overflow-wrap:anywhere] sm:p-6 lg:p-8">
@@ -153,8 +165,8 @@ export function OptimizationEngine() {
           <div className="mb-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
             <StatCard label="Progress" value={`${progress}%`} icon={<Clock className="h-4 w-4" />} />
             <StatCard
-              label="Best Fitness"
-              value={status ? status.current_fitness.toFixed(2) : "0.00"}
+              label={status?.status === "completed" ? "Final schedule score" : "Search fitness"}
+              value={bestSolution?.fitness != null ? bestSolution.fitness.toFixed(2) : status ? status.current_fitness.toFixed(2) : "0.00"}
               icon={<Target className="h-4 w-4" />}
             />
             <StatCard
@@ -176,25 +188,27 @@ export function OptimizationEngine() {
             <div>
               <div className="mb-2 flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-yellow-500" />
-                <h3 className="font-semibold">Fitness Convergence</h3>
+                <h3 className="font-semibold">Search Fitness Convergence</h3>
               </div>
-              <p className="text-sm text-gray-600">Best fitness achieved across all generations</p>
+              <p className="text-sm text-gray-600">Recorded GA search scores by generation.</p>
+              {status?.status === "completed" && <p className="mt-2 text-xs leading-relaxed text-slate-500">The final schedule is scored after officer matching and across planning periods. Its score is shown separately and is not an extra generation.</p>}
             </div>
 
             {/* Legend */}
             <div className="flex flex-wrap gap-x-4 gap-y-2 text-sm">
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-yellow-400" />
-                <span className="text-gray-700">Best Fitness</span>
+                <span className="text-gray-700">Search fitness per generation</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded-full bg-gray-400" />
-                <span className="text-gray-700">Running mean of best fitness</span>
+                <span className="text-gray-700">Running mean of search fitness</span>
               </div>
             </div>
 
             <div className="h-64 min-w-0 sm:h-80">
               <PrettyCurve
+                generations={convergenceData.map((p) => p.generation)}
                 values={convergenceData.map((p) => p.bestFitness)}
                 secondaryValues={convergenceData.map((p) => p.avgFitness)}
                 color="#facc15"
@@ -205,6 +219,14 @@ export function OptimizationEngine() {
           </div>
         </div>
 
+        {bestSolution && <OptimizationScoreBreakdown breakdown={bestSolution.score_breakdown} />}
+        {planningWindow && <section aria-label="Saved planning window" className="mb-6 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+          <h2 className="font-semibold">{planningWindow.mode === "shadow" ? "Full shift · Shadow comparison" : plansRemainingShift ? "Remaining shift planning" : "Planning window"}</h2>
+          <p className="mt-1">{results?.parameters?.operational_date ? `${results.parameters.operational_date} · ` : ""}{operationalTime(planningWindow.start_time)}–{operationalTime(planningWindow.end_time)} · Asia/Manila</p>
+          {plansRemainingShift && <p className="mt-2 text-xs">This saved recommendation covers the remaining shift. Earlier assignments are outside this planning window.</p>}
+          {planningWindow.mode === "operational" && planningWindow.review_lead_seconds > 0 && <p className="mt-2 text-xs">The run allowed {planningWindow.review_lead_seconds / 60} minutes for review before its planned start. Review and confirmation are still required to publish.</p>}
+          {planningWindow.mode === "shadow" && <p className="mt-2 text-xs">This comparison covers the full selected shift and cannot be published.</p>}
+        </section>}
         <div className="grid min-w-0 grid-cols-1 gap-4 xl:grid-cols-3 xl:gap-6">
           <div className="min-w-0 rounded-xl bg-white p-4 shadow-sm sm:p-6 xl:col-span-2">
             <h2 className="mb-4 text-xl font-semibold">Top Solution Assignments</h2>
@@ -272,12 +294,12 @@ export function OptimizationEngine() {
               <p className="mb-3 text-xs text-gray-600">Travel time is a model estimate using congestion-adjusted speed and straight-line distance; missing officer coordinates use 3 km. Location coverage counts distinct nodes.</p>
               <p className="mb-3 text-sm">Unfilled staffing requirements: {bestSolution?.staffing_shortages ? Object.entries(bestSolution.staffing_shortages).map(([node, count]) => `${node}: ${count}`).join(", ") || "None" : "Unavailable in this saved run"}</p>
               <div className="space-y-2 text-sm text-gray-700">
-                <div>Coverage Efficiency: {bestSolution?.coverage_efficiency != null ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}</div>
-                <div>Estimated travel time: {bestSolution?.avg_response_time != null ? `${bestSolution.avg_response_time.toFixed(1)} min` : "pending"}</div>
-                <div>Resource Utilization: {bestSolution?.resource_utilization != null ? `${bestSolution.resource_utilization.toFixed(1)}%` : "pending"}</div>
-                {bestSolution?.staffing_efficiency != null && <div>Staffing Efficiency: {bestSolution.staffing_efficiency.toFixed(1)}%</div>}
+                <div>Coverage: {bestSolution?.coverage_efficiency != null ? `${bestSolution.coverage_efficiency.toFixed(1)}%` : "pending"}</div>
+                <div>Estimated travel: {bestSolution?.avg_response_time != null ? `${bestSolution.avg_response_time.toFixed(1)} min` : "pending"}</div>
+                <div>Roster utilization: {bestSolution?.resource_utilization != null ? `${bestSolution.resource_utilization.toFixed(1)}%` : "pending"}</div>
+                {bestSolution?.staffing_efficiency != null && <div>Staffing efficiency: {bestSolution.staffing_efficiency.toFixed(1)}%</div>}
                 {bestSolution?.reserve_officers != null && <div>{bestSolution.time_periods?.length ? "Minimum officers in reserve" : "Officers in reserve"}: {bestSolution.reserve_officers}</div>}
-                <div>Road Priority Coverage: {bestSolution?.road_priority_coverage != null ? `${bestSolution.road_priority_coverage.toFixed(1)}%` : "pending"}</div>
+                <div>Road priority: {bestSolution?.road_priority_coverage != null ? `${bestSolution.road_priority_coverage.toFixed(1)}%` : "pending"}</div>
               </div>
             </div>
 

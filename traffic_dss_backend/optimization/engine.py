@@ -9,6 +9,7 @@ from math import inf
 from geopy.distance import geodesic
 from core.skills import preferred_skills_for, skill_match
 from .matching import match_officers
+from .scoring import score_breakdown
 
 
 @dataclass
@@ -24,7 +25,7 @@ class GARunResult:
 class GeneticDeploymentOptimizer:
     """NSGA-II multi-objective optimizer for officer-to-bottleneck assignments."""
 
-    ALLOCATION_POLICY_VERSION = "timed-demand-skills-v3"
+    ALLOCATION_POLICY_VERSION = "remaining-shift-skills-v5"
 
     def __init__(self, seed: int | None = None):
         if seed is None:
@@ -315,6 +316,7 @@ class GeneticDeploymentOptimizer:
         weights: dict,
         incident_boosts: dict[int, dict] | None = None,
         distance_matrix: list[list[float]] | None = None,
+        explain: bool = False,
     ) -> dict:
         """Full evaluation: 4 objectives + weighted fitness + constraint penalty."""
         objectives = self._evaluate_objectives(chromosome, officers, bottlenecks, weather_impact_factor, incident_boosts, distance_matrix)
@@ -336,7 +338,7 @@ class GeneticDeploymentOptimizer:
         if constraints_violated:
             fitness *= 1e-6
 
-        return {
+        evaluated = {
             "fitness": round(fitness, 4),
             "coverage_efficiency": objectives["coverage_efficiency"],
             "avg_response_time": objectives["avg_response_time"],
@@ -347,6 +349,9 @@ class GeneticDeploymentOptimizer:
             "constraints_violated": constraints_violated,
             "violations": violations,
         }
+        if explain:
+            evaluated["score_breakdown"] = score_breakdown(objectives, weights, bool(incident_boosts), constraints_violated, round(fitness, 4))
+        return evaluated
 
     # ─── NSGA-II: Non-dominated sorting ───────────────────────────────────
 
@@ -870,7 +875,7 @@ class GeneticDeploymentOptimizer:
             assignments = match_officers(self, officers, bottlenecks, proposed, wif=wif)
             choices = {row["officer_id"]: node_index[row["bottleneck_id"]] for row in assignments}
             actual = [choices.get(officer["id"], -1) for officer in officers]
-            metrics = self._evaluate(actual, officers, bottlenecks, wif, config, incident_boosts)
+            metrics = self._evaluate(actual, officers, bottlenecks, wif, config, incident_boosts, explain=True)
             finalized.append((actual, metrics))
         fronts = self._fast_non_dominated_sort(finalized)
         ranks = {idx: rank for rank, front in enumerate(fronts) for idx in front}
@@ -905,6 +910,7 @@ class GeneticDeploymentOptimizer:
             top_solutions.append({
                 "rank": rank,
                 "fitness": metrics["fitness"],
+                "score_breakdown": metrics["score_breakdown"],
                 "coverage_efficiency": metrics["coverage_efficiency"],
                 "avg_response_time": metrics["avg_response_time"],
                 "resource_utilization": metrics["resource_utilization"],

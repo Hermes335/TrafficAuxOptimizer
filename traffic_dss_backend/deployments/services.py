@@ -19,9 +19,10 @@ from core.realtime import broadcast
 from core.utils import write_audit_log
 from core.staffing import required_staffing, staffing_windows
 from core.skills import SKILL_POLICY_VERSION, normalize_skills, preferred_skills_for, skill_match
-from datetime import datetime
+from datetime import datetime, timedelta
 from geopy.distance import geodesic
 from optimization.input_policy import input_issues
+from optimization.travel import transfer_seconds_available
 
 
 class ScheduleConflict(APIException):
@@ -116,7 +117,10 @@ def validate_entries(entries, excluded_ids, nodes, officers, preserved=()):
                 distance = geodesic((earlier.bottleneck.latitude, earlier.bottleneck.longitude),
                                     (later.bottleneck.latitude, later.bottleneck.longitude)).km
                 travel_seconds = distance / max(8, 28 * (1 - later.bottleneck.tsi)) * 3600
-                if (later.start_time - earlier.end_time).total_seconds() < travel_seconds:
+                blocks = [{"start_time": block.start_time.isoformat(), "end_time": block.end_time.isoformat(), "kind": block.kind}
+                    for block in OfficerTimeBlock.objects.filter(officer_id=candidate.officer_id, is_deleted=False,
+                        kind="break", start_time__lt=later.start_time, end_time__gt=earlier.end_time)]
+                if transfer_seconds_available({"time_blocks": blocks}, earlier.end_time, later.start_time) < travel_seconds:
                     raise ScheduleConflict(f"Officer {candidate.officer.badge_number} needs a travel gap before changing intersections.")
         events = []
         for other in scheduled:
@@ -250,6 +254,36 @@ def publication_skill_warnings(snapshot, candidates, current_nodes, officers):
     return warnings
 
 
+def validate_planning_origins(snapshot, candidates, cutover, now):
+    """Publication cannot count travel that would have happened before actual release."""
+    if not snapshot.get("planning_window"):
+        return
+    first = {}
+    for candidate in sorted(candidates, key=lambda row: row.start_time):
+        first.setdefault(candidate.officer_id, candidate)
+    sources = Deployment.objects.filter(is_deleted=False, status__in=["assigned", "completed"],
+        officer_id__in=first, start_time__lte=now, end_time__gte=now-timedelta(hours=2)
+        ).select_related("bottleneck").order_by("officer_id", "-start_time", "-pk")
+    checked = set()
+    wif = float((snapshot.get("weather") or {}).get("impact_factor") or 1)
+    for source in sources:
+        if source.officer_id in checked:
+            continue
+        checked.add(source.officer_id)
+        candidate = first[source.officer_id]
+        if source.bottleneck_id == candidate.bottleneck_id:
+            continue
+        release = source.end_time if source.status == "completed" or source.end_time <= now else min(source.end_time, cutover)
+        distance = geodesic((source.bottleneck.latitude, source.bottleneck.longitude),
+                            (candidate.bottleneck.latitude, candidate.bottleneck.longitude)).km
+        needed = distance/max(8, 28*(1-candidate.bottleneck.tsi))*3600*wif
+        blocks = [{"start_time": block.start_time.isoformat(), "end_time": block.end_time.isoformat(), "kind": block.kind}
+            for block in OfficerTimeBlock.objects.filter(officer_id=source.officer_id, is_deleted=False, kind="break",
+                start_time__lt=candidate.start_time, end_time__gt=release)]
+        if transfer_seconds_available({"time_blocks": blocks}, release, candidate.start_time) < needed:
+            raise ScheduleConflict("The current deployment leaves insufficient travel time before the proposed move. Run optimization again; publication cannot backdate an officer's release.")
+
+
 @transaction.atomic
 def publish(actor, payload, preview=False):
     nodes, officers = lock_schedule()
@@ -307,6 +341,18 @@ def publish(actor, payload, preview=False):
         raise ScheduleConflict("The saved solution violates staffing constraints. Re-run optimization.")
     assignments = solutions[0].get("assignments")
     timed = snapshot.get("schema_version", 0) >= 4
+    planning_start = shift_start
+    saved_window = snapshot.get("planning_window")
+    if saved_window is not None:
+        try:
+            if not isinstance(saved_window, dict):
+                raise ValueError("Invalid window")
+            planning_start = serializers.DateTimeField().run_validation(saved_window.get("start_time"))
+            planning_end = serializers.DateTimeField().run_validation(saved_window.get("end_time"))
+            if not shift_start <= planning_start < shift_end or planning_end != shift_end:
+                raise ValueError("Invalid planning bounds")
+        except (ValueError, TypeError, serializers.ValidationError):
+            raise ScheduleConflict("The saved planning window is invalid. Run optimization again.")
     if not isinstance(assignments, list) or (not assignments and not timed):
         raise ScheduleConflict("The result contains no assignments.")
     if timed:
@@ -315,7 +361,7 @@ def publish(actor, payload, preview=False):
         periods = solutions[0].get("time_periods")
         if not isinstance(periods, list) or not periods:
             raise ScheduleConflict("The timed recommendation has no staffing periods. Run optimization again.")
-        cursor = shift_start
+        cursor = planning_start
         for period in periods:
             if not isinstance(period, dict):
                 raise ScheduleConflict("Invalid staffing period.")
@@ -325,11 +371,11 @@ def publish(actor, payload, preview=False):
             except serializers.ValidationError:
                 raise ScheduleConflict("Invalid staffing period times.")
             if left != cursor or not left < right <= shift_end:
-                raise ScheduleConflict("Staffing periods must cover the entire saved shift without gaps or overlaps.")
+                raise ScheduleConflict("Staffing periods must cover the saved planning window without gaps or overlaps.")
             cursor = right
         if cursor != shift_end:
             raise ScheduleConflict("Staffing periods do not cover the entire shift.")
-    effective_start, effective_end = max(shift_start, now), shift_end
+    effective_start, effective_end = max(planning_start, now), shift_end
     entries = []
     for item in assignments:
         if not isinstance(item, dict):
@@ -342,6 +388,8 @@ def publish(actor, payload, preview=False):
         })
         if not serializer.is_valid():
             raise ScheduleConflict({"detail": "Invalid proposed assignment.", "errors": serializer.errors})
+        if saved_window is not None and serializer.validated_data["start_time"] < planning_start:
+            raise ScheduleConflict("A proposed assignment starts before its saved planning window. Run optimization again.")
         serializer.validated_data["start_time"] = max(serializer.validated_data["start_time"], now)
         if serializer.validated_data["end_time"] <= serializer.validated_data["start_time"]:
             if timed:
@@ -365,6 +413,7 @@ def publish(actor, payload, preview=False):
             tail.start_time = first["end_time"]
             preserved.append(tail)
     candidates = validate_entries(entries, [d.pk for d in old], nodes, officers, preserved)
+    validate_planning_origins(snapshot, candidates, first["start_time"], now)
     current_nodes = list(Bottleneck.objects.filter(is_deleted=False, is_archived=False).prefetch_related(
         Prefetch("incidents", queryset=Incident.objects.filter(is_deleted=False, status__in=["active", "investigating"]), to_attr="publication_incidents")))
     if {n.pk for n in current_nodes} != {n.get("id") for n in snapshot["bottlenecks"]}:

@@ -249,7 +249,7 @@ def test_optimization_invalid_input_returns_structured_errors(schedule, field, v
 @pytest.mark.parametrize("url", ["/api/optimization/start/", "/api/dashboard/quick-optimize/"])
 def test_queue_failure_has_terminal_record(schedule, url):
     with patch("optimization.tasks.run_optimization.apply_async", side_effect=RuntimeError("broker down")):
-        response = schedule.client.post(url, {"shift": "morning"}, format="json")
+        response = schedule.client.post(url, {"shift": "morning", "operational_date": str(schedule.day)}, format="json")
     assert response.status_code == 503
     run = OptimizationRun.objects.get(run_id=response.data["run_id"])
     assert run.status == "failed" and run.result_data["enqueue_error"] == "broker down"

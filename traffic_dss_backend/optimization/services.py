@@ -3,10 +3,12 @@ from uuid import uuid4
 
 from django.utils import timezone
 from rest_framework import serializers
+from rest_framework.exceptions import APIException
 
 from core.models import OptimizationRun
 from core.utils import write_audit_log
 from core.operational_time import operational_date
+from .readiness import build_readiness
 
 
 class OptimizationInput(serializers.Serializer):
@@ -39,12 +41,25 @@ class OptimizationInput(serializers.Serializer):
         return data
 
 
+class OptimizationNotReady(APIException):
+    status_code = 409
+    default_code = "optimization_not_ready"
+
+    def __init__(self, readiness):
+        # Keep the readiness values typed; APIException normally stringifies leaves.
+        super().__init__("Optimization cannot start until the readiness blockers are resolved.")
+        self.detail = {"detail": str(self.detail), "readiness": readiness}
+
+
 def start_run(user, payload):
     serializer = OptimizationInput(data=payload)
     serializer.is_valid(raise_exception=True)
+    readiness = build_readiness(serializer.validated_data)
+    if not readiness["ready"]:
+        raise OptimizationNotReady(readiness)
     run = OptimizationRun.objects.create(
         run_id=f"opt-{uuid4().hex}", timestamp=timezone.now(), created_by=user,
-        parameters=serializer.validated_data, status="queued", task_id=uuid4().hex,
+        parameters={**serializer.validated_data, "readiness": readiness}, status="queued", task_id=uuid4().hex,
     )
     write_audit_log(user, "create", "optimization_run", {"run_id": run.run_id})
     try:

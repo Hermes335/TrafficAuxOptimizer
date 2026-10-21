@@ -18,6 +18,8 @@ import {
 } from "../services/backend";
 import { computeAutoWeights, type AutoWeightSuggestion } from "../hooks/useOptimizationConfig";
 import { ErrorFeedback } from "../components/ErrorFeedback";
+import { useOptimizationReadiness } from "../hooks/useOptimizationReadiness";
+import { OptimizationReadinessSummary } from "../components/OptimizationReadinessSummary";
 
 const DEFAULT_PARAMS = {
   populationSize: 200,
@@ -132,6 +134,7 @@ export function Optimization() {
       resourceUtilizationWeight,
     ],
   );
+  const readiness = useOptimizationReadiness(params);
 
   useEffect(() => {
     let active = true;
@@ -336,7 +339,7 @@ export function Optimization() {
           ) : weightsValidation ? (
             <ErrorFeedback error={weightsValidation} onDismiss={() => {}} />
           ) : currentValidation ? (
-            <p className="text-sm font-medium text-green-700">Parameters validated. Ready to optimize.</p>
+            <p className="text-sm font-medium text-green-700">Parameters validated.</p>
           ) : (
             <div className="space-y-2 text-sm text-red-600">
               <p>Current parameters need adjustment.</p>
@@ -347,8 +350,9 @@ export function Optimization() {
               ))}
             </div>
           )}
+          <OptimizationReadinessSummary {...readiness} />
           <button
-            disabled={!weightsValid || !currentValidation}
+            disabled={!weightsValid || !currentValidation || readiness.loading || !readiness.readiness?.ready || !!readiness.readiness.blockers.length}
             onClick={() => navigate("/optimization-running?" + new URLSearchParams({shift: selectedShift, ...Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v)]))}))}
             className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-amber-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
           >
@@ -494,10 +498,10 @@ export function Optimization() {
                 ))}
               </div>
               <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">TSI {autoSuggestion.tsiWeight}%</span>
-                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">WIF {autoSuggestion.wifWeight}%</span>
-                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">RPW {autoSuggestion.rpwWeight}%</span>
-                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">RU {autoSuggestion.resourceUtilizationWeight}%</span>
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">Coverage {autoSuggestion.tsiWeight}%</span>
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">Estimated travel {autoSuggestion.wifWeight}%</span>
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">Road priority {autoSuggestion.rpwWeight}%</span>
+                <span className="rounded bg-blue-100 px-2 py-0.5 font-medium text-blue-800">Staffing efficiency {autoSuggestion.resourceUtilizationWeight}%</span>
               </div>
               <button
                 onClick={applyAutoSuggestion}
@@ -511,15 +515,15 @@ export function Optimization() {
           <div className="space-y-4">
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm font-medium">Traffic Severity Index (TSI)</label>
+                <label className="text-sm font-medium">Coverage</label>
                 <span className="text-amber-700">{tsiWeight}%</span>
               </div>
-              <div className="text-xs text-slate-600">Congestion, speed, and queue length</div>
+              <div className="text-xs text-slate-600">Cover locations with staffing demand</div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                aria-label="Traffic severity weight"
+                aria-label="Coverage weight"
                 value={tsiWeight}
                 onChange={(e) => setTsiWeight(Number(e.target.value))}
                 className="w-full accent-amber-500"
@@ -528,15 +532,15 @@ export function Optimization() {
 
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm font-medium">Weather Impact Factor (WIF)</label>
+                <label className="text-sm font-medium">Estimated travel</label>
                 <span className="text-amber-700">{wifWeight}%</span>
               </div>
-              <div className="text-xs text-slate-600">Rainfall capacity reduction</div>
+              <div className="text-xs text-slate-600">Prefer shorter estimated officer travel</div>
               <input
                 type="range"
                 min="0"
                 max="100"
-                aria-label="Weather impact weight"
+                aria-label="Estimated travel weight"
                 value={wifWeight}
                 onChange={(e) => setWifWeight(Number(e.target.value))}
                 className="w-full accent-amber-500"
@@ -545,10 +549,10 @@ export function Optimization() {
 
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm font-medium">Road Priority Weight (RPW)</label>
+                <label className="text-sm font-medium">Road priority</label>
                 <span className="text-amber-700">{rpwWeight}%</span>
               </div>
-              <div className="text-xs text-slate-600">Volume, economic importance, and infrastructure</div>
+              <div className="text-xs text-slate-600">Prioritize important roads and active incidents</div>
               <input
                 type="range"
                 min="0"
@@ -562,7 +566,7 @@ export function Optimization() {
 
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-sm font-medium">Staffing Efficiency</label>
+                <label className="text-sm font-medium">Staffing efficiency</label>
                 <span className="text-amber-700">{resourceUtilizationWeight}%</span>
               </div>
               <div className="text-xs text-slate-600">Meet staffing targets; keep surplus available</div>
@@ -570,7 +574,7 @@ export function Optimization() {
                 type="range"
                 min="0"
                 max="100"
-                aria-label="Resource utilization weight"
+                aria-label="Staffing efficiency weight"
                 value={resourceUtilizationWeight}
                 onChange={(e) => setResourceUtilizationWeight(Number(e.target.value))}
                 className="w-full accent-amber-500"
@@ -751,10 +755,10 @@ export function Optimization() {
               <div className="flex justify-between"><span className="text-slate-600">Elitism</span><span className="font-medium">{elitismCount} individuals</span></div>
               <div className="border-t pt-2 mt-2">
                 <div className="mb-1 text-slate-600 font-semibold">Objective Weights</div>
-                <div className="flex justify-between"><span className="text-slate-600">TSI Weight</span><span className="font-medium">{tsiWeight}%</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">WIF Weight</span><span className="font-medium">{wifWeight}%</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">RPW Weight</span><span className="font-medium">{rpwWeight}%</span></div>
-                <div className="flex justify-between"><span className="text-slate-600">Staffing Efficiency Weight</span><span className="font-medium">{resourceUtilizationWeight}%</span></div>
+                <div className="flex justify-between gap-3"><span className="text-slate-600">Coverage</span><span className="font-medium">{tsiWeight}%</span></div>
+                <div className="flex justify-between gap-3"><span className="text-slate-600">Estimated travel</span><span className="font-medium">{wifWeight}%</span></div>
+                <div className="flex justify-between gap-3"><span className="text-slate-600">Road priority</span><span className="font-medium">{rpwWeight}%</span></div>
+                <div className="flex justify-between gap-3"><span className="text-slate-600">Staffing efficiency</span><span className="font-medium">{resourceUtilizationWeight}%</span></div>
               </div>
             </div>
           </div>
