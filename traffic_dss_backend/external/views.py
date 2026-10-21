@@ -8,6 +8,7 @@ from rest_framework import permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.http import HttpResponse
+from django.db.models import OuterRef, Subquery
 
 from core.models import TrafficData, WeatherData
 from core.serializers import TrafficDataSerializer, WeatherDataSerializer
@@ -98,7 +99,15 @@ class TrafficRealtimeView(APIView):
 	throttle_classes = []
 
 	def get(self, request):
-		rows = list(TrafficData.objects.filter(is_deleted=False).order_by("-timestamp")[:100])
+		# Current conditions contain one observation per active location. Older
+		# history must not trigger stale warnings or crowd other locations out.
+		latest = TrafficData.objects.filter(
+			is_deleted=False, bottleneck_id=OuterRef("bottleneck_id"),
+		).order_by("-timestamp", "-pk").values("pk")[:1]
+		rows = list(TrafficData.objects.filter(
+			is_deleted=False, bottleneck__is_deleted=False, bottleneck__is_archived=False,
+			pk=Subquery(latest),
+		).order_by("bottleneck_id"))
 		if not rows:
 			try:
 				cached_rows = []

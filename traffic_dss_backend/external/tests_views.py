@@ -103,6 +103,40 @@ def test_weather_and_traffic_api_mark_aged_observations_stale(staff_client, sett
     assert weather_response["source"] == "openmeteo" and weather_response["is_stale"] is True
 
 
+@pytest.mark.django_db
+def test_current_traffic_ignores_stale_history_but_keeps_latest_stale_locations(staff_client):
+    now = timezone.now()
+    current = Bottleneck.objects.create(id="CURRENT", name="Current", latitude=10.72, longitude=122.56, district="Iloilo")
+    stale = Bottleneck.objects.create(id="STALE", name="Stale", latitude=10.73, longitude=122.57, district="Iloilo")
+    TrafficData.objects.bulk_create([
+        TrafficData(bottleneck=current, timestamp=now-timedelta(hours=1), source="tomtom", data_status="live"),
+        TrafficData(bottleneck=current, timestamp=now, source="tomtom", data_status="live"),
+        TrafficData(bottleneck=stale, timestamp=now-timedelta(hours=1), source="tomtom", data_status="live"),
+    ])
+    response = staff_client.get("/api/traffic/real-time/")
+    assert response.status_code == 200
+    rows = {row["bottleneck"]: row for row in response.json()}
+    assert len(response.json()) == 2
+    assert rows["CURRENT"]["is_stale"] is False
+    assert rows["STALE"]["is_stale"] is True
+
+
+@pytest.mark.django_db
+def test_current_traffic_has_no_history_limit_and_excludes_inactive_locations(staff_client):
+    now = timezone.now()
+    nodes = [Bottleneck(id=f"N-{n:03}", name=f"Location {n}", latitude=10.72, longitude=122.56, district="Iloilo") for n in range(105)]
+    Bottleneck.objects.bulk_create(nodes)
+    TrafficData.objects.bulk_create([TrafficData(bottleneck=node, timestamp=now, source="tomtom", data_status="live") for node in nodes])
+    Bottleneck.objects.filter(pk="N-000").update(is_archived=True)
+    Bottleneck.objects.filter(pk="N-001").update(is_deleted=True)
+    tied = TrafficData.objects.create(bottleneck=nodes[2], timestamp=now, source="cache", data_status="cached", is_stale=True)
+    TrafficData.objects.create(bottleneck=nodes[2], timestamp=now+timedelta(seconds=1), source="tomtom", data_status="live", is_deleted=True)
+    rows = staff_client.get("/api/traffic/real-time/").json()
+    assert len(rows) == 103
+    assert not {"N-000", "N-001"} & {row["bottleneck"] for row in rows}
+    assert next(row for row in rows if row["bottleneck"] == "N-002")["id"] == tied.pk
+
+
 def test_vector_traffic_proxy_does_not_label_decoded_content_as_gzip(staff_client, settings, monkeypatch):
     settings.TOMTOM_API_KEY = "test-provider-key"
     protobuf = b"\x1a\x0e\x0a\x0cTraffic flow"
