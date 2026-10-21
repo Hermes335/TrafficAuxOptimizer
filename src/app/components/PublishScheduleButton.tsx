@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Eye, TriangleAlert } from "lucide-react";
+import { Link } from "react-router";
 import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
 import { previewPublication, publishDeploymentsFromOptimization, type PublicationAssignment, type PublicationPreview, type PublishOptimizationDeploymentsRequest } from "../services/backend";
@@ -42,6 +43,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
   const [errorInputIssues, setErrorInputIssues] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [publishedScope, setPublishedScope] = useState<{runId: string; day: string; shift: string; start?: string; end?: string} | null>(null);
   const [publishedSkillWarnings, setPublishedSkillWarnings] = useState<string[]>([]);
   const [attempt, setAttempt] = useState(0);
   const pending = useRef<PublishOptimizationDeploymentsRequest | null>(null);
@@ -73,6 +75,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
     };
     try {
       const result = await publishDeploymentsFromOptimization(pending.current);
+      setPublishedScope({runId: pending.current.run_id, day: pending.current.operational_date ?? day, shift: result.shift, start: result.start_time ?? preview?.start_time, end: result.end_time ?? preview?.end_time});
       setPublishedSkillWarnings(result.skill_warnings ?? []);
       setNotice(`Published ${result.created} assignments for ${day} · ${result.shift}.`);
       setOpen(false); pending.current = null;
@@ -89,6 +92,7 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
   const syntheticWarning = `This saved run used generated inputs (${syntheticSources?.join(", ")}) and cannot be published. Start a new run with operational data.`;
   const publicationWarning = syntheticSources?.length ? syntheticWarning
     : mode === "shadow" ? "Shadow recommendation — export for comparison; publication is disabled." : null;
+  const receiptVisible = publishedScope?.runId === runId;
   const publicationTrigger = <DialogTrigger asChild>
     <button type="button" aria-label="Preview publication" title={compact && publicationWarning ? undefined : "Preview publication"}
       disabled={!runId || mode === "shadow" || Boolean(syntheticSources?.length)}
@@ -169,8 +173,12 @@ export function PublishScheduleButton({runId, date, mode, onPublished, synthetic
     </Dialog>
     {!compact && mode === "shadow" && <p role="status" className="mt-2 text-sm text-amber-800">Shadow recommendation — export for comparison; publication is disabled.</p>}
     {!compact && Boolean(syntheticSources?.length) && <p role="alert" className="mt-2 max-w-sm text-sm text-red-700">{syntheticWarning}</p>}
-    {notice && <p role="status" className="mt-2 text-sm text-green-800">{notice}</p>}
-    {notice && !!publishedSkillWarnings.length && <details className="mt-2 max-w-lg rounded border border-sky-200 bg-sky-50 p-3 text-xs text-sky-950">
+    {receiptVisible && notice && <p role="status" className="mt-2 text-sm text-green-800">{notice}</p>}
+    {receiptVisible && publishedScope && <div className="mt-2 space-y-1 text-xs text-slate-600">
+      {publishedScope.start && publishedScope.end && <p>Published period: {operationalTime(publishedScope.start)}–{operationalTime(publishedScope.end)} · Asia/Manila</p>}
+      <Link to={`/gantt-chart?${new URLSearchParams({date: publishedScope.day, shift: publishedScope.shift})}`} className="inline-flex min-h-10 items-center rounded-lg font-semibold text-amber-800 underline underline-offset-4">Open published schedule</Link>
+    </div>}
+    {receiptVisible && notice && !!publishedSkillWarnings.length && <details className="mt-2 max-w-lg rounded border border-sky-200 bg-sky-50 p-3 text-xs text-sky-950">
       <summary className="cursor-pointer font-medium">Published schedule skill notes</summary>
       <ul className="mt-2 list-disc space-y-1 pl-4">{publishedSkillWarnings.map((warning, index) => <li key={index}>{warning}</li>)}</ul>
     </details>}

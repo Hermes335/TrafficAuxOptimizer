@@ -118,6 +118,8 @@ class OptimizationResultsView(APIView):
 		run = OptimizationRun.objects.filter(run_id=run_id, is_deleted=False).first()
 		if not run:
 			return Response({"detail": "Run not found."}, status=status.HTTP_404_NOT_FOUND)
+		from deployments.provenance import PublicationProvenance
+		publication_state = PublicationProvenance(runs=[run]).for_run(run)
 		return Response(
 			{
 				"run_id": run.run_id,
@@ -127,6 +129,7 @@ class OptimizationResultsView(APIView):
 				**run.result_data,
 				"parameters": run.parameters,
 				"top_solutions": run.result_data.get("top_solutions", []),
+				"publication_state": publication_state,
 			}
 		)
 
@@ -143,4 +146,6 @@ class OptimizationHistoryView(APIView):
 		paginator.page_size_query_param = "page_size"
 		paginator.max_page_size = 100
 		page = paginator.paginate_queryset(runs, request, view=self)
-		return paginator.get_paginated_response(OptimizationHistorySerializer(page, many=True).data)
+		from deployments.provenance import PublicationProvenance
+		return paginator.get_paginated_response(OptimizationHistorySerializer(page, many=True,
+			context={"publication_provenance": PublicationProvenance(runs=page)}).data)

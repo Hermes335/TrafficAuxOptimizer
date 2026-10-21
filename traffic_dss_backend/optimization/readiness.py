@@ -68,6 +68,9 @@ def build_readiness(params, now=None, captured=None):
     max_shortage = max((period["shortage"] for period in periods), default=0)
     if not nodes:
         blockers.append("No active bottlenecks are available. Add or activate a location before optimizing.")
+    for node in nodes:
+        if node.get("signal_status") == "working" and node["max_officers_allowed"] < 1:
+            blockers.append(f"{node['name']}: working traffic lights require capacity for at least 1 officer. Update the maximum officers.")
     if not officers and peak_required:
         blockers.append("No eligible officers are available for this shift while staffing is required.")
     if mode == "operational" and start >= end:
@@ -101,10 +104,15 @@ def build_readiness(params, now=None, captured=None):
     }
     missing_locations = sum(
         officer["id"] not in known_origins
-        and not _location_known(officer.get("current_latitude"), officer.get("current_longitude"))
+        and (officer["starting_location"].get("source") == "ttmo_hq" if isinstance(officer.get("starting_location"), dict)
+             else not _location_known(officer.get("current_latitude"), officer.get("current_longitude")))
         for officer in officers)
-    if missing_locations:
-        warnings.append(f"{missing_locations} eligible officer(s) have no known starting location. Travel estimates will use the documented distance assumption.")
+    assumed_hq = sum(officer.get("starting_location", {}).get("source") == "ttmo_hq" for officer in officers)
+    if assumed_hq:
+        from core.officer_locations import TTMO_HQ_NAME, TTMO_HQ_LATITUDE, TTMO_HQ_LONGITUDE
+        warnings.append(f"{assumed_hq} eligible officer(s) have no same-day recorded starting location. Travel estimates assume {TTMO_HQ_NAME} ({TTMO_HQ_LATITUDE}, {TTMO_HQ_LONGITUDE}). Starting locations reset daily; this is a planning assumption, not live GPS.")
+    elif missing_locations:
+        warnings.append(f"{missing_locations} eligible officer(s) have no known starting location. Travel estimates assume TTMO HQ.")
 
     return {
         "ready": not blockers, "checked_at": now.isoformat(),
@@ -115,6 +123,7 @@ def build_readiness(params, now=None, captured=None):
         "summary": {
             "active_locations": len(nodes), "eligible_officers": len(officers),
             "missing_officer_locations": missing_locations,
+            "assumed_hq_origins": assumed_hq,
             "peak_required_officers": peak_required, "max_staffing_shortage": max_shortage,
         },
         "periods": periods, "traffic": traffic, "weather": weather,

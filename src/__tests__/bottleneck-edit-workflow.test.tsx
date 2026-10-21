@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createRef, useState } from "react";
 import { MemoryRouter } from "react-router";
 import { Dashboard } from "../app/pages/Dashboard";
@@ -9,6 +9,8 @@ import * as backend from "../app/services/backend";
 const fixture = vi.hoisted(() => ({reload: vi.fn(), bottlenecks: [] as backend.Bottleneck[],
   mapClick: null as null | {editPickFromMap: boolean; setEditLatitude: (value: string) => void; setEditLongitude: (value: string) => void},
 }));
+const initialWidth = window.innerWidth;
+afterEach(() => Object.defineProperty(window, "innerWidth", {configurable: true, value: initialWidth}));
 vi.mock("../app/contexts/AuthContext", () => ({useAuth: () => ({user: {role: "supervisor"}})}));
 vi.mock("../app/contexts/WeatherContext", () => ({useWeather: () => ({weather: {source: "unavailable"}, loading: false, error: null, refreshWeather: vi.fn()})}));
 vi.mock("../app/services/backend", async original => ({
@@ -59,7 +61,7 @@ function Navigation() {
 function setup() { return render(<PageStateProvider><MemoryRouter><Navigation /></MemoryRouter></PageStateProvider>); }
 function edit(name = "Pilot junction") {
   const row = within(document.getElementById("dashboard-bottlenecks")!).getByText(name).closest('[role="button"]') as HTMLElement;
-  fireEvent.click(within(row).getByRole("button", {name: "Edit bottleneck", hidden: true}));
+  fireEvent.click(within(row).getByRole("button", {name: /^Edit bottleneck/, hidden: true}));
 }
 function changeName(name = "Updated junction") { fireEvent.change(screen.getByLabelText("Name"), {target: {value: name}}); }
 function navigate() { fireEvent.click(screen.getByText("Navigate")); }
@@ -73,7 +75,7 @@ it("keeps Save disabled until a meaningful change and closes an untouched editor
   expect(screen.getByRole("button", {name: "Save changes"})).toHaveProperty("disabled", false);
   changeName("Pilot junction");
   fireEvent.click(screen.getByRole("button", {name: "Cancel"}));
-  expect(screen.queryByRole("region", {name: "Edit bottleneck"})).toBeNull();
+  expect(screen.queryByRole("region", {name: /^Edit bottleneck/})).toBeNull();
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(backend.updateDashboardBottleneck).not.toHaveBeenCalled();
 });
@@ -90,7 +92,7 @@ it.each(["Close", "Cancel"])("confirms %s with unsaved edits, restores focus on 
   fireEvent.click(close);
   fireEvent.click(screen.getByRole("button", {name: "Discard changes"}));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-  expect(screen.queryByRole("region", {name: "Edit bottleneck"})).toBeNull();
+  expect(screen.queryByRole("region", {name: /^Edit bottleneck/})).toBeNull();
   edit();
   expect(screen.getByLabelText("Name")).toHaveProperty("value", "Pilot junction");
   expect(backend.updateDashboardBottleneck).not.toHaveBeenCalled();
@@ -122,7 +124,7 @@ it("requires discard confirmation before replacing the editor with marker placem
   fireEvent.click(screen.getByRole("button", {name: "Bottleneck Node"}));
   fireEvent.click(screen.getByRole("button", {name: "Discard changes"}));
   await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
-  expect(screen.queryByRole("region", {name: "Edit bottleneck"})).toBeNull();
+  expect(screen.queryByRole("region", {name: /^Edit bottleneck/})).toBeNull();
   expect(screen.getByText(/Click map to place bottleneck/)).toBeTruthy();
   await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", {name: "Add Marker"})));
 });
@@ -160,7 +162,7 @@ it("locks edits during a save and retains the failed draft for correction and re
   expect(screen.getByRole("alert").textContent).toBe("Save offline");
   expect(screen.getByLabelText("Name")).toHaveProperty("value", "Updated junction");
   fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
-  await waitFor(() => expect(screen.queryByRole("region", {name: "Edit bottleneck"})).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", {name: /^Edit bottleneck/})).toBeNull());
   expect(backend.updateDashboardBottleneck).toHaveBeenLastCalledWith("B-ONE", expect.objectContaining({name: "Updated junction", latitude: 10.7, longitude: 122.5, area_name: "Prime State"}));
   expect(fixture.reload).toHaveBeenCalledTimes(1);
 });
@@ -189,7 +191,7 @@ it("reveals invalid collapsed coordinates and inline errors, then saves a correc
   fireEvent.click(screen.getByRole("button", {name: "Add staffing period"}));
   expect(screen.getByLabelText("Period 1 officers")).toHaveProperty("value", "0");
   fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
-  await waitFor(() => expect(screen.queryByRole("region", {name: "Edit bottleneck"})).toBeNull());
+  await waitFor(() => expect(screen.queryByRole("region", {name: /^Edit bottleneck/})).toBeNull());
   expect(backend.updateDashboardBottleneck).toHaveBeenCalledExactlyOnceWith("B-ONE", expect.objectContaining({
     name: "Quiet junction", min_officers_required: 0, max_officers_allowed: 0,
     staffing_periods: [expect.objectContaining({required: 0, start: "06:00", end: "07:00"})],
@@ -211,4 +213,68 @@ it("marks map-picked coordinates as unsaved and preserves them across navigation
   fireEvent.change(screen.getByLabelText("Latitude"), {target: {value: "10.7000"}});
   fireEvent.change(screen.getByLabelText("Longitude"), {target: {value: "122.5000"}});
   expect(screen.getByRole("button", {name: "Save changes"})).toHaveProperty("disabled", true);
+});
+
+it("uses a mobile dialog and keeps the draft, scroll position and focus when picking a location", async () => {
+  Object.defineProperty(window, "innerWidth", {configurable: true, value: 390});
+  setup(); edit();
+  expect(screen.getByRole("dialog", {name: "Edit bottleneck"})).toBeTruthy();
+  changeName("Mobile quiet junction");
+  fireEvent.change(screen.getByLabelText("Area / group name"), {target: {value: "Lapaz–Jaro"}});
+  fireEvent.change(screen.getByLabelText("Normal minimum"), {target: {value: "0"}});
+  const body = document.querySelector<HTMLElement>("[data-bottleneck-editor-body]")!;
+  body.scrollTop = 320;
+  fireEvent.click(screen.getByRole("button", {name: "Pick location on map"}));
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.getByRole("region", {name: "Edit bottleneck"})).toBeTruthy();
+  expect(fixture.mapClick?.editPickFromMap).toBe(true);
+  act(() => {fixture.mapClick!.setEditLatitude("10.74"); fixture.mapClick!.setEditLongitude("122.56");});
+  fireEvent.click(screen.getByRole("button", {name: "Done picking"}));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", {name: "Pick location on map"})));
+  expect(screen.getByRole("dialog", {name: "Edit bottleneck"})).toBeTruthy();
+  expect(document.querySelector<HTMLElement>("[data-bottleneck-editor-body]")!.scrollTop).toBe(320);
+  expect(screen.getByLabelText("Name")).toHaveProperty("value", "Mobile quiet junction");
+  expect(screen.getByLabelText("Area / group name")).toHaveProperty("value", "Lapaz–Jaro");
+  expect(screen.getByLabelText("Normal minimum")).toHaveProperty("value", "0");
+  expect(screen.getByLabelText("Latitude")).toHaveProperty("value", "10.74");
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(backend.updateDashboardBottleneck).toHaveBeenCalledExactlyOnceWith("B-ONE", expect.objectContaining({
+    name: "Mobile quiet junction", area_name: "Lapaz–Jaro", min_officers_required: 0, latitude: 10.74, longitude: 122.56,
+  }));
+});
+
+it("returns from map picking with Escape, confirms mobile discard and keeps the editor open during saving", async () => {
+  Object.defineProperty(window, "innerWidth", {configurable: true, value: 390});
+  let finish!: () => void;
+  vi.mocked(backend.updateDashboardBottleneck).mockReturnValueOnce(new Promise(resolve => {finish = () => resolve(fixture.bottlenecks[0]);}));
+  setup(); edit(); changeName();
+  fireEvent.click(screen.getByRole("button", {name: "Pick location on map"}));
+  fireEvent.keyDown(document, {key: "Escape"});
+  await waitFor(() => expect(screen.getByRole("dialog", {name: "Edit bottleneck"})).toBeTruthy());
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  fireEvent.keyDown(document, {key: "Escape"});
+  expect(screen.getByRole("alertdialog")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: "Keep editing"}));
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  expect(screen.getByLabelText("Name")).toHaveProperty("value", "Updated junction");
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  fireEvent.keyDown(document, {key: "Escape"});
+  expect(screen.getByRole("dialog", {name: "Edit bottleneck"})).toBeTruthy();
+  expect(screen.queryByRole("alertdialog")).toBeNull();
+  expect(screen.getByRole("button", {name: "Cancel"}).closest("fieldset")).toHaveProperty("disabled", true);
+  await act(async () => finish());
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+});
+
+it("reveals and focuses invalid mobile coordinates without saving or losing the draft", async () => {
+  Object.defineProperty(window, "innerWidth", {configurable: true, value: 390});
+  setup(); edit(); changeName("Phone junction");
+  fireEvent.change(screen.getByLabelText("Latitude"), {target: {value: "91"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Latitude")));
+  expect(screen.getByLabelText("Latitude").closest("details")).toHaveProperty("open", true);
+  expect(screen.getByLabelText("Name")).toHaveProperty("value", "Phone junction");
+  expect(screen.getByRole("dialog", {name: "Edit bottleneck"})).toBeTruthy();
+  expect(backend.updateDashboardBottleneck).not.toHaveBeenCalled();
 });

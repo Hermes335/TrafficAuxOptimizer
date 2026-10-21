@@ -457,6 +457,7 @@ export interface OptimizationReadiness {
     active_locations: number;
     eligible_officers: number;
     missing_officer_locations: number;
+    assumed_hq_origins?: number;
     peak_required_officers: number;
     max_staffing_shortage: number;
   };
@@ -530,7 +531,16 @@ export interface ParetoPoint {
   resource_balance?: number;
 }
 
+export interface TravelTimeModel {
+  speed_kmh?: string;
+  missing_officer_location_distance_km?: number;
+  initial_location_policy?: "hq_for_initial_deployment" | "known_coordinates_then_hq";
+  origin_reset?: "daily";
+  default_origin?: { name: string; latitude: number; longitude: number; assumed: boolean };
+}
+
 export interface OptimizationResults {
+  publication_state?: RunPublicationState;
   parameters?: {mode?: "operational" | "shadow"; operational_date?: string; session_id?: string; shift?: "morning" | "afternoon"};
   run_id: string;
   status: string;
@@ -566,6 +576,7 @@ export interface OptimizationResults {
   synthetic_data_used?: string[] | null;
   input_snapshot?: {
     captured_at: string;
+    travel_time_model?: TravelTimeModel;
     skill_policy_version?: string;
     planning_window?: {
       start_time: string;
@@ -599,6 +610,7 @@ export async function fetchOptimizationResults(runId: string): Promise<Optimizat
 }
 
 export interface OptimizationHistoryItem {
+  publication_state?: RunPublicationState;
   id: number;
   run_id: string;
   timestamp: string;
@@ -642,6 +654,7 @@ export async function saveDeploymentAssignment(payload: DeploymentAssignmentPayl
     method: id ? "PUT" : "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload),
   });
   if (!response.ok) throw new Error(await extractApiError(response, "Unable to save assignment."));
+  notifyPublicationChanged();
 }
 
 export interface OfficerTimeBlock {id:number;officer:number;officer_name:string;badge_number:string;start_time:string;end_time:string;kind:"break"|"travel";note:string}
@@ -694,7 +707,9 @@ export async function clearDeploymentSchedule(shift?: string, date?: string): Pr
     throw new Error(detail);
   }
 
-  return response.json() as Promise<{ cleared: number }>;
+  const result = await response.json() as {cleared: number};
+  notifyPublicationChanged();
+  return result;
 }
 
 export async function publishDeploymentsFromOptimization(
@@ -712,7 +727,9 @@ export async function publishDeploymentsFromOptimization(
     throw await extractPublicationError(response, `Failed to publish optimization deployment: ${response.status}`);
   }
 
-  return response.json() as Promise<PublishOptimizationDeploymentsResponse>;
+  const result = await response.json() as PublishOptimizationDeploymentsResponse;
+  notifyPublicationChanged(payload.run_id);
+  return result;
 }
 
 export async function cancelOptimizationRun(runId: string): Promise<{ run_id: string; status: string }> {
@@ -778,6 +795,7 @@ export interface DashboardOfficerRecord {
   skills: string[];
   current_latitude?: number | null;
   current_longitude?: number | null;
+  current_location_recorded_at?: string | null;
 }
 
 export interface DashboardOfficerPayload {
@@ -1089,6 +1107,48 @@ export interface ScheduleRevisionRecord {
   id: number; run_id: string; operational_date: string; shift: string; published_at: string;
   effective_start: string; effective_end: string; published_by: string;
   previous_assignments: PublicationAssignment[]; assignments: PublicationAssignment[];
+}
+export interface RunPublicationState {
+  state: "unpublished" | "published" | "modified" | "partially_replaced" | "replaced" | "unknown";
+  run_id: string;
+  publication_count: number;
+  revision_id: number | null;
+  operational_date: string | null;
+  shift: string | null;
+  published_at: string | null;
+  published_by: string | null;
+  effective_start: string | null;
+  effective_end: string | null;
+  replacing_run_ids: string[];
+  manual_changes: boolean;
+  message: string;
+}
+
+export interface ScheduleProvenanceShift {
+  shift: "morning" | "afternoon";
+  latest_publication: RunPublicationState | null;
+  manual_assignment_count: number;
+  optimized_assignment_count: number;
+  assignments_changed_since_publication: boolean;
+  sources: Array<{revision_id: number; run_id: string; published_at: string; published_by: string; assignment_count: number}>;
+}
+export interface ScheduleProvenanceSnapshot {
+  operational_date: string;
+  checked_at: string;
+  shifts: ScheduleProvenanceShift[];
+}
+export function notifyPublicationChanged(runId?: string) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("deployment-publication-changed", {detail: {run_id: runId}}));
+}
+export async function fetchScheduleProvenance(date: string, shift = "all"): Promise<ScheduleProvenanceSnapshot> {
+  const response = await fetchWithTimeout(`${getApiBaseUrl()}/api/deployments/provenance/?${new URLSearchParams({date, shift})}`);
+  if (!response.ok) throw new Error(await extractApiError(response, "Schedule source information is unavailable."));
+  const result = await response.json() as ScheduleProvenanceSnapshot;
+  if (result.operational_date !== date || !Array.isArray(result.shifts)
+    || result.shifts.some(row => !["morning", "afternoon"].includes(row.shift) || !Array.isArray(row.sources))) {
+    throw new Error("Schedule source information is unavailable. Refresh to try again.");
+  }
+  return result;
 }
 export function fetchScheduleRevisions(date: string, page = 1) {
   return fetchPage<ScheduleRevisionRecord>(`${getApiBaseUrl()}/api/deployments/revisions/?date=${encodeURIComponent(date)}&page=${page}`);

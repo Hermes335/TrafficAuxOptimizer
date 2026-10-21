@@ -1,16 +1,25 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { OptimizationEngine } from "../app/pages/OptimizationEngine";
 import { computeAutoWeights } from "../app/hooks/useOptimizationConfig";
 import * as backend from "../app/services/backend";
 
 vi.mock("../app/components/PrettyCurve", () => ({ default: ({values, generations}: {values: number[]; generations: number[]}) => <><output aria-label="Search generation scores">{JSON.stringify(values)}</output><output aria-label="Search generation numbers">{JSON.stringify(generations)}</output></> }));
+vi.mock("../app/components/OptimizationDetailsSection", async original => ({...await original<typeof import("../app/components/OptimizationDetailsSection")>(), MeasuredResultChart: ({children}: {children: React.ReactNode}) => <>{children}</>}));
 vi.mock("../app/contexts/AuthContext", () => ({useAuth: () => ({user: {role: "dispatcher"}})}));
 vi.mock("../app/services/backend", () => ({
-  fetchOptimizationStatus: vi.fn(), fetchOptimizationResults: vi.fn(),
+  fetchOptimizationStatus: vi.fn(), fetchOptimizationResults: vi.fn(), subscribeToDashboardStream: vi.fn(() => () => {}),
 }));
+
+function renderEngine(strict = false) {
+  const page = <MemoryRouter><OptimizationEngine /></MemoryRouter>;
+  render(strict ? <StrictMode>{page}</StrictMode> : page);
+  const details = screen.getByText("Advanced charts and scoring").closest("details")!;
+  details.open = true;
+  fireEvent(details, new Event("toggle"));
+}
 
 beforeEach(() => {
   vi.resetAllMocks();
@@ -27,7 +36,7 @@ it("shows the staffing target and reserves alongside actual roster utilization",
         {officer_id:1, bottleneck_id:"QUIET", bottleneck_name:"Quiet junction"},
         {officer_id:2, bottleneck_id:"QUIET", bottleneck_name:"Quiet junction"},
       ]}]});
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   expect(await screen.findByText("Staffing target: 2 officers")).toBeTruthy();
   expect(screen.getByText("Officers in reserve: 6")).toBeTruthy();
   expect(screen.getByText("Staffing efficiency: 100.0%")).toBeTruthy();
@@ -39,13 +48,50 @@ it("keeps historical results readable without inventing a staffing target or res
     top_solutions:[{resource_utilization:100, assignments:[
       {officer_id:1, bottleneck_id:"LEGACY", bottleneck_name:"Historical junction"},
     ]}]});
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   await screen.findByText("Historical junction");
   expect(screen.queryByText(/Staffing target:/)).toBeNull();
   expect(screen.queryByText(/Officers in reserve:/)).toBeNull();
   expect(screen.getByText("Skills were not assessed for this saved assignment.")).toBeTruthy();
   expect(screen.getByText(/Score breakdown unavailable for this saved run/)).toBeTruthy();
   expect(screen.queryByRole("region", {name: "Saved planning window"})).toBeNull();
+  expect(screen.getByText(/Starting-location assumptions were not recorded for this run/)).toBeTruthy();
+  expect(screen.queryByText(/TTMO HQ|assumed 3 km/)).toBeNull();
+});
+
+it.each([
+  ["hq_for_initial_deployment", /At the start of each operational day, this run assumes officers start at TTMO HQ \(10\.689327, 122\.581486\)\. Same-day recorded previous posts take priority for later moves/],
+  ["known_coordinates_then_hq", /same-day recorded posts or saved officer coordinates recorded that day, then assumes TTMO HQ \(10\.689327, 122\.581486\) when neither is available\. Coordinates from previous days are not carried forward/],
+] as const)("explains the saved %s HQ assumption without implying GPS tracking", async (policy, explanation) => {
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    top_solutions: [{avg_response_time: 7.25, assignments: []}],
+    input_snapshot: {
+      captured_at: "2099-01-01T06:00:00+08:00", bottlenecks: [],
+      weather: {source: "live", data_status: "live", is_stale: false, is_synthetic: false},
+      travel_time_model: {initial_location_policy: policy, origin_reset: "daily",
+        default_origin: {name: "TTMO HQ", latitude: 10.689327, longitude: 122.581486, assumed: true}},
+    },
+  });
+  renderEngine();
+  const description = await screen.findByText(explanation);
+  expect(description.textContent).toContain("not live GPS tracking");
+  expect(screen.getByText("Estimated travel: 7.3 min")).toBeTruthy();
+  expect(description.textContent).not.toContain("assumed 3 km");
+});
+
+it("retains the recorded legacy distance assumption instead of applying today's HQ default", async () => {
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    top_solutions: [{assignments: []}],
+    input_snapshot: {
+      captured_at: "2026-09-25T06:00:00+08:00", bottlenecks: [],
+      weather: {source: "live", data_status: "live", is_stale: false, is_synthetic: false},
+      travel_time_model: {missing_officer_location_distance_km: 3},
+    },
+  });
+  renderEngine();
+  const description = await screen.findByText(/This saved run assumed 3 km when officer coordinates were missing/);
+  expect(description.textContent).toContain("not live GPS tracking");
+  expect(description.textContent).not.toContain("TTMO HQ");
 });
 
 it("uses saved skill explanations and distinguishes unmatched from locations without a preference", async () => {
@@ -57,7 +103,7 @@ it("uses saved skill explanations and distinguishes unmatched from locations wit
       {officer_id: 3, badge_number: "GAMMA", bottleneck_id: "B", bottleneck_name: "Road", skill_match: {...match, preferred_skills: [], matched_skills: [], status: "not_applicable", explanation: "Saved location has no specific preference."}},
     ]}],
   });
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   await screen.findByText("Recorded skill match: School crossing.");
   expect(screen.getByText("Saved school crossing match.")).toBeTruthy();
   expect(screen.getByText("No recorded skill match.")).toBeTruthy();
@@ -78,7 +124,7 @@ it("keeps a final schedule score out of the curve while saved generation history
   vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue({run_id: "staffing-test", status: "completed",
     current_generation: 89, total_generations: 300, current_fitness: 92.295125});
   vi.mocked(backend.fetchOptimizationResults).mockReturnValue(new Promise(resolve => {resolveResults = resolve;}));
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   await screen.findByText("Final schedule score");
   expect(screen.getByLabelText("Search generation scores").textContent).toBe("[]");
   await act(async () => resolveResults({run_id: "staffing-test", status: "completed",
@@ -91,7 +137,7 @@ it("does not fabricate a generation from the final score if saved result loading
   vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue({run_id: "staffing-test", status: "completed",
     current_generation: 89, total_generations: 300, current_fitness: 92.295125});
   vi.mocked(backend.fetchOptimizationResults).mockRejectedValue(new Error("Saved results unavailable."));
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   await screen.findByText("Saved results unavailable.");
   expect(screen.getByLabelText("Search generation scores").textContent).toBe("[]");
   expect(screen.getByText("92.30")).toBeTruthy();
@@ -103,7 +149,7 @@ it("preserves generations 101 through 300 when displaying the last 200 saved sco
     current_generation: 300, total_generations: 300, current_fitness: 92.295125});
   vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
     fitness_scores: scores, top_solutions: []});
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   await screen.findByText("Final schedule score");
   expect(JSON.parse(screen.getByLabelText("Search generation numbers").textContent ?? "[]")).toEqual(Array.from({length: 200}, (_, index) => index + 101));
   expect(JSON.parse(screen.getByLabelText("Search generation scores").textContent ?? "[]")).toEqual(scores.slice(-200));
@@ -121,7 +167,7 @@ it("waits for slow status and result responses before polling again, then stops 
   vi.mocked(backend.fetchOptimizationResults)
     .mockReturnValueOnce(new Promise(resolve => {resolveResults = resolve;}))
     .mockResolvedValue({run_id: "staffing-test", status: "completed", fitness_scores: [89.948, 89.9713], top_solutions: []});
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   await act(async () => {vi.advanceTimersByTime(6000);});
   expect(backend.fetchOptimizationStatus).toHaveBeenCalledTimes(1);
   await act(async () => resolveStatus(running));
@@ -145,7 +191,7 @@ it("ignores a delayed response from the replaced StrictMode effect after complet
       total_generations: 300, current_fitness: 92.295125});
   vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
     fitness_scores: [89.948, 89.9713], top_solutions: []});
-  render(<StrictMode><MemoryRouter><OptimizationEngine /></MemoryRouter></StrictMode>);
+  renderEngine(true);
   await screen.findByText("Final schedule score");
   await act(async () => resolveOld({run_id: "staffing-test", status: "running", current_generation: 70,
     total_generations: 300, current_fitness: 89.9}));
@@ -159,7 +205,7 @@ it("retries failed result loading and clears the old error after a successful re
   vi.mocked(backend.fetchOptimizationResults)
     .mockRejectedValueOnce(new Error("Temporary results failure"))
     .mockResolvedValue({run_id: "staffing-test", status: "completed", fitness_scores: [89.9713], top_solutions: []});
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   await act(async () => {});
   expect(screen.getByText("Temporary results failure")).toBeTruthy();
   await act(async () => {vi.advanceTimersByTime(2000);});
@@ -186,7 +232,7 @@ it.each(["operational", "shadow"] as const)("shows the saved %s planning window 
       },
     },
   });
-  render(<MemoryRouter><OptimizationEngine /></MemoryRouter>);
+  renderEngine();
   await screen.findByRole("region", {name: "Saved planning window"});
   expect(screen.getByRole("heading", {name: mode === "shadow" ? "Full shift · Shadow comparison" : "Remaining shift planning"})).toBeTruthy();
   expect(screen.getByText("103.50")).toBeTruthy();

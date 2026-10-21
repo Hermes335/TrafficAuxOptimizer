@@ -114,7 +114,7 @@ it("publication preview uses saved run shift and requires confirmation", async (
     skill_warnings:["Officer skills changed after this recommendation was generated."],
   });
   vi.mocked(backend.publishDeploymentsFromOptimization).mockResolvedValue({created:2,shift:"morning",skill_warnings:["Published with the reviewed skill advisory."]} as backend.PublishOptimizationDeploymentsResponse);
-  render(<PublishScheduleButton runId="morning-run" date="2026-09-24" />);
+  const {rerender} = render(<MemoryRouter><PublishScheduleButton runId="morning-run" date="2026-09-24" /></MemoryRouter>);
   fireEvent.click(screen.getByText("Preview publication"));
   expect(await screen.findByText("morning")).toBeTruthy();
   expect(backend.publishDeploymentsFromOptimization).not.toHaveBeenCalled();
@@ -127,6 +127,9 @@ it("publication preview uses saved run shift and requires confirmation", async (
   })));
   expect(await screen.findByText("Published schedule skill notes")).toBeTruthy();
   expect(screen.getByText("Published with the reviewed skill advisory.")).toBeTruthy();
+  expect(screen.getByRole("link", {name: "Open published schedule"}).getAttribute("href")).toBe("/gantt-chart?date=2026-09-24&shift=morning");
+  rerender(<MemoryRouter><PublishScheduleButton runId="another-run" date="2026-09-24" /></MemoryRouter>);
+  expect(screen.queryByRole("link", {name: "Open published schedule"})).toBeNull();
 });
 
 it("publishes a timed recommendation using its saved assignment windows", async () => {
@@ -137,7 +140,7 @@ it("publishes a timed recommendation using its saved assignment windows", async 
     time_periods:[{start_time:"2026-10-02T06:00:00Z",end_time:"2026-10-02T14:00:00Z",assigned_officers:2,reserve_officers:0}],
   } as backend.PublicationPreview);
   vi.mocked(backend.publishDeploymentsFromOptimization).mockResolvedValue({created:2,shift:"afternoon"} as backend.PublishOptimizationDeploymentsResponse);
-  render(<PublishScheduleButton runId="timed-run" date="2026-10-02" />);
+  render(<MemoryRouter><PublishScheduleButton runId="timed-run" date="2026-10-02" /></MemoryRouter>);
   fireEvent.click(screen.getByText("Preview publication"));
   await screen.findByText("afternoon");
   fireEvent.click(screen.getByText("Confirm publication"));
@@ -159,7 +162,7 @@ const staleInputError = () => Object.assign(new Error("Inputs are stale or unver
 
 it("shows the specific inputs from a failed preview while keeping publication disabled", async () => {
   vi.mocked(backend.previewPublication).mockRejectedValueOnce(staleInputError());
-  render(<PublishScheduleButton runId="saved-run" date="2026-10-21" />);
+  render(<MemoryRouter><PublishScheduleButton runId="saved-run" date="2026-10-21" /></MemoryRouter>);
   fireEvent.click(screen.getByRole("button", {name: "Preview publication"}));
   await screen.findByText("Weather: input is stale.");
   expect(screen.getByRole("list", {name: "Input issues blocking publication"}).textContent).toContain("Atrium: input is not verified.");
@@ -174,7 +177,7 @@ it.each(["refresh", "date change", "reopen"] as const)("clears rejected input de
   let resolvePreview!: (value: backend.PublicationPreview) => void;
   const nextPreview = new Promise<backend.PublicationPreview>(resolve => {resolvePreview = resolve;});
   vi.mocked(backend.previewPublication).mockRejectedValueOnce(staleInputError()).mockReturnValueOnce(nextPreview);
-  render(<PublishScheduleButton runId="saved-run" date="2026-10-21" />);
+  render(<MemoryRouter><PublishScheduleButton runId="saved-run" date="2026-10-21" /></MemoryRouter>);
   fireEvent.click(screen.getByRole("button", {name: "Preview publication"}));
   await screen.findByText("Weather: input is stale.");
   if (action === "refresh") fireEvent.click(screen.getByRole("button", {name: "Refresh preview"}));
@@ -195,7 +198,7 @@ it.each(["refresh", "date change", "reopen"] as const)("clears rejected input de
 it("shows commit rejection input details and requires a fresh review before another publication attempt", async () => {
   vi.mocked(backend.previewPublication).mockResolvedValue(publicationPreview);
   vi.mocked(backend.publishDeploymentsFromOptimization).mockRejectedValueOnce(staleInputError());
-  render(<PublishScheduleButton runId="saved-run" date="2026-10-21" />);
+  render(<MemoryRouter><PublishScheduleButton runId="saved-run" date="2026-10-21" /></MemoryRouter>);
   fireEvent.click(screen.getByRole("button", {name: "Preview publication"}));
   await waitFor(() => expect(screen.getByRole("button", {name: "Confirm publication"})).toHaveProperty("disabled", false));
   fireEvent.click(screen.getByRole("button", {name: "Confirm publication"}));
@@ -209,7 +212,7 @@ it("shows commit rejection input details and requires a fresh review before anot
 });
 
 it("a saved run with generated inputs explains why publication is unavailable", () => {
-  render(<PublishScheduleButton runId="older-run" syntheticSources={["road_priority_weight", "tsi"]} />);
+  render(<MemoryRouter><PublishScheduleButton runId="older-run" syntheticSources={["road_priority_weight", "tsi"]} /></MemoryRouter>);
   expect(screen.getByRole("button", {name: "Preview publication"})).toHaveProperty("disabled", true);
   expect(screen.getByRole("alert").textContent).toContain("generated inputs (road_priority_weight, tsi)");
   expect(backend.previewPublication).not.toHaveBeenCalled();
@@ -219,7 +222,7 @@ it.each([
   {mode:"operational", syntheticSources:["tsi"], reason:"generated inputs (tsi)"},
   {mode:"shadow", syntheticSources:[], reason:"Shadow recommendation"},
 ])("compact $mode warnings open by tap without requesting publication", async ({mode, syntheticSources, reason}) => {
-  render(<PublishScheduleButton runId="blocked-run" compact mode={mode} syntheticSources={syntheticSources} />);
+  render(<MemoryRouter><PublishScheduleButton runId="blocked-run" compact mode={mode} syntheticSources={syntheticSources} /></MemoryRouter>);
   const trigger = screen.getByRole("button", {name:"Why publication is unavailable"});
   expect(trigger).toHaveProperty("disabled", false);
   fireEvent.click(trigger);

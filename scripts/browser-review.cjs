@@ -74,6 +74,13 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     const node={id:"B-TEST",name:'Test junction <img src=x onerror="window.exploited=true">',status:"normal",
       latitude:10.72,longitude:122.56,tsi:0.1,road_priority_weight:1,deployed_officers:0,required_officers:2};
     let publications=0;
+    let earlyPublicationState="unpublished";
+    const publicationState=(runId,day=new Date().toLocaleDateString("en-CA",{timeZone:"Asia/Manila"}),state="unpublished")=>({
+      state,run_id:runId,publication_count:state==="unpublished"?0:1,revision_id:state==="unpublished"?null:42,
+      operational_date:day,shift:"morning",published_at:state==="unpublished"?null:day+"T06:00:00+08:00",published_by:state==="unpublished"?null:"Fixture supervisor",
+      effective_start:state==="unpublished"?null:day+"T06:00:00+08:00",effective_end:state==="unpublished"?null:day+"T14:00:00+08:00",
+      replacing_run_ids:[],manual_changes:state==="modified",message:state==="unpublished"?"No publication is recorded for this recommendation.":state==="modified"?"Manual schedule changes have been recorded since publication.":"Published assignments match the saved publication.",
+    });
     const loadedTiles={base:0,traffic:0};
     const trafficZooms=new Set();
     let trafficUnavailable=false;
@@ -130,7 +137,16 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
         return;
       }
       let payload=empty;
-      if(url.pathname.includes("/deployments/review/")) payload={needs_review:timedFixtures,scope:"Remaining schedule",issues:timedFixtures?[{bottleneck:"B-TEST",reason:"Staffing profile changed since publication.",assignment_ids:[700]}]:[]};
+      if(url.pathname.includes("/deployments/provenance/")) {
+        const day=url.searchParams.get("date");
+        const shifts=url.searchParams.get("shift")==="all"?["morning","afternoon"]:[url.searchParams.get("shift")];
+        payload={operational_date:day,checked_at:new Date().toISOString(),shifts:shifts.map(shift=>({shift,
+          latest_publication:shift==="morning"&&publications?publicationState("morning-fixture",day,timedFixtures?"modified":"published"):null,
+          manual_assignment_count:timedFixtures?1:0,optimized_assignment_count:timedFixtures?1:0,assignments_changed_since_publication:timedFixtures&&shift==="morning",
+          sources:timedFixtures&&shift==="morning"?[{revision_id:42,run_id:"morning-fixture",published_at:day+"T06:00:00+08:00",published_by:"Fixture supervisor",assignment_count:1}]:[],
+        }))};
+      }
+      else if(url.pathname.includes("/deployments/review/")) payload={needs_review:timedFixtures,scope:"Remaining schedule",issues:timedFixtures?[{bottleneck:"B-TEST",reason:"Staffing profile changed since publication.",assignment_ids:[700]}]:[]};
       else if(url.pathname.includes("/deployments/time-blocks/")) {
         if(request.method==="POST") reservedBlocks.push({...JSON.parse(request.postData),id:900,officer_name:"Officer Alpha",badge_number:"ALPHA"});
         payload=request.method==="POST"?reservedBlocks.at(-1):reservedBlocks;
@@ -181,9 +197,9 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       else if(url.pathname.includes("/bottlenecks/")) payload={...empty,count:1,results:[node]};
       else if(url.pathname.includes("/weather/")) payload={condition:null,weather_impact_factor:null,source:"missing",available:false,data_status:"unavailable",is_stale:false};
       else if(url.pathname.includes("/optimization/status/")) payload={run_id:"early-fixture",status:"completed",current_generation:48,total_generations:300,current_fitness:95.75,converged_early:true,updated_at:new Date().toISOString(),estimated_completion:new Date().toISOString()};
-      else if(url.pathname.includes("/optimization/results/")) payload={run_id:"early-fixture",status:"completed",fitness_scores:Array.from({length:48},(_,i)=>95.5+i/200),total_generations:300,converged_early:true,top_solutions:[{staffing_efficiency:100,reserve_officers:7,staffing_targets:{"B-TEST":2},staffing_shortages:{},resource_utilization:22.2,assignments:[{officer_id:1,badge_number:"DEMO-1",bottleneck_id:"B-TEST",bottleneck_name:"Quiet junction"},{officer_id:2,badge_number:"DEMO-2",bottleneck_id:"B-TEST",bottleneck_name:"Quiet junction"}]}],parameters:{}};
+      else if(url.pathname.includes("/optimization/results/")) payload={run_id:"early-fixture",status:"completed",publication_state:publicationState("early-fixture",undefined,earlyPublicationState),fitness_scores:Array.from({length:48},(_,i)=>95.5+i/200),total_generations:300,converged_early:true,top_solutions:[{staffing_efficiency:100,reserve_officers:7,staffing_targets:{"B-TEST":2},staffing_shortages:{},resource_utilization:22.2,assignments:[{officer_id:1,badge_number:"DEMO-1",bottleneck_id:"B-TEST",bottleneck_name:"Quiet junction"},{officer_id:2,badge_number:"DEMO-2",bottleneck_id:"B-TEST",bottleneck_name:"Quiet junction"}]}],parameters:{}};
       else if(url.pathname.includes("/history/")) payload={...empty,count:4,results:[
-        {id:1,run_id:"morning-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{}},
+        {id:1,run_id:"morning-fixture",timestamp:new Date().toISOString(),status:"completed",publication_state:publicationState("morning-fixture",undefined,publications?"published":"unpublished"),parameters:{shift:"morning"},fitness_scores:[],result_data:{}},
         {id:2,run_id:"generated-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{synthetic_data_used:["tsi"]}},
         {id:3,run_id:"shadow-fixture",timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning",mode:"shadow"},fitness_scores:[],result_data:{}},
         {id:4,run_id:longRunId,timestamp:new Date().toISOString(),status:"completed",parameters:{shift:"morning"},fitness_scores:[],result_data:{}},
@@ -342,20 +358,45 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     // Validation and failed API saves must remain visible in the active editor,
     // even while the mobile list (the former error location) is hidden.
     await clickText("Bottlenecks");
-    await evaluate("document.querySelector('#dashboard-bottlenecks [aria-label=\"Edit bottleneck\"]').click()");
-    await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] #node-name')");
+    await evaluate("document.querySelector('#dashboard-bottlenecks [aria-label^=\"Edit bottleneck \" ]').click()");
+    await waitFor("document.querySelector('[role=dialog][aria-label=\"Edit bottleneck\"] #node-name')");
+    const editorGeometry="(() => {const editor=document.querySelector('[aria-label=\"Edit bottleneck\"]');const header=editor.querySelector('[data-bottleneck-editor-header]').getBoundingClientRect(),footer=editor.querySelector('[data-bottleneck-editor-footer]').getBoundingClientRect(),body=editor.querySelector('[data-bottleneck-editor-body]').getBoundingClientRect();return header.top>=0&&footer.bottom<=innerHeight+1&&body.bottom<=footer.top+1&&body.top>=header.bottom-1&&editor.getBoundingClientRect().width<=innerWidth;})()";
+    for(const width of [390,320]) {
+      await call("Emulation.setDeviceMetricsOverride",{width,height:850,deviceScaleFactor:1,mobile:false});
+      await delay(150);
+      assert.equal(await evaluate(editorGeometry),true,"Mobile editor header/footer must remain visible around one scrolling body");
+    }
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:480,deviceScaleFactor:1,mobile:false});
+    await delay(150);
+    assert.equal(await evaluate(editorGeometry),true,"Editor controls must remain visible in a reduced keyboard viewport");
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:850,deviceScaleFactor:1,mobile:false});
     await evaluate("(() => {const input=document.querySelector('#node-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
     await clickText("Save changes");
-    await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] #edit-name-error')?.textContent==='Enter a bottleneck name.'");
-    const editorAlertVisible="(() => {const editor=document.querySelector('[role=region][aria-label=\"Edit bottleneck\"]');const alert=editor.querySelector('[role=alert],#edit-name-error');const e=editor.getBoundingClientRect(),a=alert.getBoundingClientRect();return a.height>0&&a.top>=e.top&&a.bottom<=e.bottom&&a.top>=0&&a.bottom<=innerHeight;})()";
+    await waitFor("document.querySelector('[aria-label=\"Edit bottleneck\"] #edit-name-error')?.textContent==='Enter a bottleneck name.'");
+    const editorAlertVisible="(() => {const editor=document.querySelector('[aria-label=\"Edit bottleneck\"]');const alert=editor.querySelector('[role=alert],#edit-name-error');const e=editor.getBoundingClientRect(),a=alert.getBoundingClientRect();return a.height>0&&a.top>=e.top&&a.bottom<=e.bottom&&a.top>=0&&a.bottom<=innerHeight;})()";
     await waitFor(editorAlertVisible);
     assert.equal(await evaluate("document.querySelector('#dashboard-bottlenecks').getBoundingClientRect().width"),0,"Edit errors must be visible without reopening the hidden list");
     rejectBottleneckSave=true;
     await evaluate("(() => {const input=document.querySelector('#node-name');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Unsaved regression draft');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
     await clickText("Save changes");
-    await waitFor("document.querySelector('[role=region][aria-label=\"Edit bottleneck\"] [role=alert]')?.textContent==='Bottleneck update temporarily unavailable'");
+    await waitFor("document.querySelector('[aria-label=\"Edit bottleneck\"] [role=alert]')?.textContent==='Bottleneck update temporarily unavailable'");
     await waitFor(editorAlertVisible);
     assert.equal(await evaluate("document.querySelector('#node-name').value"),"Unsaved regression draft","Failed edits must retain the user's input");
+    await evaluate("(() => {const editor=document.querySelector('[aria-label=\"Edit bottleneck\"]');const label=[...editor.querySelectorAll('label')].find(e=>e.textContent.trim()==='Normal minimum');const input=document.getElementById(label.htmlFor);Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'3');input.dispatchEvent(new Event('input',{bubbles:true}));})()");
+    for(const [signal,message] of [["working","Working traffic lights: normally 1 officer."],["out_of_order","Traffic lights out of order: normally 3 officers."]]) {
+      await evaluate(`(() => {const select=[...document.querySelectorAll('[aria-label="Edit bottleneck"] label')].find(e=>e.textContent.startsWith('Traffic lights')).querySelector('select');select.value=${JSON.stringify(signal)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+      await waitFor(`document.querySelector('[aria-label="Edit bottleneck"]').textContent.includes(${JSON.stringify(message)})`);
+      assert.equal(await evaluate("(() => {const label=[...document.querySelectorAll('[aria-label=\"Edit bottleneck\"] label')].find(e=>e.textContent.trim()==='Normal minimum');return document.getElementById(label.htmlFor).value;})()"),"3","Changing light status must preserve the saved normal minimum");
+      assert.equal(await evaluate(editorGeometry),true,"Traffic-light guidance must keep the editor footer visible on mobile");
+    }
+    await clickText("Pick location on map");
+    await waitFor("!document.querySelector('[role=dialog][aria-label=\"Edit bottleneck\"]') && document.querySelector('[role=region][aria-label=\"Edit bottleneck\"]')");
+    await clickText("Done picking");
+    await waitFor("document.activeElement?.textContent==='Pick location on map' && document.querySelector('[role=dialog][aria-label=\"Edit bottleneck\"] #node-name')");
+    assert.equal(await evaluate("document.querySelector('#node-name').value"),"Unsaved regression draft","Map picking must retain the draft");
+    await evaluate("document.querySelector('[data-bottleneck-editor-body]').scrollTop=0");
+    const editorShot=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"bottleneck-editor-mobile.png"),Buffer.from(editorShot.data,"base64"));
     rejectBottleneckSave=false;
     await clickText("Cancel");
     await clickText("Discard changes");
@@ -369,6 +410,15 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
       await call("Input.dispatchKeyEvent",{type:"keyUp",key,code:key==="Enter"?"Enter":"Space",windowsVirtualKeyCode:key==="Enter"?13:32});
       await waitFor("document.activeElement===document.querySelector('#dashboard-details h2') && document.activeElement.getBoundingClientRect().width>0");
     }
+    await evaluate("document.querySelector('[aria-label=\"Open navigation\"]').click()");
+    await waitFor("document.querySelector('[role=dialog]')");
+    await evaluate("document.querySelector('nav[aria-label=\"Mobile navigation\"] a[href=\"/gantt-chart\"]').click()");
+    await waitFor("location.pathname==='/gantt-chart' && !document.querySelector('[role=dialog]') && document.activeElement===document.querySelector('h1')");
+    assert.equal(await evaluate("document.title"),"Deployment schedule | TrafficOffOptimizer");
+    await evaluate("document.querySelector('[aria-label=\"Open navigation\"]').click()");
+    await waitFor("document.querySelector('[role=dialog]')");
+    await evaluate("document.querySelector('nav[aria-label=\"Mobile navigation\"] a[href=\"/\"]').click()");
+    await waitFor("location.pathname==='/' && !document.querySelector('[role=dialog]') && document.activeElement===document.querySelector('h1')");
     await evaluate("document.querySelector('[aria-label=\"Open navigation\"]').click()");
     await waitFor("document.querySelector('[role=dialog]')");
     await call("Emulation.setDeviceMetricsOverride", {width:768,height:1000,deviceScaleFactor:1,mobile:false});
@@ -405,6 +455,7 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await clickText("Confirm publication");
     await waitFor("document.body.innerText.includes('Published 2 assignments')");
     assert.equal(publications,1);
+    assert((await evaluate("[...document.querySelectorAll('a')].find(link=>link.textContent.trim()==='Open published schedule')?.getAttribute('href')")).includes('/gantt-chart?date='),"A publication receipt must link to its saved date and shift");
     console.log("Opening optimization history actions");
     await call("Page.navigate",{url:origin+"/optimization"});
     await waitFor("document.body.innerText.includes('Advanced settings')");
@@ -415,11 +466,13 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     await call("Emulation.setDeviceMetricsOverride",{width:390,height:850,deviceScaleFactor:1,mobile:false});
     await delay(400);
     assert.equal(await evaluate("document.documentElement.scrollWidth <= window.innerWidth"),true,"Optimization controls must fit a narrow viewport");
+    assert.equal(await evaluate("(() => {const button=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='Run Optimization');const r=button.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})()"),true,"Run action must be visible near the top of mobile setup");
     const configShot=await call("Page.captureScreenshot",{format:"png"});
     fs.writeFileSync(path.join(artifacts,"optimization-mobile.png"),Buffer.from(configShot.data,"base64"));
     const actions='document.querySelector(\'[role="group"][aria-label="Actions for morning-fixture"]\')';
     await waitFor(`Boolean(${actions})`);
-    assert.equal(await evaluate(`(() => {const link=document.querySelector('a[title="${longRunId}"]');return link?.getAttribute('aria-label')==='View run ${longRunId}'&&link.textContent.length<${longRunId.length};})()`),true,"Long run IDs must remain accessible while their visible text is shortened");
+    assert.equal(await evaluate(`${actions}.closest('li').textContent.includes('Published')`),true,"Publication identity must survive leaving the schedule page");
+    assert.equal(await evaluate(`(() => {const link=document.querySelector('a[title="${longRunId}"]');return link?.getAttribute('aria-label')==='View run ${longRunId}'&&link.querySelector('.font-mono').textContent.length<${longRunId.length};})()`),true,"Long run IDs must remain accessible while their visible text is shortened");
     for (const width of [1920,1280,1024,390]) {
       await call("Emulation.setDeviceMetricsOverride",{width,height:1000,deviceScaleFactor:1,mobile:false});
       await delay(100);
@@ -469,19 +522,49 @@ const delay = ms => new Promise(resolve=>setTimeout(resolve,ms));
     assert.equal(await evaluate("document.body.innerText.includes('16%')"),false);
     const completedShot=await call("Page.captureScreenshot",{format:"png"});
     fs.writeFileSync(path.join(artifacts,"optimization-early-completion.png"),Buffer.from(completedShot.data,"base64"));
-    await call("Page.navigate",{url:origin+"/optimization-engine?run_id=early-fixture"});
+    const publicationsBeforeReview=publications;
+    await evaluate("[...document.querySelectorAll('a')].find(link=>link.textContent.trim()==='Review recommendation').click()");
+    await waitFor("location.pathname==='/optimization-engine' && new URLSearchParams(location.search).get('run_id')==='early-fixture'");
+    await waitFor("document.body.innerText.includes('Staffing target: 2 officers')");
+    await waitFor("document.querySelector('[aria-label=\"Recommendation publication status\"]')?.textContent.includes('Unpublished')");
+    assert.equal(await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent==='Advanced charts and scoring').parentElement.open"),false,"Advanced charts should begin collapsed");
+    assert.equal(await evaluate("!!document.querySelector('.recharts-wrapper')"),false,"Closed analytics must not mount hidden charts");
+    assert.equal(publications,publicationsBeforeReview,"Reviewing a recommendation must not publish it");
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:844,deviceScaleFactor:1,mobile:true});
+    await delay(400);
+    assert.equal(await evaluate("(() => {const button=document.querySelector('button[aria-label=\"Preview publication\"]');const r=button.getBoundingClientRect();return r.top>=0&&r.bottom<=innerHeight;})()"),true,"Recommendation review must be reachable before mobile analytics");
+    const overviewShot=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"recommendation-overview-mobile.png"),Buffer.from(overviewShot.data,"base64"));
+    await call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+    await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent==='Advanced charts and scoring').click()");
+    await waitFor("!!document.querySelector('.recharts-wrapper')");
     await waitFor("document.body.innerText.includes('Converged early after 48 generations (limit 300)')");
     assert.equal(await evaluate("document.body.innerText.includes('100%') && document.body.innerText.includes('48 (max 300)')"),true);
-    assert.equal(await evaluate("document.body.innerText.includes('Staffing target: 2 officers') && document.body.innerText.includes('Officers in reserve: 7') && document.body.innerText.includes('Staffing Efficiency: 100.0%')"),true);
+    assert.equal(await evaluate("document.body.innerText.includes('Staffing target: 2 officers') && document.body.innerText.includes('Officers in reserve: 7') && document.body.innerText.includes('Staffing efficiency: 100.0%')"),true);
     await evaluate("[...document.querySelectorAll('p')].find(e=>e.textContent.includes('Staffing target: 2 officers')).scrollIntoView({block:'center'})");
     const staffingShot=await call("Page.captureScreenshot",{format:"png"});
     fs.writeFileSync(path.join(artifacts,"optimization-staffing-targets.png"),Buffer.from(staffingShot.data,"base64"));
+    earlyPublicationState="modified";
+    await evaluate("window.dispatchEvent(new Event('deployment-publication-changed'))");
+    await waitFor("document.querySelector('[aria-label=\"Recommendation publication status\"]')?.textContent.includes('Published \\u00b7 Modified')");
+    assert.equal(await evaluate("document.querySelector('[aria-label=\"Recommendation publication status\"] a')?.getAttribute('href').includes('&shift=morning')"),true,"Publication status must link to its saved date and shift");
     console.log("Opening dynamic deployment Gantt");
     timedFixtures=true;
     await call("Page.navigate",{url:origin+"/gantt-chart"});
     await waitFor("Boolean(document.querySelector('input[type=date]') && document.querySelector('[data-assignment-id=\"700\"]'))");
     await evaluate("(() => {const input=document.querySelector('input[type=date]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'2099-01-01');input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));})()");
     await waitFor("document.body.innerText.includes('2099-01-01') && !document.querySelector('[data-assignment-id=\"700\"]').disabled");
+    await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent.includes('Schedule source and edits')).click()");
+    await waitFor("document.querySelector('[aria-label=\"morning schedule source\"]')?.textContent.includes('Modified')");
+    assert.equal(await evaluate("document.querySelector('[aria-label=\"morning schedule source\"] a')?.getAttribute('href')"),"/optimization-engine?run_id=morning-fixture","Schedule provenance must link back to the saved source run");
+    await call("Emulation.setDeviceMetricsOverride",{width:390,height:850,deviceScaleFactor:1,mobile:false});
+    await delay(150);
+    assert.equal(await evaluate("document.documentElement.scrollWidth<=innerWidth"),true,"Expanded schedule sources must fit mobile width");
+    await evaluate("document.querySelector('[aria-label=\"Schedule source\"]').scrollIntoView({block:'start'})");
+    const sourceShot=await call("Page.captureScreenshot",{format:"png"});
+    fs.writeFileSync(path.join(artifacts,"schedule-source-mobile.png"),Buffer.from(sourceShot.data,"base64"));
+    await evaluate("[...document.querySelectorAll('summary')].find(e=>e.textContent.includes('Schedule source and edits')).click()");
+    await call("Emulation.setDeviceMetricsOverride",{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
     assert.equal(await evaluate("document.querySelector('[data-assignment-id=\"700\"]').style.left"),"3.125%");
     assert.equal(await evaluate("document.querySelector('[data-assignment-id=\"700\"]').style.width"),"6.25%");
     await clickText("By Intersection");

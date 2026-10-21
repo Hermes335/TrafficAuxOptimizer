@@ -27,6 +27,7 @@ export function OfficerManagement() {
   const [debouncedSearch, setDebouncedSearch] = useState(search);
   const requestId = useRef(0);
   const addButtonRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const editorReturnFocus = useRef<HTMLElement | null>(null);
   const confirmationReturnFocus = useRef<HTMLElement | null>(null);
   const editorWasOpen = useRef(false);
@@ -109,6 +110,16 @@ export function OfficerManagement() {
         ? [1, "start-gap", pageCount - 4, pageCount - 3, pageCount - 2, pageCount - 1, pageCount]
         : [1, "start-gap", page - 1, page, page + 1, "end-gap", pageCount];
   const clearFilters = () => { setSearch(""); setStatusFilter("all"); setShiftFilter("all"); setPage(1); };
+  const viewAddedOfficer = () => {
+    if (!management.addedOfficer || busy || editorOpen || removeTarget) return;
+    const badge = management.addedOfficer.badge;
+    const alreadySelected = search === badge && debouncedSearch === badge && page === 1 && statusFilter === "all" && shiftFilter === "all";
+    setSearch(badge); setDebouncedSearch(badge); setPage(1); setStatusFilter("all"); setShiftFilter("all");
+    management.setOfficerError(null); setOfficerNotice(null);
+    if (alreadySelected) void loadOfficers().catch(() => {});
+    searchInputRef.current?.scrollIntoView?.({block: "center"});
+    searchInputRef.current?.focus({preventScroll: true});
+  };
   const rememberFocus = () => document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const withDiscard = (run: () => void) => {
     if (busy) return;
@@ -139,6 +150,19 @@ export function OfficerManagement() {
     (previous?.isConnected && !previous.closest('[aria-hidden="true"]') ? previous : editorField ?? addButtonRef.current)?.focus();
   };
 
+  const renderPagination = (position: "above" | "below") => (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-2 py-3 min-[360px]:px-4">
+          <p className="text-xs tabular-nums text-slate-600">{refreshing ? "Updating results…" : count && officers.length ? `Showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min((page - 1) * PAGE_SIZE + officers.length, count)} of ${count} officers` : "0 officers"}</p>
+          <nav aria-label={`Officer pagination ${position} roster`} className="flex max-w-full items-center gap-0 sm:gap-1">
+            <button type="button" aria-label="Previous page" disabled={page <= 1 || refreshing || busy} onClick={() => setPage(current => current - 1)} className={paginationArrowButton}><ChevronLeft aria-hidden="true" className="h-4 w-4" /><span className="hidden sm:inline">Previous</span></button>
+            {pageItems.map(item => typeof item === "number"
+              ? <button key={item} type="button" aria-label={`Go to page ${item}`} aria-current={item === page ? "page" : undefined} disabled={refreshing || busy} onClick={() => setPage(item)} className={`inline-flex h-9 w-7 shrink-0 items-center justify-center rounded-lg text-sm tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:cursor-not-allowed disabled:opacity-50 min-[360px]:w-8 sm:w-9 ${item === page ? "bg-amber-400 font-semibold text-slate-950 shadow-sm" : "font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}>{item}</button>
+              : <span key={item} aria-hidden="true" className="inline-flex h-9 w-7 shrink-0 items-center justify-center text-sm text-slate-400 min-[360px]:w-8 sm:w-9">…</span>)}
+            <button type="button" aria-label="Next page" disabled={page >= pageCount || refreshing || busy} onClick={() => setPage(current => current + 1)} className={paginationArrowButton}><span className="hidden sm:inline">Next</span><ChevronRight aria-hidden="true" className="h-4 w-4" /></button>
+          </nav>
+        </div>
+  );
+
   return (
     <div className="min-w-0 space-y-5 bg-slate-50 p-4 sm:p-6">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -159,6 +183,17 @@ export function OfficerManagement() {
         </div>)}
       </div>
 
+      {management.addedOfficer && <section aria-label="Recently added officer" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
+        <div className="min-w-0 text-sm text-emerald-950">
+          <p className="break-words font-medium">Added {management.addedOfficer.name} ({management.addedOfficer.badge}).</p>
+          <p id="view-added-officer-help" className="mt-1 text-xs text-emerald-800">View officer searches this badge and clears the current roster filters.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button type="button" aria-describedby="view-added-officer-help" disabled={busy || refreshing || editorOpen || !!removeTarget} onClick={viewAddedOfficer} className={secondaryButton}>View officer</button>
+          <button type="button" aria-label="Dismiss recently added officer" onClick={() => management.setAddedOfficer(null)} className="grid h-9 w-9 place-items-center rounded-lg text-emerald-900 hover:bg-emerald-100"><X aria-hidden="true" className="h-4 w-4" /></button>
+        </div>
+      </section>}
+
       {!editorOpen && !removeTarget && (management.officerError || error) && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">{management.officerError || error}</p>}
 
       <section aria-label="Officer roster" aria-busy={refreshing} className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white">
@@ -168,7 +203,7 @@ export function OfficerManagement() {
               <label htmlFor="officer-search" className="mb-1 block text-xs font-medium text-slate-700">Search officers</label>
               <div className="relative">
                 <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input id="officer-search" type="search" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Search name or badge" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
+                <input ref={searchInputRef} id="officer-search" type="search" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Search name or badge" className="h-10 w-full min-w-0 rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100" />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3 lg:w-80">
@@ -188,6 +223,8 @@ export function OfficerManagement() {
           </div>
           {hasFilters && <button type="button" onClick={clearFilters} className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 underline underline-offset-2"><X aria-hidden="true" className="h-3 w-3" />Clear filters</button>}
         </div>
+
+        {renderPagination("above")}
 
         {refreshing && <p aria-live="polite" className="px-4 py-3 text-sm text-slate-500">{officers.length ? "Updating officers…" : "Loading officers…"}</p>}
         {!refreshing && !officers.length && <div className="space-y-2 px-4 py-10 text-center">
@@ -223,16 +260,7 @@ export function OfficerManagement() {
           </tbody>
         </table>}
 
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-2 py-3 min-[360px]:px-4">
-          <p className="text-xs tabular-nums text-slate-600">{refreshing ? "Updating results…" : count && officers.length ? `Showing ${(page - 1) * PAGE_SIZE + 1}–${Math.min((page - 1) * PAGE_SIZE + officers.length, count)} of ${count} officers` : "0 officers"}</p>
-          <nav aria-label="Officer pagination" className="flex max-w-full items-center gap-0 sm:gap-1">
-            <button type="button" aria-label="Previous page" disabled={page <= 1 || refreshing || busy} onClick={() => setPage(current => current - 1)} className={paginationArrowButton}><ChevronLeft aria-hidden="true" className="h-4 w-4" /><span className="hidden sm:inline">Previous</span></button>
-            {pageItems.map(item => typeof item === "number"
-              ? <button key={item} type="button" aria-label={`Go to page ${item}`} aria-current={item === page ? "page" : undefined} disabled={refreshing || busy} onClick={() => setPage(item)} className={`inline-flex h-9 w-7 shrink-0 items-center justify-center rounded-lg text-sm tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-600 disabled:cursor-not-allowed disabled:opacity-50 min-[360px]:w-8 sm:w-9 ${item === page ? "bg-amber-400 font-semibold text-slate-950 shadow-sm" : "font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-950"}`}>{item}</button>
-              : <span key={item} aria-hidden="true" className="inline-flex h-9 w-7 shrink-0 items-center justify-center text-sm text-slate-400 min-[360px]:w-8 sm:w-9">…</span>)}
-            <button type="button" aria-label="Next page" disabled={page >= pageCount || refreshing || busy} onClick={() => setPage(current => current + 1)} className={paginationArrowButton}><span className="hidden sm:inline">Next</span><ChevronRight aria-hidden="true" className="h-4 w-4" /></button>
-          </nav>
-        </footer>
+        {renderPagination("below")}
       </section>
 
       {editorOpen && <OfficerEditor key={management.editingOfficerId ?? "new"} management={management} onClose={() => withDiscard(management.closeOfficerEditor)} returnFocusRef={editorReturnFocus} />}

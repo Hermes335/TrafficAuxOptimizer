@@ -30,7 +30,7 @@ function setup(path = "/incident-report") {
   </MemoryRouter></PageStateProvider>);
 }
 async function fill() {
-  await waitFor(() => expect(screen.getByRole("button",{name:"Submit report"})).toHaveProperty("disabled",false));
+  await waitFor(() => expect(screen.getByRole("button",{name:"Create active incident"})).toHaveProperty("disabled",false));
   fireEvent.change(screen.getByLabelText("Or choose a known intersection"),{target:{value:"A"}});
   fireEvent.change(screen.getByLabelText(/Description/),{target:{value:"Unsaved flooding report"}});
 }
@@ -65,7 +65,7 @@ it("restores incident fields and attached photo after navigation without keeping
 it("preserves an uncertain submission and its exact retry payload when navigating away and back", async () => {
   vi.mocked(reporting.submitIncidentReport).mockRejectedValueOnce(new TypeError("Connection lost"))
     .mockResolvedValueOnce({id:7,reference:"REF-7",status:"pending"});
-  setup();await fill();fireEvent.click(screen.getByRole("button",{name:"Submit report"}));
+  setup();await fill();fireEvent.click(screen.getByRole("button",{name:"Create active incident"}));
   await screen.findByRole("alert");const original=vi.mocked(reporting.submitIncidentReport).mock.calls[0][0];
   await leaveAndReturn();
   await waitFor(() => expect(screen.getByRole("button",{name:"Retry same report"})).toHaveProperty("disabled",false));
@@ -81,7 +81,7 @@ it("preserves an uncertain submission and its exact retry payload when navigatin
 it("does not resubmit a request in flight and displays its receipt when returning", async () => {
   let finish!: (value: reporting.ReportReceipt) => void;
   vi.mocked(reporting.submitIncidentReport).mockReturnValueOnce(new Promise(resolve => {finish=resolve;}));
-  setup();await fill();fireEvent.click(screen.getByRole("button",{name:"Submit report"}));
+  setup();await fill();fireEvent.click(screen.getByRole("button",{name:"Create active incident"}));
   await leaveAndReturn();
   expect(screen.getByRole("button",{name:"Sending..."})).toHaveProperty("disabled",true);
   await act(async () => finish({id:8,reference:"REF-8",status:"pending"}));

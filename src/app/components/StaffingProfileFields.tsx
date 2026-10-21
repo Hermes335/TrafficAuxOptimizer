@@ -31,6 +31,8 @@ export function validateStaffingProfile(value: StaffingProfile): Record<string, 
     errors.max_officers_allowed = "Enter a whole number of 0 or more.";
   } else if (value.max_officers_allowed < value.min_officers_required) {
     errors.max_officers_allowed = "Maximum must be at least the normal minimum.";
+  } else if (value.signal_status === "working" && value.max_officers_allowed < 1) {
+    errors.max_officers_allowed = "Working traffic lights require capacity for at least 1 officer.";
   }
   if (!Array.isArray(value.staffing_periods)) return { ...errors, staffing_periods: "Provide a list of staffing periods." };
   if (value.staffing_periods.length > 32) errors.staffing_periods = "Use no more than 32 staffing periods.";
@@ -169,6 +171,11 @@ export function StaffingProfileFields({ value, onChange, hideArea = false, showV
         <option value="unknown">Unknown</option><option value="working">Working</option><option value="none">None</option><option value="out_of_order">Out of order</option>
       </select>
     </label>
+    {(value.signal_status === "working" || value.signal_status === "out_of_order") && <div role="status" className="space-y-1 rounded-lg bg-sky-50 p-3 text-xs leading-relaxed text-sky-950">
+      <p className="font-semibold">{value.signal_status === "working" ? "Working traffic lights: normally 1 officer." : Number.isFinite(value.min_officers_required) ? `Traffic lights out of order: normally ${value.min_officers_required} ${value.min_officers_required === 1 ? "officer" : "officers"}.` : "Traffic lights out of order: enter a valid normal minimum."}</p>
+      <p>The normal minimum is kept for when the lights are out of order. Saved staffing periods override this default, including periods with 0 officers. Critical incidents can add staffing up to the maximum.</p>
+      <p>After saving a status change, review or rerun optimization to update existing assignments.</p>
+    </div>}
     <div className="grid grid-cols-2 gap-3">
       <div>
         <label htmlFor={fieldId("min_officers_required")} className="block text-sm font-medium text-slate-700">Normal minimum</label>
@@ -182,10 +189,10 @@ export function StaffingProfileFields({ value, onChange, hideArea = false, showV
       </div>
     </div>
     <div className="space-y-2 text-xs text-slate-600">
-      <p><strong className="font-medium text-slate-700">0 means no post is required.</strong> Staffing periods replace normal demand for their selected times.</p>
+      <p><strong className="font-medium text-slate-700">0 means no post is required.</strong> Staffing periods replace the normal requirement for their selected times, including the traffic-light default.</p>
       <details>
         <summary className="w-fit cursor-pointer font-medium text-slate-700">How staffing is applied</summary>
-        <p className="mt-2 leading-relaxed">Normal staffing can rise with congestion. Critical incidents can add staffing, including during a zero-officer period, up to the maximum. Give each intersection its own marker.</p>
+        <p className="mt-2 leading-relaxed">Working lights normally require 1 officer. Out-of-order lights use the saved normal minimum. Saved periods override either default. With None or Unknown, normal staffing can rise with congestion. Critical incidents can add staffing up to the maximum, including during a zero-officer period. Give each intersection its own marker.</p>
       </details>
     </div>
 
@@ -194,7 +201,7 @@ export function StaffingProfileFields({ value, onChange, hideArea = false, showV
         <h4 className="text-sm font-semibold text-slate-900">Staffing periods <span className="ml-1 font-normal text-slate-500">({value.staffing_periods.length})</span></h4>
         <p className="mt-1 text-xs text-slate-500">Asia/Manila · 15-minute steps · no overlap on the same day.</p>
       </div>
-      {!value.staffing_periods.length && <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">No periods added. Normal staffing applies throughout the day.</p>}
+      {!value.staffing_periods.length && <p className="rounded-lg bg-slate-50 p-3 text-xs text-slate-600">No periods added. {value.signal_status === "working" ? "Working lights normally require 1 officer throughout the day." : value.signal_status === "out_of_order" ? "The normal minimum applies while traffic lights are out of order." : "Normal staffing applies throughout the day."}</p>}
       {error("staffing_periods")}
       {value.staffing_periods.map((period, index) => {
         const key = `periods.${index}`;

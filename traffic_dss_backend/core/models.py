@@ -71,6 +71,7 @@ class Officer(TimeStampedSoftDeleteModel):
 	skills = models.JSONField(default=list, blank=True)
 	current_latitude = models.FloatField(null=True, blank=True)
 	current_longitude = models.FloatField(null=True, blank=True)
+	current_location_recorded_at = models.DateTimeField(null=True, blank=True)
 
 	class Meta:
 		indexes = [

@@ -40,6 +40,7 @@ class DeploymentScheduleView(ScheduleWriteView):
             "end_time": d.end_time, "assignment_type": d.assignment_type, "status": d.status,
             "officer_id": d.officer_id, "bottleneck_name": d.bottleneck.name, "area_name": d.bottleneck.area_name,
             "updated_at": d.updated_at.isoformat(), "override_reason": d.override_reason,
+            "source": d.source, "revision_id": d.revision_id,
         } for d in page])
 
     def delete(self, request):
@@ -97,3 +98,17 @@ class ScheduleRevisionView(APIView):
             "operational_date": row.operational_date, "shift": row.shift, "published_at": row.published_at,
             "effective_start": row.effective_start, "effective_end": row.effective_end, "published_by": row.actor.username,
             "previous_assignments": row.previous_assignments, "assignments": row.assignments} for row in page])
+
+
+class ScheduleProvenanceView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+    throttle_scope = "operational_read"
+
+    def get(self, request):
+        from core.operational_time import operational_date
+        from rest_framework import serializers
+        from .provenance import PublicationProvenance
+        day = serializers.DateField().run_validation(request.query_params.get("date", str(operational_date())))
+        shift = serializers.ChoiceField(choices=["morning", "afternoon", "all"]).run_validation(request.query_params.get("shift", "all"))
+        shifts = ["morning", "afternoon"] if shift == "all" else [shift]
+        return Response(PublicationProvenance(scopes=[(day, value) for value in shifts]).for_schedule(day, shifts))

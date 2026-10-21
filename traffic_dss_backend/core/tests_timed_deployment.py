@@ -204,4 +204,4 @@ def test_location_api_saves_and_returns_staffing_profile(schedule):
     s.node.refresh_from_db()
     assert s.node.min_officers_required==0 and s.node.area_name=="Prime State"
     rows=s.client.get(f"/api/dashboard/bottlenecks/?date={s.day}&shift=morning").data["results"]
-    assert [w["required"] for w in rows[0]["staffing_windows"]]==[0,1,0]
+    assert [w["required"] for w in rows[0]["staffing_windows"]]==[1,1,1]

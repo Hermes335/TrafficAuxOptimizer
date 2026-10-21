@@ -15,6 +15,25 @@ function Editor({ initial, showValidation = false, changed = () => {} }: {
 
 const quiet = { start: "22:00", end: "24:00", required: 0, label: "Quiet period", days: [0, 1, 2, 3, 4] };
 
+it("shows the traffic-light requirement without overwriting the saved normal minimum or periods", () => {
+  const changed = vi.fn();
+  render(<Editor initial={staffingProfile({min_officers_required: 3, staffing_periods: [quiet]})} changed={changed} />);
+  fireEvent.change(screen.getByLabelText("Traffic lights"), {target: {value: "working"}});
+  expect(screen.getByText("Working traffic lights: normally 1 officer.")).toBeTruthy();
+  expect(screen.getByLabelText("Normal minimum")).toHaveProperty("value", "3");
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({signal_status: "working", min_officers_required: 3, staffing_periods: [quiet]}));
+  fireEvent.change(screen.getByLabelText("Traffic lights"), {target: {value: "out_of_order"}});
+  expect(screen.getByText("Traffic lights out of order: normally 3 officers.")).toBeTruthy();
+  expect(screen.getByLabelText("Normal minimum")).toHaveProperty("value", "3");
+  expect(changed).toHaveBeenLastCalledWith(expect.objectContaining({signal_status: "out_of_order", min_officers_required: 3, staffing_periods: [quiet]}));
+});
+
+it("rejects zero capacity for working lights while keeping zero-capacity unsignalled profiles valid", () => {
+  const zero = staffingProfile({min_officers_required: 0, max_officers_allowed: 0});
+  expect(validateStaffingProfile(zero)).toEqual({});
+  expect(validateStaffingProfile({...zero, signal_status: "working"})).toHaveProperty("max_officers_allowed", "Working traffic lights require capacity for at least 1 officer.");
+});
+
 it("preserves zero demand, end-of-day times, adjacent periods and different weekdays", () => {
   const profile = staffingProfile({ min_officers_required: 0, max_officers_allowed: 0, staffing_periods: [
     { start: "21:00", end: "22:00", required: 0, days: [0, 1, 2, 3, 4] }, quiet,

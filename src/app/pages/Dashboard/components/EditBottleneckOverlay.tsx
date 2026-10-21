@@ -1,5 +1,6 @@
 import { MapPin, X } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { StaffingProfileFields, validateStaffingProfile } from "../../../components/StaffingProfileFields";
 import type { StaffingProfile } from "../../../services/backend";
 
@@ -18,6 +19,7 @@ interface EditBottleneckOverlayProps {
   editPickFromMap: boolean; setEditPickFromMap: (v: boolean) => void;
   onSave: () => Promise<void>;
   onClose: () => void;
+  onFocusMap?: () => void;
   savingEditBottleneck: boolean;
 }
 
@@ -30,11 +32,22 @@ export function EditBottleneckOverlay({
   editBottleneckWeight, setEditBottleneckWeight,
   editLatitude, setEditLatitude, editLongitude, setEditLongitude,
   editPickFromMap, setEditPickFromMap,
-  onSave, onClose, savingEditBottleneck,
+  onSave, onClose, onFocusMap, savingEditBottleneck,
 }: EditBottleneckOverlayProps) {
   const areaListId = useId();
+  const [mobile, setMobile] = useState(() => window.innerWidth < 768);
+  const [viewport, setViewport] = useState(() => ({height: window.visualViewport?.height ?? window.innerHeight, top: window.visualViewport?.offsetTop ?? 0}));
   const bodyRef = useRef<HTMLDivElement>(null);
   const pickButtonRef = useRef<HTMLButtonElement>(null);
+  const closeRef = useRef(onClose);
+  const savingRef = useRef(savingEditBottleneck);
+  const pickingRef = useRef(editPickFromMap);
+  const returnFromPick = useRef(false);
+  const savedScroll = useRef(0);
+  const openerRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+  closeRef.current = onClose;
+  savingRef.current = savingEditBottleneck;
+  pickingRef.current = editPickFromMap;
   const [coordinatesOpen, setCoordinatesOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [validationAttempt, setValidationAttempt] = useState(0);
@@ -63,7 +76,56 @@ export function EditBottleneckOverlay({
   const fieldError = (field: string) => visibleError(field)
     ? <p id={`edit-${field}-error`} className="mt-1 text-xs text-rose-700">{visibleError(field)}</p>
     : null;
-  const inputClass = "mt-1 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100 aria-invalid:border-rose-500 disabled:bg-slate-50";
+  const inputClass = "mt-1 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-base text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100 sm:text-sm aria-invalid:border-rose-500 disabled:bg-slate-50";
+
+  useEffect(() => {
+    const resize = () => {
+      setMobile(window.innerWidth < 768);
+      setViewport({height: window.visualViewport?.height ?? window.innerHeight, top: window.visualViewport?.offsetTop ?? 0});
+    };
+    window.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("scroll", resize);
+    return () => {
+      window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("scroll", resize);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mobile && !editPickFromMap) return; // The modal owns Escape while open.
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="alertdialog"], [role="dialog"]')) return;
+      event.preventDefault();
+      if (savingRef.current) return;
+      if (pickingRef.current) {
+        returnFromPick.current = true;
+        setEditPickFromMap(false);
+      } else closeRef.current();
+    };
+    document.addEventListener("keydown", escape);
+    return () => document.removeEventListener("keydown", escape);
+  }, [mobile, editPickFromMap, setEditPickFromMap]);
+
+  useEffect(() => {
+    if (editPickFromMap) {
+      window.requestAnimationFrame(() => onFocusMap?.());
+    } else if (returnFromPick.current && !mobile) {
+      const frame = window.requestAnimationFrame(() => {
+        if (bodyRef.current) bodyRef.current.scrollTop = savedScroll.current;
+        pickButtonRef.current?.focus({preventScroll: true});
+        returnFromPick.current = false;
+      });
+      return () => window.cancelAnimationFrame(frame);
+    }
+  }, [editPickFromMap, mobile, onFocusMap]);
+
+  const finishPicking = () => {
+    if (savingEditBottleneck) return;
+    returnFromPick.current = true;
+    setEditPickFromMap(false);
+  };
 
   useEffect(() => {
     if (!validationAttempt) return;
@@ -86,24 +148,22 @@ export function EditBottleneckOverlay({
     void onSave();
   };
 
-  return (
-    <div role="region" aria-label="Edit bottleneck" className={`absolute bottom-3 left-3 z-30 flex max-h-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ${editPickFromMap ? "w-[min(28rem,calc(100%-5rem))]" : "top-20 w-[min(28rem,calc(100%-1.5rem))]"}`}>
+  const contents = <>
       <div data-bottleneck-editor-header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
         <div className="min-w-0">
-          <h3 className="text-base font-semibold text-slate-950">Edit bottleneck</h3>
+          {mobile && !editPickFromMap
+            ? <Dialog.Title asChild><h3 className="text-base font-semibold text-slate-950">Edit bottleneck</h3></Dialog.Title>
+            : <h3 className="text-base font-semibold text-slate-950">Edit bottleneck</h3>}
           {editingBottleneckId && <p className="truncate text-xs text-slate-500" title={editingBottleneckId}>{editingBottleneckId}</p>}
         </div>
-        <button type="button" onClick={onClose} disabled={savingEditBottleneck} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-amber-600 disabled:opacity-50" aria-label="Close"><X className="h-4 w-4" /></button>
+        <button type="button" onClick={onClose} disabled={savingEditBottleneck} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-slate-500 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-amber-600 disabled:opacity-50" aria-label="Close"><X className="h-4 w-4" /></button>
       </div>
 
       {editPickFromMap && <div className="space-y-3 bg-amber-50 px-4 py-3">
-        <p className="text-sm font-medium text-amber-950">Click a position on the map.</p>
+        <p className="text-sm font-medium text-amber-950">Choose a position on the map.</p>
         <p className="text-xs text-slate-600">Your other edits are kept. Choose a point, then finish picking.</p>
         <p role="status" className="break-words text-xs tabular-nums text-slate-700">Selected: {editLatitude || "—"}, {editLongitude || "—"}</p>
-        <button type="button" disabled={savingEditBottleneck} onClick={() => {
-          setEditPickFromMap(false);
-          window.requestAnimationFrame(() => pickButtonRef.current?.focus());
-        }} className="w-full rounded-lg bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-500">Done picking</button>
+        <button type="button" disabled={savingEditBottleneck} onClick={finishPicking} className="min-h-11 w-full rounded-lg bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-500">Done picking</button>
       </div>}
 
       <form aria-label="Edit bottleneck details" noValidate onSubmit={event => { event.preventDefault(); submit(); }} className={editPickFromMap ? "hidden" : "flex min-h-0 flex-1 flex-col"}>
@@ -113,7 +173,7 @@ export function EditBottleneckOverlay({
               <h4 id="edit-basic-heading" className="text-sm font-semibold text-slate-900">Basic details</h4>
               <div>
                 <label htmlFor="node-name" className="text-xs font-medium text-slate-700">Name</label>
-                <input autoFocus required type="text" id="node-name" maxLength={255} value={editBottleneckName} onChange={e => setEditBottleneckName(e.target.value)} className={inputClass} {...fieldProps("name")} />
+                <input autoFocus={!mobile && !editPickFromMap} required type="text" id="node-name" maxLength={255} value={editBottleneckName} onChange={e => setEditBottleneckName(e.target.value)} className={inputClass} {...fieldProps("name")} />
                 {fieldError("name")}
               </div>
               <div>
@@ -142,7 +202,10 @@ export function EditBottleneckOverlay({
 
             <section aria-labelledby="edit-location-heading" className="space-y-2 border-t border-slate-100 pt-4">
               <h4 id="edit-location-heading" className="text-sm font-semibold text-slate-900">Location</h4>
-              <button ref={pickButtonRef} type="button" onClick={() => setEditPickFromMap(true)} className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><MapPin className="h-4 w-4" />Pick location on map</button>
+              <button ref={pickButtonRef} type="button" onClick={() => {
+                savedScroll.current = bodyRef.current?.scrollTop ?? 0;
+                setEditPickFromMap(true);
+              }} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><MapPin className="h-4 w-4" />Pick location on map</button>
               <details open={coordinatesOpen} onToggle={e => setCoordinatesOpen(e.currentTarget.open)}>
                 <summary className="cursor-pointer py-1 text-xs font-medium text-slate-600">Edit coordinates</summary>
                 <div className="grid grid-cols-2 gap-3 pt-2">
@@ -173,17 +236,55 @@ export function EditBottleneckOverlay({
             </details>
           </div>
 
-          <div data-bottleneck-editor-footer className="shrink-0 space-y-2 border-t border-slate-200 bg-white px-4 py-3">
+          <div data-bottleneck-editor-footer className="shrink-0 space-y-2 border-t border-slate-200 bg-white px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
             {error && <p role="alert" className="max-h-20 overflow-y-auto rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800">{error}</p>}
             {validationAttempt > 0 && hasErrors ? <p role="alert" className="text-xs text-rose-700">Check the highlighted fields before saving.</p>
               : <p className="text-xs text-slate-500">{savingEditBottleneck ? "Saving your changes…" : editBottleneckDirty ? "Unsaved changes" : "No changes yet"}</p>}
             <div className="flex gap-2">
-              <button type="button" onClick={onClose} className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
-              <button type="submit" disabled={savingEditBottleneck || !editBottleneckDirty} className="flex-1 rounded-lg bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50">{savingEditBottleneck ? "Saving..." : "Save changes"}</button>
+              <button type="button" onClick={onClose} className="min-h-11 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Cancel</button>
+              <button type="submit" disabled={savingEditBottleneck || !editBottleneckDirty} className="min-h-11 flex-1 rounded-lg bg-amber-400 px-3 py-2 text-sm font-semibold text-slate-950 hover:bg-amber-500 disabled:cursor-not-allowed disabled:opacity-50">{savingEditBottleneck ? "Saving..." : "Save changes"}</button>
             </div>
           </div>
         </fieldset>
       </form>
-    </div>
-  );
+  </>;
+
+  if (mobile && !editPickFromMap) return <Dialog.Root open onOpenChange={open => {if (!open && !savingEditBottleneck) onClose();}}>
+    <Dialog.Portal>
+      <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/30" />
+      <Dialog.Content aria-label="Edit bottleneck" aria-describedby={undefined}
+        style={{height: viewport.height, top: viewport.top}}
+        className="fixed inset-x-0 z-50 flex min-h-0 flex-col overflow-hidden bg-white shadow-xl outline-none"
+        onInteractOutside={event => event.preventDefault()}
+        onEscapeKeyDown={event => {event.preventDefault(); if (!savingEditBottleneck) onClose();}}
+        onOpenAutoFocus={event => {
+          event.preventDefault();
+          if (returnFromPick.current) {
+            // Let the previous focus scope finish closing before restoring the
+            // map-picking control in the newly mounted editor.
+            window.requestAnimationFrame(() => {
+              if (bodyRef.current) bodyRef.current.scrollTop = savedScroll.current;
+              pickButtonRef.current?.focus({preventScroll: true});
+              returnFromPick.current = false;
+            });
+          } else document.getElementById("node-name")?.focus();
+        }}
+        onCloseAutoFocus={event => {
+          event.preventDefault();
+          if (pickingRef.current) onFocusMap?.();
+          else {
+            const opener = openerRef.current;
+            const visibleOpener = opener?.isConnected && opener.getClientRects().length > 0;
+            if (visibleOpener) opener.focus();
+            else document.querySelector<HTMLElement>('button[aria-label="Add Marker"]')?.focus();
+          }
+        }}>
+        {contents}
+      </Dialog.Content>
+    </Dialog.Portal>
+  </Dialog.Root>;
+
+  return <div role="region" aria-label="Edit bottleneck" className={`absolute bottom-3 left-3 z-30 flex max-h-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xl ${editPickFromMap ? "w-[min(28rem,calc(100%-5rem))]" : "top-20 w-[min(28rem,calc(100%-1.5rem))]"}`}>
+    {contents}
+  </div>;
 }

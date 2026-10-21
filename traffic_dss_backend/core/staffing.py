@@ -37,6 +37,8 @@ def validate_staffing_periods(periods, cap):
 
 
 def staffing_requirement(node, incidents=(), at=None):
+    """Periods override the signal default; critical incidents add within capacity."""
+    signal = getattr(node, "signal_status", "unknown")
     moment = (at or timezone.now()).astimezone(MANILA)
     minute = moment.hour * 60 + moment.minute
     period = next((p for p in getattr(node, "staffing_periods", [])
@@ -44,13 +46,17 @@ def staffing_requirement(node, incidents=(), at=None):
                    and minute_of_day(p["start"]) <= minute < minute_of_day(p["end"])), None)
     required = max(0, node.min_officers_required)
     reason = "Normal staffing"
+    if signal == "working":
+        required, reason = 1, "Working traffic lights"
+    elif signal == "out_of_order":
+        reason = "Traffic lights out of order; normal minimum"
     if period is not None:
         required = period["required"]
         reason = period.get("label") or "Scheduled staffing"
-    elif node.tsi >= 0.8:
+    elif signal not in {"working", "out_of_order"} and node.tsi >= 0.8:
         required = node.max_officers_allowed
         reason = "High congestion"
-    elif node.tsi >= 0.5:
+    elif signal not in {"working", "out_of_order"} and node.tsi >= 0.5:
         required += 1
         reason = "Moderate congestion"
     if any(i.severity == "critical" for i in incidents):

@@ -1,4 +1,5 @@
 import { RememberedDetails } from "../components/RememberedDetails";
+import { RunPublicationBadge } from "../components/RunPublicationStatus";
 import { usePageState } from "../contexts/PageStateContext";
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
 import { RecommendationExportButton } from "../components/RecommendationExportButton";
@@ -12,6 +13,7 @@ import {
   fetchDashboardSnapshot,
   fetchCurrentWeather,
   fetchPOIs,
+  subscribeToDashboardStream,
   type OptimizationHistoryItem,
   type OptimizationConfigResponse,
   type POI,
@@ -60,6 +62,7 @@ export function Optimization() {
   const [history, setHistory] = useState<OptimizationHistoryItem[]>([]);
   const [validation, setValidation] = useState<OptimizationConfigResponse | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [historyRefreshError, setHistoryRefreshError] = useState<string | null>(null);
   const [validationLoading, setValidationLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [autoSuggestion, setAutoSuggestion] = useState<AutoWeightSuggestion | null>(null);
@@ -138,31 +141,53 @@ export function Optimization() {
 
   useEffect(() => {
     let active = true;
-
+    let inFlight = false;
+    let pending = false;
+    let loaded = false;
+    let timer: number | undefined;
     setLoadingHistory(true);
-    fetchOptimizationHistory(historyPage)
-      .then((page) => {
-        if (!active) {
-          return;
-        }
+    setHistoryRefreshError(null);
+    const refresh = async () => {
+      if (!active) return;
+      if (inFlight) { pending = true; return; }
+      inFlight = true;
+      if (timer) window.clearTimeout(timer);
+      try {
+        const page = await fetchOptimizationHistory(historyPage);
+        if (!active) return;
         setHistory(page.results); setHistoryCount(page.count);
         setError(null);
-      })
-      .catch((err: unknown) => {
-        if (!active) {
-          return;
-        }
+        setHistoryRefreshError(null);
+        loaded = true;
+      } catch (err: unknown) {
+        if (!active) return;
         const message = err instanceof Error ? err.message : "Failed to load optimization history";
-        setError(message);
-      })
-      .finally(() => {
-        if (active) {
-          setLoadingHistory(false);
-        }
-      });
-
+        if (loaded) setHistoryRefreshError(message);
+        else setError(message);
+      } finally {
+        inFlight = false;
+        if (active) setLoadingHistory(false);
+        if (active && pending) { pending = false; void refresh(); }
+        else if (active) timer = window.setTimeout(() => { if (!document.hidden) void refresh(); }, 60000);
+      }
+    };
+    void refresh();
+    const requestRefresh = () => { void refresh(); };
+    const onVisible = () => { if (!document.hidden) requestRefresh(); };
+    window.addEventListener("deployment-publication-changed", requestRefresh);
+    window.addEventListener("focus", requestRefresh);
+    document.addEventListener("visibilitychange", onVisible);
+    const stopStream = subscribeToDashboardStream(event => {
+      if (["deployment_changed", "optimization_complete"].includes(event.event)) requestRefresh();
+    });
     return () => {
       active = false;
+      pending = false;
+      if (timer) window.clearTimeout(timer);
+      stopStream?.();
+      window.removeEventListener("deployment-publication-changed", requestRefresh);
+      window.removeEventListener("focus", requestRefresh);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [historyPage]);
 
@@ -232,13 +257,26 @@ export function Optimization() {
   const weightsValid = weightTotal > 0;
 
   return (
-    <div className="flex h-full min-w-0 flex-col overflow-y-auto text-slate-900 xl:flex-row xl:overflow-hidden">
+    <div className="flex h-full min-w-0 scroll-pt-40 flex-col overflow-y-auto text-slate-900 xl:scroll-pt-0 xl:flex-row xl:overflow-hidden">
       <div className="w-full min-w-0 shrink-0 border-b border-slate-200 bg-white p-4 sm:p-5 xl:w-80 xl:overflow-y-auto xl:border-r xl:border-b-0">
         <div className="mb-5">
           <h1 className="mb-1 text-xl font-semibold tracking-tight">Optimization</h1>
           <p className="text-sm leading-relaxed text-slate-600">
             Configure a run to recommend staffing for your next shift.
           </p>
+        </div>
+
+        <div role="group" aria-label="Run actions" className="sticky top-0 z-10 mb-5 rounded-xl border border-slate-200 bg-white p-3 shadow-sm xl:static xl:shadow-none">
+          <p className="mb-2 text-xs text-slate-600">{runDay || "Choose a date"} · {selectedShift === "morning" ? "Morning" : "Afternoon"} · {mode === "shadow" ? "Shadow comparison" : "Operational deployment"}</p>
+          <button
+            disabled={!weightsValid || !currentValidation || readiness.loading || !readiness.readiness?.ready || !!readiness.readiness.blockers.length}
+            onClick={() => navigate("/optimization-running?" + new URLSearchParams({shift: selectedShift, ...Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v)]))}))}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-amber-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
+          >
+            <Zap className="h-4 w-4" aria-hidden="true" />
+            Run Optimization
+          </button>
+          <p className="mt-2 text-xs text-slate-600">{validationLoading || readiness.loading ? "Checking settings and readiness…" : weightsValid && currentValidation && readiness.readiness?.ready && !readiness.readiness.blockers.length ? "Ready. Review the checks below before starting." : "Review settings and readiness below to enable this run."}</p>
         </div>
 
         <div className="mb-5 space-y-3 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
@@ -286,9 +324,10 @@ export function Optimization() {
         <div className="mb-5">
           <div className="mb-3 flex items-center gap-2">
             <Target className="h-5 w-5 text-amber-600" />
-            <h2 className="text-sm font-semibold">Parameter presets</h2>
+            <h2 className="text-sm font-semibold">Priority presets</h2>
           </div>
 
+          <p className="mb-3 text-xs leading-relaxed text-slate-600">Presets change search settings and scoring priorities. They do not replace observed traffic or weather readings.</p>
           <div className="grid grid-cols-2 gap-2">
             <button
               className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 ${
@@ -351,14 +390,6 @@ export function Optimization() {
             </div>
           )}
           <OptimizationReadinessSummary {...readiness} />
-          <button
-            disabled={!weightsValid || !currentValidation || readiness.loading || !readiness.readiness?.ready || !!readiness.readiness.blockers.length}
-            onClick={() => navigate("/optimization-running?" + new URLSearchParams({shift: selectedShift, ...Object.fromEntries(Object.entries(params).map(([k,v]) => [k, String(v)]))}))}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-amber-400 px-4 py-2.5 text-sm font-semibold text-slate-950 transition-colors hover:bg-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"
-          >
-            <Zap className="h-4 w-4" aria-hidden="true" />
-            Run Optimization
-          </button>
         </div>
 
         <RememberedDetails stateKey="optimization.advanced" className="mb-4 rounded-xl border border-slate-200 p-3">
@@ -627,12 +658,12 @@ export function Optimization() {
             <div className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="mb-1 text-xs text-slate-600">Population size</div>
               <div className="mb-1 text-2xl font-bold">{populationSize}</div>
-              <div className="text-xs text-slate-600">Configured chromosome pool</div>
+              <div className="text-xs text-slate-600">Candidate plans per generation</div>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="mb-1 text-xs text-slate-600">Generation limit</div>
               <div className="mb-1 text-2xl font-bold">{generationLimit}</div>
-              <div className="text-xs text-slate-600">Backend validation applied</div>
+              <div className="text-xs text-slate-600">Maximum search generations</div>
             </div>
             <div className="rounded-xl border border-slate-200 bg-white p-3">
               <div className="mb-1 text-xs text-slate-600">Completed on page</div>
@@ -659,18 +690,21 @@ export function Optimization() {
 
             {loadingHistory && <p role="status" className="p-4 text-sm text-slate-600">Loading run history...</p>}
             {!loadingHistory && error && <p role="alert" className="p-4 text-sm text-red-700">{error}</p>}
+            {historyRefreshError && <div role="alert" className="border-b border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              Run history could not be refreshed: {historyRefreshError}. Publication status is unavailable until a successful refresh.
+              <button type="button" onClick={() => window.dispatchEvent(new Event("deployment-publication-changed"))} className="ml-2 rounded border border-amber-400 px-3 py-2 font-medium">Retry history refresh</button>
+            </div>}
             {!loadingHistory && !error && history.length === 0 && (
               <p className="p-4 text-sm text-slate-600">No optimization runs yet. Configure your first run to get started.</p>
             )}
             {!loadingHistory && !error && history.length > 0 && (
               <ol className="divide-y divide-slate-200" aria-label="Optimization run history">
-                {history.slice(0, 10).map((run, runIndex) => {
+                {history.slice(0, 10).map((run) => {
                   const bestFitness = typeof run.result_data?.best_fitness === "number" ? run.result_data.best_fitness : null;
                   const generationCount = run.generations_completed ?? 0;
-                  const prevFitness = runIndex < history.length - 1
-                    ? (typeof history[runIndex + 1].result_data.best_fitness === "number" ? history[runIndex + 1].result_data.best_fitness as number : null)
-                    : null;
-                  const trend = bestFitness !== null && prevFitness !== null ? bestFitness - prevFitness : null;
+                  const savedDate = typeof run.parameters.operational_date === "string" ? run.parameters.operational_date : "Date not recorded";
+                  const savedShift = run.parameters.shift === "morning" ? "Morning" : run.parameters.shift === "afternoon" ? "Afternoon" : "Shift not recorded";
+                  const savedMode = run.parameters.mode === "shadow" ? "Shadow comparison" : run.parameters.mode === "operational" ? "Operational deployment" : "Mode not recorded";
                   return (
                     <li key={run.id} className="min-w-0 space-y-3 px-4 py-4 transition-colors hover:bg-slate-50/70">
                       <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
@@ -680,10 +714,10 @@ export function Optimization() {
                           aria-label={`View run ${run.run_id}`}
                           className="inline-flex min-w-0 max-w-full items-center gap-1.5 rounded text-sm font-semibold text-slate-900 underline decoration-slate-300 underline-offset-4 hover:decoration-amber-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
                         >
-                          <span className="truncate font-mono">{compactRunId(run.run_id)}</span>
+                          <span className="min-w-0"><span className="block">{savedDate} · {savedShift}</span><span className="mt-1 block text-xs font-normal text-slate-600">{savedMode}{typeof run.parameters.session_id === "string" && run.parameters.session_id.trim() ? ` · ${run.parameters.session_id}` : ""}</span><span className="mt-1 block truncate font-mono text-xs font-normal text-slate-500">{compactRunId(run.run_id)}</span></span>
                           <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-slate-500" aria-hidden="true" />
                         </Link>
-                        <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${
+                        <div className="flex flex-wrap items-center gap-2"><span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium capitalize ${
                           run.status === "completed" ? "bg-green-100 text-green-800" :
                           run.status === "failed" ? "bg-red-100 text-red-800" :
                           run.status === "cancelled" ? "bg-slate-100 text-slate-700" :
@@ -692,6 +726,8 @@ export function Optimization() {
                         }`}>
                           {run.status}
                         </span>
+                        <RunPublicationBadge publicationState={run.publication_state} unavailable={!!historyRefreshError} />
+                        </div>
                       </div>
                       <div className="flex flex-wrap items-end justify-between gap-x-5 gap-y-3">
                         <dl className="flex flex-wrap gap-x-6 gap-y-2 text-sm">
@@ -705,11 +741,6 @@ export function Optimization() {
                             <dt className="mb-1 text-xs text-slate-600">Fitness</dt>
                             <dd className="flex items-center gap-1.5 font-medium tabular-nums text-slate-800">
                               {bestFitness !== null ? bestFitness.toFixed(4) : "—"}
-                              {trend !== null && trend !== 0 && (
-                                <span title="Change from the previous run on this page" className={`text-xs font-normal ${trend > 0 ? "text-green-700" : "text-red-700"}`}>
-                                  {trend > 0 ? "↑" : "↓"}{Math.abs(trend).toFixed(2)}
-                                </span>
-                              )}
                             </dd>
                           </div>
                           <div>

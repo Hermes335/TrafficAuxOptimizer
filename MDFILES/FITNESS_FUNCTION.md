@@ -40,9 +40,11 @@ f₂ = max(0, 100 − (avg_travel_time × 2))
 Where:
 - `TSI_effective = bottleneck.tsi + incident_priority_boost` (if incident nearby)
 - `WIF = weather_impact_factor` (e.g., 1.03 for light rain, 1.4 for heavy rain)
-- `distance_km = geodesic(officer_coords, bottleneck_coords)` (3.0 km fallback if no coords)
+- `distance_km` is straight-line distance from the captured planning origin to the bottleneck. New runs use a recent same-day recorded post, then valid coordinates recorded on that Manila operational day, then assumed TTMO HQ at 10.689327, 122.581486. Previous-day coordinates do not carry forward. Older saved runs retain their original assumptions, including the former 3.0 km fallback where recorded.
 
 Speed decreases with higher congestion (TSI). Weather Impact Factor multiplies travel time.
+
+This is an estimated travel score, not measured response time or GPS tracking. See [daily starting locations](TTMO_HQ_ORIGINS_2026-10-21.md) for the saved-coordinate timestamp and reset policy.
 
 ---
 

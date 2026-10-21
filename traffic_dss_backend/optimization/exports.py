@@ -32,12 +32,15 @@ class RecommendationExportView(APIView):
             "Bottleneck_ID", "Location", "App_Recommended_Officers", "Recommended_Badges", "App_TSI",
             "App_Weather_Factor", "Traffic_Source", "Traffic_Status", "Published", "Supervisor_Decision", "Date_Source",
             "Period_Start", "Period_End", "Required_Officers", "Requirement_Reason", "Area",
-            "Skill_Policy_Version", "Preferred_Skills", "Skill_Match_Statuses", "Matched_Skills", "Skill_Match_Reasons"])
+            "Skill_Policy_Version", "Preferred_Skills", "Skill_Match_Statuses", "Matched_Skills", "Skill_Match_Reasons",
+            "Initial_Location_Policy", "Origin_Reset", "Default_Origin_Name", "Default_Origin_Latitude", "Default_Origin_Longitude"])
         captured = parse_datetime(snapshot.get("captured_at", ""))
         timestamp = captured.astimezone(MANILA).isoformat() if captured and captured.tzinfo else ""
         assignments = top[0].get("assignments") or []
         officers = {row["id"]: row for row in snapshot.get("officers", [])}
         published = run.publications.exists()
+        travel = snapshot.get("travel_time_model") or {}
+        origin = travel.get("default_origin") or {}
         legacy = not run.parameters.get("operational_date")
         target_date = run.parameters.get("operational_date") or (str(captured.astimezone(MANILA).date()) if captured and captured.tzinfo else "")
         for period in top[0].get("time_periods") or [None]:
@@ -66,5 +69,7 @@ class RecommendationExportView(APIView):
                     period["start_time"] if period else "", period["end_time"] if period else "",
                     requirement.get("required", ""), requirement.get("reason", ""), node.get("area_name", ""),
                     snapshot.get("skill_policy_version", ""), ";".join(node.get("preferred_skills") or []),
-                    skill_statuses, matched_skills, skill_reasons]])
+                    skill_statuses, matched_skills, skill_reasons,
+                    travel.get("initial_location_policy", ""), travel.get("origin_reset", ""), origin.get("name", ""),
+                    origin.get("latitude", ""), origin.get("longitude", "")]])
         return response

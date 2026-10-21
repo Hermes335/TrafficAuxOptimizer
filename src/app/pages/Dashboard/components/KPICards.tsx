@@ -20,7 +20,7 @@ export function KPICards({ metrics, weather, weatherLoading = false, deployedOff
     : !currentWeather ? hasFactor ? `Last observed factor ${factorLabel}. Current weather impact is unavailable.` : "No current weather impact reading."
     : hasFactor ? `Latest observation · ${source}${weatherLoading ? " · refreshing" : ""}` : "The latest weather observation has no impact factor.";
   return <RememberedDetails stateKey="dashboard.metrics" className="max-h-[45vh] shrink-0 overflow-y-auto border-b border-slate-200 bg-white px-4 py-2">
-    <summary className="cursor-pointer rounded text-sm font-medium text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500">Staffing &amp; weather details</summary>
+    <summary className="min-h-11 content-center cursor-pointer rounded text-sm font-medium text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500">Staffing &amp; weather details</summary>
     <div className="grid grid-cols-1 gap-3 pb-1 pt-3 sm:grid-cols-2 xl:grid-cols-4">
       <section className="rounded-lg border border-slate-200 p-3"><h2 className="text-sm font-medium text-slate-600">Shift staffing coverage</h2>
         <strong className="my-1 block text-xl font-semibold tabular-nums tracking-tight text-slate-900">{percent(metrics.coverageEfficiency)}</strong>

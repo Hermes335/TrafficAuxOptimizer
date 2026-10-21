@@ -260,12 +260,12 @@ export function OptimizationRunning() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              {status?.status === "completed" && (
+              {status?.status === "completed" && runId && (
                 <Link
-                  to="/gantt-chart"
+                  to={`/optimization-engine?run_id=${encodeURIComponent(runId)}`}
                   className="inline-flex items-center gap-2 rounded-lg bg-yellow-400 px-4 py-2 text-sm font-medium text-gray-900 hover:bg-yellow-500"
                 >
-                  Review Schedule
+                  Review recommendation
                   <ChevronLeft className="h-4 w-4 rotate-180" />
                 </Link>
               )}

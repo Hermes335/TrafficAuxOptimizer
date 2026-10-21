@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Database, ServerCog, ShieldAlert, Activity } from "lucide-react";
 import { LoadingState } from "../components/LoadingState";
+import { operationalDate, operationalTime } from "../services/operationalTime";
 import {
   fetchSystemHealthSnapshot,
   getApiBaseUrl,
@@ -50,8 +51,8 @@ export function Settings() {
     <div className="flex h-full flex-col gap-4 bg-gray-50 p-6">
       <div>
         <h1 className="text-2xl font-bold">System Health</h1>
-        <p className="text-sm text-gray-600">Runtime health and environment connectivity</p>
-        <button className="mt-2 rounded border px-3 py-1 text-sm" onClick={() => setRefreshKey(n => n + 1)}>Refresh health</button>
+        <p className="text-sm text-gray-600">Check service availability when data refreshes or recommendations are delayed.</p>
+        <button className="mt-2 min-h-11 rounded-lg border px-3 text-sm" onClick={() => setRefreshKey(n => n + 1)}>Refresh health</button>
       </div>
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -96,12 +97,18 @@ export function Settings() {
         <p>Backend version: {health.adminHealth.version ?? "unknown"} · Pending migrations: {health.adminHealth.pending_migrations ?? "unknown"}</p>
         {Object.entries(health.adminHealth.providers ?? {}).map(([name, provider]) => <p key={name}>{name}: {provider.status}
           {provider.age_seconds !== null && ` · ${Math.max(0, Math.round(provider.age_seconds / 60))} minutes old`}</p>)}
-        <p className="mt-1 text-xs text-gray-500">Last check: {health.adminHealth.timestamp}</p>
+        <p className="mt-1 text-xs text-gray-500">Last check: {Number.isFinite(Date.parse(health.adminHealth.timestamp)) ? `${operationalDate(new Date(health.adminHealth.timestamp))} · ${operationalTime(health.adminHealth.timestamp)} Manila` : "Unavailable"}</p>
       </div>}
 
-      <div className="rounded-xl border bg-white p-4">
-        <h2 className="mb-2 text-sm font-semibold text-gray-700">Environment</h2>
-        <div className="space-y-2 text-sm">
+      <section className="rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-950">
+        <h2 className="font-semibold">What to do if a task is delayed</h2>
+        <p className="mt-2">Use Refresh on the affected page and check the time of its latest reading. A successful server connection alone does not confirm that traffic or weather readings are fresh.</p>
+        <p className="mt-2">If a recommendation fails to start, ask your system administrator to check the worker and scheduler. Report persistent refresh or saving errors to your supervisor.</p>
+      </section>
+
+      {health?.adminHealth && <details className="rounded-xl border bg-white p-4">
+        <summary className="min-h-11 content-center cursor-pointer text-sm font-semibold text-gray-700">Technical connection details</summary>
+        <div className="mt-2 space-y-2 text-sm [overflow-wrap:anywhere]">
           <div className="rounded bg-gray-50 p-2">
             <span className="font-medium text-gray-700">Backend Base URL: </span>
             <span className="text-gray-600">{getApiBaseUrl()}</span>
@@ -111,7 +118,7 @@ export function Settings() {
             <span className="text-gray-600">/api/admin/system-health/</span>
           </div>
         </div>
-      </div>
+      </details>}
 
       {loading && <LoadingState label="Loading system status..." />}
       {!loading && error && <LoadingState error={error} />}
@@ -122,7 +129,7 @@ export function Settings() {
             <ShieldAlert className="h-4 w-4" />
             Admin access required
           </div>
-          <p>System health details are protected by backend admin permissions.</p>
+          <p>Detailed service diagnostics are available to administrators. Share the affected task and its error message with your supervisor if the issue continues.</p>
         </div>
       )}
     </div>

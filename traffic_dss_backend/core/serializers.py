@@ -38,6 +38,9 @@ class BottleneckSerializer(serializers.ModelSerializer):
         high = data.get("max_officers_allowed", getattr(self.instance, "max_officers_allowed", 5))
         if high < low:
             raise serializers.ValidationError({"max_officers_allowed": "Capacity must be at least the normal minimum staffing."})
+        signal = data.get("signal_status", getattr(self.instance, "signal_status", "unknown"))
+        if signal == "working" and high < 1:
+            raise serializers.ValidationError({"max_officers_allowed": "Working traffic lights require capacity for at least 1 officer."})
         from .staffing import validate_staffing_periods
         periods = data.get("staffing_periods", getattr(self.instance, "staffing_periods", []))
         try:
@@ -74,6 +77,26 @@ class OfficerSerializer(serializers.ModelSerializer):
     current_latitude = FiniteFloatField(required=False, allow_null=True, min_value=-90, max_value=90)
     current_longitude = FiniteFloatField(required=False, allow_null=True, min_value=-180, max_value=180)
 
+    def _stamp_location(self, validated_data):
+        from .officer_locations import valid_coordinates
+
+        # A roster edit is not a location observation. Only explicit coordinate
+        # submissions can establish when the saved planning position was recorded.
+        if "current_latitude" not in validated_data and "current_longitude" not in validated_data:
+            return validated_data
+        latitude = validated_data.get("current_latitude", getattr(self.instance, "current_latitude", None))
+        longitude = validated_data.get("current_longitude", getattr(self.instance, "current_longitude", None))
+        validated_data["current_location_recorded_at"] = (
+            timezone.now() if valid_coordinates(latitude, longitude) else None
+        )
+        return validated_data
+
+    def create(self, validated_data):
+        return super().create(self._stamp_location(validated_data))
+
+    def update(self, instance, validated_data):
+        return super().update(instance, self._stamp_location(validated_data))
+
     def validate_skills(self, value):
         if not isinstance(value, list) or any(not isinstance(tag, str) for tag in value):
             raise serializers.ValidationError("Provide skills as a list of text labels.")
@@ -106,7 +129,7 @@ class OfficerSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Officer
-        read_only_fields = ["is_deleted"]
+        read_only_fields = ["is_deleted", "current_location_recorded_at"]
         fields = [
             "id",
             "name",
@@ -116,6 +139,7 @@ class OfficerSerializer(serializers.ModelSerializer):
             "skills",
             "current_latitude",
             "current_longitude",
+            "current_location_recorded_at",
             "created_at",
             "updated_at",
             "is_deleted",
@@ -151,10 +175,16 @@ class OptimizationHistorySerializer(serializers.ModelSerializer):
     result_data = serializers.SerializerMethodField()
     fitness_scores = serializers.SerializerMethodField()
     generations_completed = serializers.SerializerMethodField()
+    publication_state = serializers.SerializerMethodField()
 
     class Meta:
         model = OptimizationRun
-        fields = ["id", "run_id", "timestamp", "updated_at", "status", "parameters", "result_data", "fitness_scores", "generations_completed", "created_by"]
+        fields = ["id", "run_id", "timestamp", "updated_at", "status", "parameters", "result_data", "fitness_scores", "generations_completed", "created_by", "publication_state"]
+
+    def get_publication_state(self, run):
+        from deployments.provenance import PublicationProvenance
+        provenance = self.context.get("publication_provenance")
+        return (provenance or PublicationProvenance(runs=[run])).for_run(run)
 
     def get_result_data(self, run):
         result = run.result_data if isinstance(run.result_data, dict) else {}

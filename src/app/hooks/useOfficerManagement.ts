@@ -30,6 +30,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
   const [deletingOfficerId, setDeletingOfficerId] = usePageState<number | null>("rosterForm.deletingOfficerId", null);
   const [officerError, setOfficerError] = usePageState<string | null>("rosterForm.error", null);
   const [officerNotice, setOfficerNotice] = usePageState<string | null>("rosterForm.notice", null);
+  const [addedOfficer, setAddedOfficer] = usePageState<{name: string; badge: string} | null>("rosterForm.addedOfficer", null);
   const [editBaseline, setEditBaseline] = usePageState("rosterForm.editBaseline", blankOfficerForm);
   const officerFormDirty = (addingOfficer || editingOfficerId !== null)
     && officerFormSnapshot(officerName, officerBadge, officerShift, officerStatus, officerSkills) !== editBaseline;
@@ -92,6 +93,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
         status: officerStatus,
         skills,
       });
+      setAddedOfficer({name: officerName.trim(), badge: officerBadge.trim()});
       resetOfficerForm();
       setAddingOfficer(false);
       setOfficerNotice("Officer added successfully.");
@@ -140,6 +142,8 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
         status: officerStatus,
         skills,
       });
+      // A later edit may change the saved badge used by the creation shortcut.
+      setAddedOfficer(null);
       setEditingOfficerId(null);
       resetOfficerForm();
       setOfficerNotice("Officer updated successfully.");
@@ -161,6 +165,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
     setOfficerNotice(null);
     try {
       await deleteDashboardOfficer(officerId);
+      if (addedOfficer?.badge === badge) setAddedOfficer(null);
       if (editingOfficerId === officerId) {
         setEditingOfficerId(null);
         resetOfficerForm();
@@ -190,6 +195,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
     deletingOfficerId,
     officerError, setOfficerError,
     officerNotice, setOfficerNotice,
+    addedOfficer, setAddedOfficer,
     officerFormDirty,
     officerFieldErrors,
     startAddingOfficer,

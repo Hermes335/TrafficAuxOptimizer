@@ -104,7 +104,7 @@ All 7 bottlenecks are on major roads with verified TomTom traffic flow data.
 |---|---|---|
 | Traffic flow (TSI) | TomTom API | Every 5 minutes |
 | Weather (WIF) | OpenMeteo API | Every 15 minutes |
-| Officer locations | Manual entry or GPS | Per shift |
+| Officer planning origins | Recent same-day recorded post, same-day saved coordinates, otherwise assumed TTMO HQ; no live GPS | Reset by Manila operational date |
 | Incident reports | Dashboard or API | As needed |
 | POI data | OpenStreetMap import | Static (already imported) |
 
@@ -362,7 +362,7 @@ print(f'{b.name}: TSI={b.tsi}, updated={b.updated_at}')
 
 - Check Redis is running: `redis-cli ping`
 - Check Celery worker logs for errors
-- Verify officer data has GPS coordinates
+- Check the saved starting-location assumptions: recent same-day post, same-day recorded coordinates, or assumed TTMO HQ. The app does not verify live officer locations or arrivals.
 
 ### Publish Schedule Fails
 

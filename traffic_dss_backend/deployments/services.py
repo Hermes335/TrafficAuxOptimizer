@@ -84,7 +84,8 @@ def assignment_snapshot(row):
     return {"deployment_id": row.pk, "officer_id": row.officer_id, "officer_name": row.officer.name,
             "badge_number": row.officer.badge_number, "bottleneck_id": row.bottleneck_id,
             "bottleneck_name": row.bottleneck.name, "start_time": row.start_time.isoformat(),
-            "end_time": row.end_time.isoformat(), "status": row.status, "source": row.source, "override_reason": row.override_reason}
+            "end_time": row.end_time.isoformat(), "status": row.status, "source": row.source,
+            "assignment_type": row.assignment_type, "override_reason": row.override_reason}
 
 
 def validate_entries(entries, excluded_ids, nodes, officers, preserved=()):
@@ -157,6 +158,7 @@ def save_assignment(actor, payload, deployment_id=None):
             raise ScheduleConflict("This assignment changed. Refresh the Gantt chart and try again.")
         defaults = {k: getattr(old, k) for k in ["shift", "start_time", "end_time", "assignment_type", "status"]}
         payload = {**defaults, "officer": old.officer_id, "bottleneck": old.bottleneck_id, **payload}
+    before_snapshot = assignment_snapshot(old) if old else None
     serializer = AssignmentInput(data=payload)
     serializer.is_valid(raise_exception=True)
     if serializer.validated_data["status"] == "assigned" and serializer.validated_data["start_time"] < now:
@@ -213,7 +215,9 @@ def save_assignment(actor, payload, deployment_id=None):
     candidate.save()
     sync_officer_status()
     schedule_event(actor, "update" if old else "create", {"deployment_id": candidate.pk,
-        "override_reason": candidate.override_reason, "staffing_deviations": deviations})
+        "override_reason": candidate.override_reason, "staffing_deviations": deviations,
+        "previous_assignment": before_snapshot, "assignment": assignment_snapshot(candidate),
+        "preserved_assignments": [assignment_snapshot(old)] if old and preserved else []})
     return candidate
 
 
@@ -261,8 +265,9 @@ def validate_planning_origins(snapshot, candidates, cutover, now):
     first = {}
     for candidate in sorted(candidates, key=lambda row: row.start_time):
         first.setdefault(candidate.officer_id, candidate)
+    day_start = cutover.astimezone(MANILA).replace(hour=0, minute=0, second=0, microsecond=0)
     sources = Deployment.objects.filter(is_deleted=False, status__in=["assigned", "completed"],
-        officer_id__in=first, start_time__lte=now, end_time__gte=now-timedelta(hours=2)
+        officer_id__in=first, start_time__gte=day_start, start_time__lte=now, end_time__gte=now-timedelta(hours=2)
         ).select_related("bottleneck").order_by("officer_id", "-start_time", "-pk")
     checked = set()
     wif = float((snapshot.get("weather") or {}).get("impact_factor") or 1)
@@ -431,7 +436,7 @@ def publish(actor, payload, preview=False):
         for moment in sorted(moments)[:-1]:
             count = sum(d.start_time <= moment < d.end_time for d in rows)
             required = required_staffing(node, node.publication_incidents, moment)
-            if count < required or (timed and count > required):
+            if count < required or ((timed or node.signal_status in {"working", "out_of_order"}) and count > required):
                 gaps.append(f"{node.name} at {moment.astimezone(MANILA):%H:%M}: {count} proposed / {required} required.")
     if gaps:
         raise ScheduleConflict({"detail": "Current staffing requirements are not met. Re-run optimization.", "staffing_gaps": gaps})
@@ -446,7 +451,7 @@ def publish(actor, payload, preview=False):
         "operational_date": first["start_time"].astimezone(MANILA).date(), "created": len(candidates), "skipped": [],
         "staff_added": sorted(set(d.officer_id for d in candidates) - set(d.officer_id for d in old)),
         "staff_removed": sorted(set(d.officer_id for d in old) - set(d.officer_id for d in candidates)),
-        "replaced": len(old), "conflicts": [], "expected_revision": version,
+        "replaced": len(old), "replace_existing": replace, "conflicts": [], "expected_revision": version,
         "captured_at": snapshot.get("captured_at"), "input_issues": issues, "skill_warnings": skill_warnings,
         "time_periods": solutions[0].get("time_periods", []),
         "added_assignments": [d for d in after_rows if (d["officer_id"], d["bottleneck_id"], d["start_time"], d["end_time"]) not in old_pairs],

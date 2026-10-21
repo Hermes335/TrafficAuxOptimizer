@@ -6,6 +6,7 @@ import { LoadingState } from "./components/LoadingState";
 import { RouteErrorBoundary } from "./components/RouteErrorBoundary";
 import { ProtectedRoute } from "./components/ProtectedRoute";
 import { AuthRedirect } from "./components/AuthRedirect";
+import { RouteAccessibility } from "./components/RouteAccessibility";
 
 // Lazy load all pages for better startup performance
 const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
@@ -32,6 +33,7 @@ const PageLoader = ({ Component }: { Component: React.ComponentType }) => {
 };
 
 export const router = createBrowserRouter([
+  { element: <RouteAccessibility />, children: [
   // Public routes
   {
     path: "/incident-report",
@@ -76,4 +78,5 @@ export const router = createBrowserRouter([
     path: "*",
     element: <Navigate to="/login" replace />,
   },
+  ] },
 ]);

@@ -18,6 +18,7 @@ import { useMapMarkers } from "../hooks/useMapMarkers";
 import { useMapAssignmentLines } from "../hooks/useMapAssignmentLines";
 import { useIncidentMapPreview } from "../hooks/useIncidentMapPreview";
 import { ReportLocationPreview } from "./Dashboard/components/ReportLocationPreview";
+import { DashboardServiceImpact } from "./Dashboard/components/DashboardServiceImpact";
 import { getRelativeCongestionSeverity, congestionTone, computeRelativeThresholds } from "../types/severity";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "../components/ui/alert-dialog";
@@ -333,9 +334,11 @@ export function Dashboard() {
         </div>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
           <span className="hidden lg:inline">Map: staffing now · Coverage: selected shift</span>
+          <DashboardServiceImpact loadError={data.loadError} weatherError={data.weatherError} weather={weatherSnapshot}
+            weatherLoading={data.weatherLoading} trafficReadings={data.trafficReadings} trafficTileError={map.trafficError}
+            lastRefresh={data.lastRefresh} selectedShift={selectedShift} canOptimize={canManage} />
           <span role="status" className="flex items-center gap-1.5"><span className={`h-1.5 w-1.5 rounded-full ${data.lastRefresh && data.connectionState === "live" ? "bg-emerald-500" : "bg-amber-500"}`} />{!data.lastRefresh ? "Loading operations…" : `${data.connectionState === "live" ? "Live" : data.connectionState} · Updated ${new Date(data.lastRefresh).toLocaleTimeString("en-PH", {timeZone:"Asia/Manila", hour:"2-digit", minute:"2-digit"})}`}</span>
         </div>
-        {data.loadError && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-800">{data.loadError}</p>}
         {data.bottleneckActionError && !ba.editingBottleneckId && <p role="alert" className="mt-2 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-800">{data.bottleneckActionError}</p>}
       </div>
       <div role="group" aria-label="Dashboard view" className="grid shrink-0 grid-cols-3 gap-1 border-b border-slate-200 bg-white p-2 xl:hidden">
@@ -363,7 +366,7 @@ export function Dashboard() {
             </div>
             <input type="text" aria-label="Filter bottlenecks by name or ID" placeholder="Filter by name or ID..." value={filterTerm} onChange={(e) => setFilterTerm(e.target.value)} className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder:text-gray-400" />
             <RememberedDetails stateKey="dashboard.filters" className="mt-3 border-t border-slate-100 pt-2">
-              <summary className="cursor-pointer text-xs font-medium text-slate-600">Congestion legend</summary>
+              <summary className="min-h-11 cursor-pointer content-center text-xs font-medium text-slate-600">Congestion legend</summary>
               <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-600">
                 <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />Free (&lt;{Math.round(severityThresholds.p25 * 100)}%)</div>
                 <div className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-yellow-500" />Moderate ({Math.round(severityThresholds.p25 * 100)}-{Math.round(severityThresholds.p50 * 100)}%)</div>
@@ -402,10 +405,10 @@ export function Dashboard() {
                           isDangerous
                           disabled={!canManage || markerActionsBusy}
                           onConfirm={() => markerActionsBusy ? Promise.resolve() : ba.onDeleteBottleneck(item.id)}
-                          trigger={<button aria-label="Remove bottleneck" disabled={!canManage || markerActionsBusy} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /></button>}
+                          trigger={<button aria-label={`Remove bottleneck ${item.name} (${item.id})`} disabled={!canManage || markerActionsBusy} className="grid h-11 w-11 place-items-center rounded text-slate-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"><Trash2 className="h-3.5 w-3.5" /></button>}
                         />
                       </div>
-                      <button disabled={!canManage || markerActionsBusy || hasReportPreview} title={hasReportPreview ? "Close report preview to edit a bottleneck" : undefined} aria-label="Edit bottleneck" onClick={(e) => { e.stopPropagation(); editBottleneck(item.id); }} className="grid h-8 w-8 place-items-center rounded text-slate-500 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50"><Pencil className="h-3.5 w-3.5" /></button>
+                      <button disabled={!canManage || markerActionsBusy || hasReportPreview} title={hasReportPreview ? "Close report preview to edit a bottleneck" : undefined} aria-label={`Edit bottleneck ${item.name} (${item.id})`} onClick={(e) => { e.stopPropagation(); editBottleneck(item.id); }} className="grid h-11 w-11 place-items-center rounded text-slate-500 hover:bg-blue-50 hover:text-blue-600 disabled:opacity-50"><Pencil className="h-3.5 w-3.5" /></button>
                     </div>
                   </div>
                 </div>
@@ -469,6 +472,10 @@ export function Dashboard() {
                 editPickFromMap={ba.editPickFromMap} setEditPickFromMap={ba.setEditPickFromMap}
                 onSave={ba.onSaveEditedBottleneck}
                 onClose={() => withEditDiscard(closeBottleneckEdit)}
+                onFocusMap={() => {
+                  map.mapContainerRef.current?.scrollIntoView?.({block: "center"});
+                  map.mapRef.current?.getCanvas().focus();
+                }}
                 savingEditBottleneck={ba.savingEditBottleneck}
               />
             )}
@@ -479,7 +486,7 @@ export function Dashboard() {
           <MapControls map={map.mapRef.current} />
           {hasReportPreview && <ReportLocationPreview preview={reportPreview} onClose={closeReportPreview} />}
           {pois.length > 0 && !hasReportPreview && <RememberedDetails stateKey="dashboard.poiLegend" aria-label="Point of interest marker legend" className="absolute bottom-3 left-3 z-10 max-w-[calc(100%-5rem)] rounded-lg border border-slate-200 bg-white/95 px-3 py-2 shadow-sm">
-            <summary className="cursor-pointer text-xs font-medium text-slate-700">Points of interest</summary>
+            <summary className="min-h-11 cursor-pointer content-center text-xs font-medium text-slate-700">Points of interest</summary>
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
               {poiCategories.map(item => <button key={item.value} aria-pressed={!hiddenPoiCategories.includes(item.value)}
                 aria-label={`Show ${item.label} markers`} onClick={() => setHiddenPoiCategories(previous => previous.includes(item.value) ? previous.filter(value => value !== item.value) : [...previous, item.value])}

@@ -1,10 +1,11 @@
-import { useState, useEffect } from "react";
-import { useNavigate } from "react-router";
+import { useState, useEffect, useRef } from "react";
+import { Link, useLocation, useNavigate } from "react-router";
 import { useAuth } from "../contexts/AuthContext";
 import { LoadingState } from "../components/LoadingState";
 import { Eye, EyeOff, Shield, AlertTriangle, LogIn, MapPin, CheckCircle2 } from "lucide-react";
 import { fetchDashboardKpis, fetchDashboardSnapshot } from "../services/backend";
 import { LoginError } from "../services/loginErrors";
+import { loginDestination } from "../services/loginDestination";
 
 type LoginStats = {
   deployedOfficers: number | null;
@@ -19,8 +20,12 @@ const fallbackStats: LoginStats = {
 };
 
 export function Login() {
-  const { login, logout, isAuthenticated, isLoading: authLoading, error, clearError } = useAuth();
+  const { login, logout, user, isAuthenticated, isLoading: authLoading, error, clearError } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const usernameRef = useRef<HTMLInputElement>(null);
+  const passwordRef = useRef<HTMLInputElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -30,6 +35,8 @@ export function Login() {
   const [lockedUntil, setLockedUntil] = useState<Date | null>(null);
   const [sessionWarning, setSessionWarning] = useState<string | null>(null);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [errorField, setErrorField] = useState<"username" | "password" | "credentials" | null>(null);
+  const [showPasswordHelp, setShowPasswordHelp] = useState(false);
   const [stats, setStats] = useState<LoginStats>(fallbackStats);
 
   const displayError = localError || error;
@@ -61,15 +68,23 @@ export function Login() {
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated && !authLoading) {
-      navigate("/");
+      navigate(loginDestination(location.state, user?.role), { replace: true });
     }
-  }, [isAuthenticated, authLoading, navigate]);
+  }, [isAuthenticated, authLoading, location.state, user?.role, navigate]);
 
   // Clear errors on input change
   useEffect(() => {
     setLocalError(null);
+    setErrorField(null);
     clearError();
   }, [username, password, clearError]);
+
+  useEffect(() => {
+    if (!displayError || isSubmitting) return;
+    if (errorField === "username") usernameRef.current?.focus();
+    else if (errorField === "password") passwordRef.current?.focus();
+    else errorRef.current?.focus();
+  }, [displayError, errorField, isSubmitting]);
 
   // Check lockout
   useEffect(() => {
@@ -122,27 +137,32 @@ export function Login() {
     }
 
     if (!username.trim()) {
+      setErrorField("username");
       setLocalError("Username or badge number is required.");
+      usernameRef.current?.focus();
       return;
     }
 
     if (!password) {
+      setErrorField("password");
       setLocalError("Password is required.");
+      passwordRef.current?.focus();
       return;
     }
 
     setIsSubmitting(true);
     setLocalError(null);
+    setErrorField(null);
 
     try {
       await login(username.trim(), password);
-      navigate("/");
     } catch (failure) {
       if (!(failure instanceof LoginError) || failure.kind !== "credentials") {
         setLocalError(failure instanceof Error ? failure.message : "Sign-in failed. Please try again.");
         return;
       }
       const newAttempts = loginAttempts + 1;
+      setErrorField("credentials");
       setLoginAttempts(newAttempts);
 
       if (newAttempts >= 5) {
@@ -158,7 +178,7 @@ export function Login() {
   };
 
   const handleForgotPassword = () => {
-    setLocalError("Password recovery: Contact your administrator for password reset.");
+    setShowPasswordHelp(value => !value);
   };
 
   if (authLoading) {
@@ -259,11 +279,14 @@ export function Login() {
                 <input
                   type="text"
                   id="username"
+                  ref={usernameRef}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder="Enter your username or badge number"
                   className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-700 placeholder:text-slate-400 focus:border-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-500/20"
                   autoComplete="username"
+                  aria-invalid={!!displayError && (errorField === "username" || errorField === "credentials")}
+                  aria-describedby={displayError && (errorField === "username" || errorField === "credentials") ? "login-error" : undefined}
                   disabled={isSubmitting || !!lockedUntil}
                 />
               </div>
@@ -276,7 +299,9 @@ export function Login() {
                   <button
                     type="button"
                     onClick={handleForgotPassword}
-                    className="text-xs font-medium text-amber-800 hover:text-amber-900"
+                    aria-expanded={showPasswordHelp}
+                    aria-controls="password-help"
+                    className="inline-flex min-h-11 items-center text-xs font-medium text-amber-800 hover:text-amber-900"
                   >
                     Forgot password?
                   </button>
@@ -285,26 +310,36 @@ export function Login() {
                   <input
                     type={showPassword ? "text" : "password"}
                     id="password"
+                    ref={passwordRef}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter your password"
                     className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 pr-11 text-sm text-slate-700 placeholder:text-slate-400 focus:border-yellow-500 focus:outline-none focus:ring-2 focus:ring-yellow-500/20"
                     autoComplete="current-password"
+                    aria-invalid={!!displayError && (errorField === "password" || errorField === "credentials")}
+                    aria-describedby={displayError && (errorField === "password" || errorField === "credentials") ? "login-error" : undefined}
                     disabled={isSubmitting || !!lockedUntil}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-600"
+                    className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 hover:text-slate-600"
                     aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-pressed={showPassword}
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
               </div>
 
+              {showPasswordHelp && (
+                <div id="password-help" role="status" className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  Ask your office administrator to reset your password. Provide your username or badge number through your office’s usual support channel. Do not share your current password.
+                </div>
+              )}
+
               {displayError && (
-                <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <div id="login-error" ref={errorRef} role="alert" tabIndex={-1} className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                   <AlertTriangle className="mr-2 inline h-4 w-4" />
                   {displayError}
                 </div>
@@ -336,6 +371,10 @@ export function Login() {
               </button>
 
             </form>
+
+            <Link to="/incident-report" className="mt-5 flex min-h-11 items-center justify-center rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">
+              Report a traffic incident — no sign-in needed
+            </Link>
 
             <p className="mt-8 text-center text-xs leading-6 text-slate-400">
               Authorized personnel only. All access is logged

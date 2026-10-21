@@ -35,7 +35,7 @@ function renderReport(path = "/incident-report") {
 }
 async function fillReport() {
   await screen.findByRole("button", {name:"Collision"});
-  await waitFor(() => expect(screen.getByRole("button", {name:"Submit report"})).toHaveProperty("disabled",false));
+  await waitFor(() => expect(screen.getByRole("button", {name: auth.isAuthenticated ? "Create active incident" : "Submit report"})).toHaveProperty("disabled",false));
   fireEvent.change(screen.getByLabelText("Or choose a known intersection"), {target:{value:"B-1"}});
   fireEvent.change(screen.getByLabelText(/Description/), {target:{value:"A flooded lane near the intersection."}});
 }
@@ -71,6 +71,20 @@ describe("public incident report", () => {
     fireEvent.click(screen.getByRole("button", {name:"Submit report"}));
     await screen.findByText("INC-70");
     expect(reporting.submitIncidentReport).toHaveBeenCalledWith(expect.objectContaining({bottleneck:"B-1",latitude:10.72,longitude:122.56}));
+  });
+
+  it("copies the receipt reference and explains clipboard failures without resubmitting", async () => {
+    const writeText = vi.fn().mockRejectedValueOnce(new Error("Clipboard denied")).mockResolvedValueOnce(undefined);
+    Object.defineProperty(navigator, "clipboard", {configurable: true, value: {writeText}});
+    renderReport(); await fillReport();
+    fireEvent.click(screen.getByRole("button", {name: "Submit report"}));
+    await screen.findByRole("heading", {name: "Report received for review"});
+    fireEvent.click(screen.getByRole("button", {name: "Copy reference"}));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("copy it manually"));
+    fireEvent.click(screen.getByRole("button", {name: "Copy reference"}));
+    await screen.findByRole("button", {name: "Reference copied"});
+    expect(writeText).toHaveBeenLastCalledWith("INC-70");
+    expect(reporting.submitIncidentReport).toHaveBeenCalledTimes(1);
   });
 
   it.each(["rejected", "resolved", "archived", "investigating"])("shows the actual %s status of a report already reviewed before a retry", async status => {
@@ -143,7 +157,8 @@ describe("public incident report", () => {
     vi.mocked(reporting.submitIncidentReport).mockResolvedValue({id:70,reference:"INC-70",status:"active"});
     renderReport(); await fillReport();
     expect(screen.getByRole("link", {name:"Dashboard"})).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", {name:"Submit report"}));
+    expect(screen.getByText(/Staff report .* becomes active immediately/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", {name:"Create active incident"}));
     await screen.findByRole("heading", {name:"Incident reported"});
   });
 

@@ -7,7 +7,7 @@ import * as backend from "../app/services/backend";
 
 vi.mock("../app/services/backend", async original => ({
   ...await original<typeof import("../app/services/backend")>(),
-  fetchOptimizationConfig: vi.fn(), fetchOptimizationReadiness: vi.fn(), fetchOptimizationHistory: vi.fn(),
+  subscribeToDashboardStream: vi.fn(() => () => {}), fetchOptimizationConfig: vi.fn(), fetchOptimizationReadiness: vi.fn(), fetchOptimizationHistory: vi.fn(),
   fetchDashboardSnapshot: vi.fn(), fetchCurrentWeather: vi.fn(), fetchPOIs: vi.fn(),
 }));
 
@@ -55,6 +55,7 @@ it("waits for readiness, shows advisory freshness without blocking, and preserve
   const summary = screen.getByRole("region", {name: "Run readiness"});
   expect(within(summary).getByText(/Traffic inputs are stale/)).toBeTruthy();
   expect(within(summary).getByText("Eligible officers").parentElement?.textContent).toBe("Eligible officers5");
+  expect(within(summary).queryByText("Assumed HQ origins")).toBeNull();
   expect(within(summary).getByText("School junction").parentElement?.textContent).toContain("stale");
   expect(screen.getByLabelText("Coverage weight")).toHaveProperty("value", "35");
   expect(screen.getByLabelText("Estimated travel weight")).toHaveProperty("value", "25");
@@ -65,6 +66,67 @@ it("waits for readiness, shows advisory freshness without blocking, and preserve
   fireEvent.click(screen.getByRole("button", {name: "Run Optimization"}));
   expect(screen.getByLabelText("Current route").textContent).toContain("/optimization-running?");
   expect(screen.getByLabelText("Current route").textContent).toContain("tsi_weight=0.35");
+});
+
+it.each([0, 3])("shows %i assumed HQ origins only when reported by readiness", async assumed => {
+  vi.mocked(backend.fetchOptimizationReadiness).mockImplementation(async request => {
+    const value = readiness(request);
+    return {...value, summary: {...value.summary, missing_officer_locations: 0, assumed_hq_origins: assumed}};
+  });
+  renderPage();
+  await screen.findByText("Ready to generate a recommendation.");
+  const summary = within(screen.getByRole("region", {name: "Run readiness"}));
+  expect(summary.getByText("Assumed HQ origins").parentElement?.textContent).toBe(`Assumed HQ origins${assumed}`);
+  expect(summary.getByText("Missing recorded locations").parentElement?.textContent).toBe("Missing recorded locations0");
+  if (assumed > 0) expect(summary.getByText(/planning assumptions, not confirmed GPS positions/)).toBeTruthy();
+  else expect(summary.queryByText(/planning assumptions, not confirmed GPS positions/)).toBeNull();
+});
+
+it("identifies saved runs by planning context and does not compare unrelated run scores", async () => {
+  const savedRun = (id: number, parameters: Record<string, unknown>, fitness: number): backend.OptimizationHistoryItem => ({
+    id, run_id: `saved-${id}`, timestamp: "2026-10-21T00:00:00+08:00", parameters,
+    fitness_scores: [fitness], result_data: {best_fitness: fitness}, status: "completed", created_by: 1, generations_completed: 1,
+  });
+  vi.mocked(backend.fetchOptimizationHistory).mockResolvedValue({count: 2, next: null, results: [
+    savedRun(1, {operational_date: "2099-01-05", shift: "afternoon", mode: "shadow", session_id: "Lapaz field comparison"}, 92),
+    savedRun(2, {operational_date: "2099-01-04", shift: "morning", mode: "operational"}, 89),
+  ]});
+  renderPage();
+  const history = within(await screen.findByRole("list", {name: "Optimization run history"}));
+  expect(history.getByText("2099-01-05 · Afternoon")).toBeTruthy();
+  expect(history.getByText("Shadow comparison · Lapaz field comparison")).toBeTruthy();
+  expect(history.getByText("2099-01-04 · Morning")).toBeTruthy();
+  expect(history.getByText("Operational deployment")).toBeTruthy();
+  expect(history.queryByTitle("Change from the previous run on this page")).toBeNull();
+  fireEvent.click(history.getByRole("link", {name: "View run saved-1"}));
+  expect(screen.getByLabelText("Current route").textContent).toBe("/optimization-engine?run_id=saved-1");
+});
+
+it("refreshes persisted publication badges in history and preserves readable history when refreshing fails", async () => {
+  const state = (value: backend.RunPublicationState["state"]): backend.RunPublicationState => ({
+    state: value, run_id: "saved-publication", publication_count: value === "unpublished" ? 0 : 1,
+    revision_id: 17, operational_date: "2099-01-05", shift: "afternoon", published_at: null,
+    published_by: null, effective_start: null, effective_end: null, replacing_run_ids: [], manual_changes: false, message: value,
+  });
+  const row: backend.OptimizationHistoryItem = {id: 17, run_id: "saved-publication", timestamp: "2099-01-05T14:00:00+08:00",
+    parameters: {operational_date: "2099-01-05", shift: "afternoon", mode: "operational"}, fitness_scores: [], result_data: {}, status: "completed", created_by: 1};
+  vi.mocked(backend.fetchOptimizationHistory)
+    .mockResolvedValueOnce({count: 1, next: null, results: [{...row, publication_state: state("unpublished")} ]})
+    .mockResolvedValueOnce({count: 1, next: null, results: [{...row, publication_state: state("published")} ]})
+    .mockRejectedValueOnce(new Error("History service unavailable"))
+    .mockResolvedValue({count: 1, next: null, results: [{...row, publication_state: state("replaced")} ]});
+  renderPage();
+  const history = within(await screen.findByRole("list", {name: "Optimization run history"}));
+  await history.findByText("Unpublished");
+  act(() => window.dispatchEvent(new Event("deployment-publication-changed")));
+  await history.findByText("Published");
+  act(() => window.dispatchEvent(new Event("deployment-publication-changed")));
+  await history.findByText("Publication status unavailable");
+  expect(history.getByRole("link", {name: "View run saved-publication"})).toBeTruthy();
+  expect(history.queryByText("Published")).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "Retry history refresh"}));
+  await history.findByText("Replaced");
+  expect(screen.queryByText(/Run history could not be refreshed/)).toBeNull();
 });
 
 it("blocks impossible runs and refreshes readiness before allowing another start", async () => {

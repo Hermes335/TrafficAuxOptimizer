@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, expect, it, vi } from "vitest";
+import { useState } from "react";
 import { PageStateProvider } from "../app/contexts/PageStateContext";
 import { OfficerManagement } from "../app/pages/OfficerManagement";
 import * as backend from "../app/services/backend";
@@ -48,7 +49,7 @@ it("keeps search and filters together, resets pagination, and clears all filters
   expect(screen.getByRole("heading", {name: "Officer Management", level: 1})).toBeTruthy();
   expect(screen.getByLabelText("Search officers")).toHaveProperty("placeholder", "Search name or badge");
   expect(screen.getByText("First aid")).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", {name: "Next page"}));
+  fireEvent.click(within(screen.getByRole("navigation", {name: "Officer pagination above roster"})).getByRole("button", {name: "Next page"}));
   await waitFor(() => expect(backend.fetchOfficersPage).toHaveBeenLastCalledWith(2, "", "all", "all"));
   fireEvent.change(screen.getByLabelText("Status filter"), {target: {value: "available"}});
   await waitFor(() => expect(backend.fetchOfficersPage).toHaveBeenLastCalledWith(1, "", "available", "all"));
@@ -60,7 +61,26 @@ it("keeps search and filters together, resets pagination, and clears all filters
   expect(screen.getByLabelText("Search officers")).toHaveProperty("value", "");
   expect(screen.getByLabelText("Status filter")).toHaveProperty("value", "all");
   expect(screen.getByLabelText("Shift filter")).toHaveProperty("value", "all");
-  expect(screen.getByRole("button", {name: "Previous page"})).toHaveProperty("disabled", true);
+  expect(within(screen.getByRole("navigation", {name: "Officer pagination above roster"})).getByRole("button", {name: "Previous page"})).toHaveProperty("disabled", true);
+});
+
+it("keeps the top and bottom page controls synchronized while preserving roster filters", async () => {
+  vi.mocked(backend.fetchOfficersPage).mockImplementation(async currentPage => page(currentPage === 1 ? [alpha] : [beta], 26));
+  await roster();
+  const above = within(screen.getByRole("navigation", {name: "Officer pagination above roster"}));
+  const below = within(screen.getByRole("navigation", {name: "Officer pagination below roster"}));
+  fireEvent.change(screen.getByLabelText("Shift filter"), {target: {value: "morning"}});
+  await waitFor(() => expect(backend.fetchOfficersPage).toHaveBeenLastCalledWith(1, "", "all", "morning"));
+  fireEvent.click(above.getByRole("button", {name: "Next page"}));
+  await screen.findByRole("button", {name: "Edit Officer Beta"});
+  expect(above.getByRole("button", {name: "Go to page 2"}).getAttribute("aria-current")).toBe("page");
+  expect(below.getByRole("button", {name: "Go to page 2"}).getAttribute("aria-current")).toBe("page");
+  expect(below.getByRole("button", {name: "Next page"})).toHaveProperty("disabled", true);
+  fireEvent.click(below.getByRole("button", {name: "Previous page"}));
+  await screen.findByRole("button", {name: "Edit Officer Alpha"});
+  expect(backend.fetchOfficersPage).toHaveBeenLastCalledWith(1, "", "all", "morning");
+  expect(above.getByRole("button", {name: "Go to page 1"}).getAttribute("aria-current")).toBe("page");
+  expect(below.getByRole("button", {name: "Go to page 1"}).getAttribute("aria-current")).toBe("page");
 });
 
 it("does not replace a newer search result when an older request finishes late", async () => {
@@ -100,6 +120,63 @@ it("creates an officer from the labelled editor and preserves a failed draft for
   fireEvent.click(screen.getByRole("button", {name: "Create Officer"}));
   await waitFor(() => expect(screen.queryByLabelText(/^Officer name/)).toBeNull());
   expect(backend.createDashboardOfficer).toHaveBeenCalledTimes(2);
+});
+
+it("retains a created-officer shortcut across navigation and only changes filters when View officer is chosen", async () => {
+  const gamma: backend.DashboardOfficerRecord = {...beta, id: 3, name: "Officer Gamma", badge_number: "GAMMA"};
+  vi.mocked(backend.fetchOfficersPage).mockImplementation(async (_page, search) => page(search === "GAMMA" ? [gamma] : [alpha]));
+  const pending = deferred<void>();
+  vi.mocked(backend.createDashboardOfficer).mockReturnValueOnce(pending.promise);
+  function NavigableRoster() {
+    const [away, setAway] = useState(false);
+    return <PageStateProvider><button onClick={() => setAway(value => !value)}>Navigate</button>{!away && <OfficerManagement />}</PageStateProvider>;
+  }
+  render(<NavigableRoster />);
+  await screen.findByRole("button", {name: "Edit Officer Alpha"});
+  fireEvent.change(screen.getByLabelText("Status filter"), {target: {value: "available"}});
+  fireEvent.change(screen.getByLabelText("Shift filter"), {target: {value: "morning"}});
+  fireEvent.change(screen.getByLabelText("Search officers"), {target: {value: "ALPHA"}});
+  await waitFor(() => expect(backend.fetchOfficersPage).toHaveBeenLastCalledWith(1, "ALPHA", "available", "morning"));
+  fireEvent.click(screen.getByRole("button", {name: "Add Officer"}));
+  fireEvent.change(screen.getByLabelText(/^Officer name/), {target: {value: "Officer Gamma"}});
+  fireEvent.change(screen.getByLabelText(/^Badge number/), {target: {value: " GAMMA "}});
+  fireEvent.click(screen.getByRole("button", {name: "Create Officer"}));
+  fireEvent.click(screen.getByText("Navigate"));
+  await act(async () => pending.resolve());
+  fireEvent.click(screen.getByText("Navigate"));
+  const recent = within(await screen.findByRole("region", {name: "Recently added officer"}));
+  await waitFor(() => expect(recent.getByRole("button", {name: "View officer"})).toHaveProperty("disabled", false));
+  expect(screen.getByLabelText("Search officers")).toHaveProperty("value", "ALPHA");
+  expect(screen.getByLabelText("Status filter")).toHaveProperty("value", "available");
+  expect(screen.getByLabelText("Shift filter")).toHaveProperty("value", "morning");
+  expect(screen.queryByRole("button", {name: "Edit Officer Gamma"})).toBeNull();
+  fireEvent.click(screen.getByRole("button", {name: "Dismiss success notification"}));
+  expect(recent.getByRole("button", {name: "View officer"})).toBeTruthy();
+  fireEvent.click(recent.getByRole("button", {name: "View officer"}));
+  await screen.findByRole("button", {name: "Edit Officer Gamma"});
+  expect(backend.fetchOfficersPage).toHaveBeenLastCalledWith(1, "GAMMA", "all", "all");
+  expect(screen.getByLabelText("Status filter")).toHaveProperty("value", "all");
+  expect(screen.getByLabelText("Shift filter")).toHaveProperty("value", "all");
+  expect(document.activeElement).toBe(screen.getByLabelText("Search officers"));
+  expect(backend.createDashboardOfficer).toHaveBeenCalledTimes(1);
+});
+
+it("can find a saved officer after the post-create refresh failed without creating the officer again", async () => {
+  const gamma: backend.DashboardOfficerRecord = {...alpha, id: 3, name: "Officer Gamma", badge_number: "GAMMA"};
+  await roster();
+  vi.mocked(backend.createDashboardOfficer).mockResolvedValue(undefined);
+  fireEvent.click(screen.getByRole("button", {name: "Add Officer"}));
+  fireEvent.change(screen.getByLabelText(/^Officer name/), {target: {value: "Officer Gamma"}});
+  fireEvent.change(screen.getByLabelText(/^Badge number/), {target: {value: "GAMMA"}});
+  vi.mocked(backend.fetchOfficersPage).mockRejectedValueOnce(new Error("Refresh offline"));
+  fireEvent.click(screen.getByRole("button", {name: "Create Officer"}));
+  expect((await screen.findByRole("alert")).textContent).toContain("Officer added, but the roster could not be refreshed");
+  const recent = within(screen.getByRole("region", {name: "Recently added officer"}));
+  vi.mocked(backend.fetchOfficersPage).mockResolvedValueOnce(page([gamma]));
+  fireEvent.click(recent.getByRole("button", {name: "View officer"}));
+  await screen.findByRole("button", {name: "Edit Officer Gamma"});
+  expect(backend.fetchOfficersPage).toHaveBeenLastCalledWith(1, "GAMMA", "all", "all");
+  expect(backend.createDashboardOfficer).toHaveBeenCalledTimes(1);
 });
 
 it("preserves unknown skill labels and punctuation while allowing individual removal", async () => {
@@ -209,15 +286,15 @@ it("returns to the previous page when deleting the last officer on the last page
   });
   vi.mocked(backend.deleteDashboardOfficer).mockImplementation(async () => {removed = true;});
   await roster();
-  fireEvent.click(screen.getByRole("button", {name: "Next page"}));
+  fireEvent.click(within(screen.getByRole("navigation", {name: "Officer pagination above roster"})).getByRole("button", {name: "Next page"}));
   await screen.findByRole("button", {name: "Remove Officer Beta"});
   fireEvent.click(screen.getByRole("button", {name: "Remove Officer Beta"}));
   fireEvent.click(screen.getByRole("button", {name: "Remove officer"}));
   await screen.findByRole("button", {name: "Edit Officer Alpha"});
   expect(backend.deleteDashboardOfficer).toHaveBeenCalledExactlyOnceWith(beta.id);
   expect(backend.fetchOfficersPage).toHaveBeenLastCalledWith(1, "", "all", "all");
-  expect(screen.getByRole("button", {name: "Previous page"})).toHaveProperty("disabled", true);
-  expect(screen.getByRole("button", {name: "Next page"})).toHaveProperty("disabled", true);
+  expect(within(screen.getByRole("navigation", {name: "Officer pagination above roster"})).getByRole("button", {name: "Previous page"})).toHaveProperty("disabled", true);
+  expect(within(screen.getByRole("navigation", {name: "Officer pagination above roster"})).getByRole("button", {name: "Next page"})).toHaveProperty("disabled", true);
   expect(screen.queryByRole("alertdialog")).toBeNull();
   expect(screen.queryByRole("button", {name: "Edit Officer Beta"})).toBeNull();
 });

@@ -34,6 +34,7 @@ it("reconnects to a saved run without starting another optimization",async()=>{
   vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue(status);
   render(<MemoryRouter><OptimizationRunning /></MemoryRouter>);
   await screen.findByText("Optimization complete.");
+  expect(screen.getByRole("link", {name: "Review recommendation"}).getAttribute("href")).toBe("/optimization-engine?run_id=existing");
   expect(backend.fetchOptimizationStatus).toHaveBeenCalledWith("existing");
   expect(backend.runOptimization).not.toHaveBeenCalled();
 });

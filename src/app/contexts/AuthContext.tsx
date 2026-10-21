@@ -114,28 +114,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logout = async () => {
-    try {
-      if (token) {
-        const refreshToken = localStorage.getItem("refresh_token");
+    // Capture this session before clearing it. A delayed response must never
+    // clear credentials belonging to a subsequent sign-in.
+    const accessToken = localStorage.getItem("auth_token") || token;
+    const refreshToken = localStorage.getItem("refresh_token");
+    setUser(null);
+    setToken(null);
+    setError(null);
+    clearSession();
+
+    if (!accessToken) return;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 5000);
+    // Local sign-out is complete. Revocation is best effort and cannot hold
+    // the user on a signed-in page when the server is unavailable.
+    void (async () => {
+      try {
         await fetch(`${getApiBaseUrl()}/api/auth/logout/`, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${localStorage.getItem("auth_token")}`,
+            "Authorization": `Bearer ${accessToken}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({ refresh: refreshToken }),
+          signal: controller.signal,
+          keepalive: true,
         });
+      } catch {
+        // The local session has already ended, including when offline.
+      } finally {
+        window.clearTimeout(timeout);
       }
-    } catch {
-      // Ignore logout errors, clear local state regardless
-    } finally {
-      setUser(null);
-      setToken(null);
-      localStorage.removeItem("auth_token");
-      localStorage.removeItem("refresh_token");
-      localStorage.removeItem("auth_user");
-      clearSession();
-    }
+    })();
   };
 
   const clearError = useCallback(() => setError(null), []);

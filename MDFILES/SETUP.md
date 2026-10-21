@@ -125,6 +125,8 @@ python manage.py create_test_user --username admin --password admin123 --badge 0
 
 ### Test Credentials
 
+For the daily officer starting-location rule, migration `core.0014_officer_current_location_recorded_at` must be applied before running updated Django/Celery services. The `migrate` command above includes it. Existing saved coordinates are not marked as newly observed during migration. New optimization runs use recent same-day posts, then coordinates recorded on the selected Manila operational date, then assumed TTMO HQ. See [daily starting locations](TTMO_HQ_ORIGINS_2026-10-21.md).
+
 | Role | Username | Password | Access |
 |------|----------|----------|--------|
 | Supervisor | `supervisor` | `supervisor123` | Optimization, deployment, full dashboard |

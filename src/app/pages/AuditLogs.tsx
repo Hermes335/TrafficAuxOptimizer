@@ -5,6 +5,11 @@ import { ShieldCheck, Clock3, FileText } from "lucide-react";
 import { LoadingState, EmptyState } from "../components/LoadingState";
 import { fetchAuditLogs, type AuditLogRecord } from "../services/backend";
 
+function readable(value: string) {
+  const words = value.replace(/[_-]+/g, " ").trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "Unspecified";
+}
+
 export function AuditLogs() {
   const [page, setPage] = usePageState("audit.page", 1);
   const [count, setCount] = useState(0);
@@ -53,7 +58,7 @@ export function AuditLogs() {
     <div className="flex h-full min-w-0 flex-col gap-4 bg-gray-50 p-4 sm:p-6">
       <div>
         <h1 className="text-2xl font-bold">Audit Logs</h1>
-        <p className="text-sm text-gray-600">System activity and backend change history</p>
+        <p className="text-sm text-gray-600">Review who changed a record and when. Times use Asia/Manila.</p>
       </div>
 
       <div className="min-w-0 rounded-xl border bg-white p-4">
@@ -91,8 +96,8 @@ export function AuditLogs() {
             {logs.map((entry) => (
               <li key={entry.id} className="min-w-0 rounded-lg border border-slate-200 p-3 text-sm [overflow-wrap:anywhere]">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
-                  <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">{entry.action}</span>
-                  <span className="font-medium text-slate-900">{entry.resource}</span>
+                  <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">{readable(entry.action)}</span>
+                  <span className="font-medium text-slate-900">{readable(entry.resource)}</span>
                 </div>
                 <p className="flex items-start gap-1.5 text-xs text-slate-600">
                   <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -129,14 +134,14 @@ export function AuditLogs() {
                     <td className="px-3 py-2 font-medium text-gray-900">#{entry.user}</td>
                     <td className="px-3 py-2">
                       <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-                        {entry.action}
+                        {readable(entry.action)}
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-gray-700">{entry.resource}</td>
+                    <td className="px-3 py-2 text-gray-700">{readable(entry.resource)}</td>
                     <td className="px-3 py-2 text-gray-600">
-                      <pre className="max-w-[460px] whitespace-pre-wrap break-words rounded bg-gray-50 p-2 text-xs">
+                      <details><summary className="min-h-10 content-center cursor-pointer font-medium text-slate-700">View changes</summary><pre className="max-h-64 max-w-[460px] overflow-auto whitespace-pre-wrap break-words rounded bg-gray-50 p-2 text-xs">
                         {JSON.stringify(entry.changes, null, 2)}
-                      </pre>
+                      </pre></details>
                     </td>
                   </tr>
                 ))}

@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "./ui/tooltip";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "./ui/sheet";
+import { useRef } from "react";
+import { requestRouteHeadingFocus } from "./RouteAccessibility";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -60,6 +62,7 @@ function SidebarNavLink({ item, collapsed, onNavigate }: { item: { icon: React.C
 }
 
 export function Sidebar({ collapsed, setCollapsed, mobileOpen, onMobileOpenChange }: SidebarProps) {
+  const navigatingFromMobile = useRef(false);
   const { user } = useAuth();
   const canManage = user?.role === "supervisor" || user?.role === "administrator";
   const navItems = [
@@ -73,7 +76,7 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, onMobileOpenChang
   const secondaryItems = [
     { icon: Users, label: "Officer Management", path: "/officer-management" },
     { icon: Clock, label: "Audit Logs", path: "/audit-logs" },
-    { icon: SettingsIcon, label: "System", path: "/settings" },
+    { icon: SettingsIcon, label: "System health", path: "/settings" },
   ];
 
   const primaryItems = navItems.filter(item => canManage || item.path !== "/optimization");
@@ -81,9 +84,14 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, onMobileOpenChang
 
   return (
     <>
-    <Sheet open={mobileOpen} onOpenChange={onMobileOpenChange}>
+    <Sheet open={mobileOpen} onOpenChange={open => { navigatingFromMobile.current = false; onMobileOpenChange(open); }}>
       <SheetContent side="left" className="w-72 max-w-[85vw] gap-0" onCloseAutoFocus={event => {
         event.preventDefault();
+        if (navigatingFromMobile.current) {
+          navigatingFromMobile.current = false;
+          requestRouteHeadingFocus();
+          return;
+        }
         const opener = document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]');
         const desktopLink = document.querySelector<HTMLAnchorElement>('[aria-label="Primary navigation"] a[aria-current="page"]');
         (opener?.getClientRects().length ? opener : desktopLink)?.focus();
@@ -93,9 +101,9 @@ export function Sidebar({ collapsed, setCollapsed, mobileOpen, onMobileOpenChang
           <SheetDescription>Iloilo City operations</SheetDescription>
         </SheetHeader>
         <nav aria-label="Mobile navigation" className="space-y-1 overflow-y-auto px-3 pb-6">
-          {primaryItems.map(item => <SidebarNavLink key={item.path} item={item} collapsed={false} onNavigate={() => onMobileOpenChange(false)} />)}
+          {primaryItems.map(item => <SidebarNavLink key={item.path} item={item} collapsed={false} onNavigate={() => { navigatingFromMobile.current = true; onMobileOpenChange(false); }} />)}
           <div className="my-4 border-t" />
-          {visibleSecondaryItems.map(item => <SidebarNavLink key={item.path} item={item} collapsed={false} onNavigate={() => onMobileOpenChange(false)} />)}
+          {visibleSecondaryItems.map(item => <SidebarNavLink key={item.path} item={item} collapsed={false} onNavigate={() => { navigatingFromMobile.current = true; onMobileOpenChange(false); }} />)}
         </nav>
       </SheetContent>
     </Sheet>

@@ -2,6 +2,7 @@ import { RememberedDetails } from "../components/RememberedDetails";
 import { usePageState } from "../contexts/PageStateContext";
 import { PublishScheduleButton } from "../components/PublishScheduleButton";
 import { ScheduleHistory } from "../components/ScheduleHistory";
+import { ScheduleProvenance } from "../components/ScheduleProvenance";
 import { RecommendationExportButton } from "../components/RecommendationExportButton";
 import { useAuth } from "../contexts/AuthContext";
 import { operationalDate, operationalTime } from "../services/operationalTime";
@@ -12,7 +13,7 @@ import { OperationsPanel } from "./GanttChart/OperationsPanel";
 import { AreaFilter, inArea } from "../components/AreaFilter";
 import type { OfficerTimeBlock } from "../services/backend";
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router";
+import { Link, useLocation } from "react-router";
 import { ConfirmDialog } from "../components/ConfirmDialog";
 import { ErrorFeedback } from "../components/ErrorFeedback";
 import {
@@ -29,6 +30,7 @@ import {
 } from "../services/backend";
 
 export function GanttChart() {
+  const location = useLocation();
   const { user } = useAuth();
   const canManage = user?.role === "supervisor" || user?.role === "administrator";
   const [day, setDay] = usePageState("schedule.day", operationalDate());
@@ -74,6 +76,19 @@ export function GanttChart() {
     }
     return window.localStorage.getItem(bottomCollapseStorageKey) !== "false";
   });
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedDay = params.get("date");
+    const requestedShift = params.get("shift");
+    if (requestedDay && /^\d{4}-\d{2}-\d{2}$/.test(requestedDay)) {
+      const timestamp = Date.parse(`${requestedDay}T00:00:00+08:00`);
+      if (Number.isFinite(timestamp) && operationalDate(new Date(timestamp)) === requestedDay && requestedDay !== day) {
+        setDay(requestedDay); setSchedule([]); setLastRefresh(null); setLocationsLoaded(false); setLoading(true);
+      }
+    }
+    if (requestedShift && ["morning", "afternoon", "all"].includes(requestedShift)) setShiftFilter(requestedShift);
+  }, [location.search, location.key]);
 
   useEffect(() => {
     let active = true;
@@ -268,7 +283,7 @@ export function GanttChart() {
       <header className="shrink-0 space-y-3 border-b border-slate-200 bg-white px-4 py-3 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <Link to="/optimization" title="Back to optimization" aria-label="Back to optimization"
+            <Link to={canManage ? "/optimization" : "/"} title={canManage ? "Back to optimization" : "Back to dashboard"} aria-label={canManage ? "Back to optimization" : "Back to dashboard"}
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
               <ChevronLeft className="h-4 w-4" />
             </Link>
@@ -321,7 +336,7 @@ export function GanttChart() {
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 text-xs text-slate-600">
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
             <span><strong className="font-semibold text-slate-900">{lastRefresh ? activeAssignments : "—"}</strong> assignments</span>
-            <span><strong className="font-semibold text-slate-900">{coverageAvailable ? `${coverage.percent}%` : "—"}</strong> coverage</span>
+            <span><strong className="font-semibold text-slate-900">{coverageAvailable ? `${coverage.percent}%` : "—"}</strong> coverage{coverageAvailable && <span> · {coverage.covered}/{coverage.total} intersections</span>}</span>
             <span><strong className="font-semibold text-slate-900">{officerPoolAvailable ? availableOfficerPool.length : "—"}</strong> unassigned officers</span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -335,6 +350,10 @@ export function GanttChart() {
           </div>
         </div>
 
+        <details className="text-xs text-slate-600">
+          <summary className="inline-flex min-h-9 cursor-pointer items-center font-medium">How coverage is calculated</summary>
+          <p className="max-w-3xl pb-2 leading-relaxed">Coverage summarizes all areas for {shiftFilter === "all" ? "both shifts" : `the ${shiftFilter} shift`} on {day}. It measures the selected period rather than staffing at this moment. Intersections with saved staffing periods must meet the requirement throughout those periods; zero required counts as covered. For locations without staffing periods, coverage means at least one assigned officer. Area and search filters narrow the timeline and assignment list.</p>
+        </details>
         {publishNotice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{publishNotice}</div>}
         {publishError && <ErrorFeedback error={publishError} onDismiss={() => setPublishError(null)} />}
         {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
@@ -402,6 +421,7 @@ export function GanttChart() {
         )}
       </header>
 
+      <ScheduleProvenance key={`${day}:${shiftFilter}`} day={day} shift={shiftFilter} refreshKey={refreshKey} />
       <OperationsPanel day={day} shift={shiftFilter} area={area} nodes={bottlenecks} officers={officers} canManage={canManage} refreshKey={refreshKey} onBlocks={setBlocks} onChanged={()=>setRefreshKey(k=>k+1)}/>
       {/* Deployment Board */}
       {(

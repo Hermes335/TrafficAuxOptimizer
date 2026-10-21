@@ -137,8 +137,8 @@ it.each(["poi", "bottleneck"] as const)("editing a bottleneck after a saved %s r
   fireEvent.click(screen.getByRole("button", {name: "Create"}));
   await screen.findByRole("alert");
   expect(screen.getByRole("button", {name: "Retry refresh"})).toHaveProperty("disabled", false);
-  fireEvent.click(screen.getByRole("button", {name: "Edit bottleneck"}));
-  expect(screen.getByRole("region", {name: "Edit bottleneck"})).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", {name: /^Edit bottleneck/}));
+  expect(screen.getByRole("region", {name: /^Edit bottleneck/})).toBeTruthy();
   fireEvent.click(screen.getByRole("button", {name: "Close"}));
   expect(screen.getByRole("button", {name: "Add Marker"})).toHaveProperty("disabled", false);
   await returnToDashboard();

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { operationalDate, operationalTime } from "../../services/operationalTime";
 import type { BottleneckOption, DashboardOfficerRecord, DeploymentScheduleItem, OfficerTimeBlock } from "../../services/backend";
 
@@ -21,6 +21,12 @@ export function timelinePosition(start:string, end:string, rangeStart:number, ra
 }
 
 export function GanttTimeline({deployments, viewMode, day=operationalDate(), shift="all", bottlenecks=[], officers=[], blocks=[], onSelect}:Props) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
   const startHour = shift === "afternoon" ? 14 : 6;
   const endHour = shift === "morning" ? 14 : 22;
   const rangeStart = new Date(`${day}T${String(startHour).padStart(2,"0")}:00:00+08:00`).getTime();
@@ -49,17 +55,31 @@ export function GanttTimeline({deployments, viewMode, day=operationalDate(), shi
       return {id,...row,bars,lanes:Math.max(1,ends.length)};
     }).sort((a,b)=>a.area.localeCompare(b.area)||a.label.localeCompare(b.label));
   },[deployments,viewMode,bottlenecks,officers,shift,rangeStart,rangeEnd]);
-  const now = Date.now();
+  const nowInRange = now >= rangeStart && now < rangeEnd;
+  const jumpTo = (instant: number) => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const axis = scroller.querySelector<HTMLElement>("[data-timeline-axis]");
+    const label = scroller.querySelector<HTMLElement>("[data-timeline-label]");
+    if (!axis || !label) return;
+    const visibleAxis = Math.max(0, scroller.clientWidth - label.offsetWidth);
+    const position = (instant - rangeStart) / (rangeEnd - rangeStart) * axis.offsetWidth;
+    scroller.scrollTo({left: Math.max(0, position - visibleAxis / 2), behavior: "auto"});
+  };
   return <section aria-label="Deployment Gantt timeline" className="min-w-0 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div className="flex flex-wrap items-center justify-between gap-1 border-b border-slate-200 px-3 py-2 sm:px-4">
       <h3 className="text-sm font-semibold">Deployment Gantt by {viewMode === "officer" ? "Officer" : "Intersection"}</h3>
-      <p className="text-xs text-slate-600">{onSelect ? "Select a bar to edit · " : ""}Scroll to explore the day</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" onClick={() => scrollRef.current?.scrollTo({left: 0, behavior: "auto"})} className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50">Shift start</button>
+        <button type="button" disabled={!nowInRange} title={nowInRange ? "Show the current Manila time" : "Current time is outside the selected date and shift"} onClick={() => {const instant = Date.now(); setNow(instant); jumpTo(instant);}} className="min-h-10 rounded-lg border border-slate-200 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">Jump to now</button>
+        <p className="text-xs text-slate-600">{onSelect ? "Select a bar to edit · " : ""}Scroll to explore the day</p>
+      </div>
     </div>
-    <div className="max-h-[65vh] overflow-auto" tabIndex={0} aria-label="Scroll deployment timeline">
+    <div ref={scrollRef} className="max-h-[65vh] overflow-auto" tabIndex={0} aria-label="Scroll deployment timeline">
       <div style={{minWidth:240+(endHour-startHour)*76}}>
         <div className="sticky top-0 z-20 flex h-11 border-b bg-slate-50">
-          <div className="sticky left-0 z-20 w-36 shrink-0 border-r bg-slate-50 px-3 py-3 text-xs font-semibold sm:w-60 sm:px-4">{viewMode === "officer" ? "Officer / shift" : "Area / intersection"}</div>
-          <div className="relative flex-1">{hours.map((hour,i)=><span key={hour} className="absolute top-3 text-xs text-slate-600" style={{left:`${100*i/(hours.length-1)}%`,transform:i===hours.length-1?"translateX(-100%)":i?"translateX(-50%)":"none"}}>{String(hour).padStart(2,"0")}:00</span>)}</div>
+          <div data-timeline-label className="sticky left-0 z-20 w-36 shrink-0 border-r bg-slate-50 px-3 py-3 text-xs font-semibold sm:w-60 sm:px-4">{viewMode === "officer" ? "Officer / shift" : "Area / intersection"}</div>
+          <div data-timeline-axis className="relative flex-1">{hours.map((hour,i)=><span key={hour} className="absolute top-3 text-xs text-slate-600" style={{left:`${100*i/(hours.length-1)}%`,transform:i===hours.length-1?"translateX(-100%)":i?"translateX(-50%)":"none"}}>{String(hour).padStart(2,"0")}:00</span>)}</div>
         </div>
         {!rows.length && <p className="p-8 text-sm text-slate-500">No assignments or locations match this view. Create an assignment or publish a recommendation.</p>}
         {rows.map(row=><div key={row.id} className="flex border-b last:border-b-0" style={{minHeight:row.lanes*36+36}}>
@@ -86,11 +106,11 @@ export function GanttTimeline({deployments, viewMode, day=operationalDate(), shi
                 <span className="block truncate font-medium">{label}</span><span className="block truncate text-[10px]">{operationalTime(item.start_time)}–{operationalTime(item.end_time)}</span>
               </button>;
             })}
-            {now>=rangeStart && now<rangeEnd && <div aria-label="Current Manila time" className="pointer-events-none absolute inset-y-0 z-10 border-l-2 border-red-400" style={{left:`${100*(now-rangeStart)/(rangeEnd-rangeStart)}%`}}/>}
+            {nowInRange && <div aria-hidden="true" className="pointer-events-none absolute inset-y-0 z-10 border-l-2 border-red-400" style={{left:`${100*(now-rangeStart)/(rangeEnd-rangeStart)}%`}}/>}
           </div>
         </div>)}
       </div>
     </div>
-    <div className="flex flex-wrap gap-4 border-t px-4 py-2 text-xs text-slate-600"><span>Blue: scheduled</span><span>Gray: completed / unassigned</span><span>Purple: break</span><span>Orange: reserved travel</span><span>Green: zero staffing required</span></div>
+    <div className="flex flex-wrap gap-4 border-t px-4 py-2 text-xs text-slate-600">{nowInRange && <span className="font-medium text-red-700">Red line: Now · {operationalTime(new Date(now))} Manila</span>}<span>Blue: scheduled</span><span>Gray: completed / unassigned</span><span>Purple: break</span><span>Orange: reserved travel</span><span>Green: zero staffing required</span></div>
   </section>;
 }

@@ -16,7 +16,7 @@ from core.skills import SKILL_POLICY_VERSION, normalize_skills, preferred_skills
 from .engine import GeneticDeploymentOptimizer
 from .scheduling import run_schedule, plan_periods, search_count
 from .progress_store import save_progress
-from .planning import planning_window, capture_origins, add_transfer_boundaries, review_lead_seconds
+from .planning import planning_window, capture_origins, capture_starting_locations, starting_location_model, add_transfer_boundaries, review_lead_seconds
 
 
 def _broadcast_progress(run_id, payload):
@@ -27,7 +27,7 @@ def capture_inputs(params, now=None):
     now = now or timezone.now()
     start, end = planning_window(params, now)
     officers = list(Officer.objects.filter(is_deleted=False, status__in=["available", "deployed"],
-        shift=params.get("shift", "afternoon")).order_by("id").values("id", "badge_number", "current_latitude", "current_longitude", "skills"))
+        shift=params.get("shift", "afternoon")).order_by("id").values("id", "badge_number", "current_latitude", "current_longitude", "current_location_recorded_at", "skills"))
     bottlenecks = []
     shift_start, shift_end = shift_window(params.get("shift", "afternoon"), date.fromisoformat(str(params.get("operational_date") or operational_date(now))))
     block_start = now-timedelta(hours=2) if params.get("mode", "operational") == "operational" and shift_start <= now < shift_end else start
@@ -62,6 +62,7 @@ def capture_inputs(params, now=None):
         })
     weather = WeatherData.objects.filter(is_deleted=False).order_by("-timestamp").first()
     capture_origins(officers, params, start, now)
+    capture_starting_locations(officers, params, now)
     if start < end:
         add_transfer_boundaries(officers, start, end)
     return officers, bottlenecks, weather
@@ -102,7 +103,7 @@ def run_optimization(self, run_id):
                 "is_stale": bool(weather and (weather.is_stale or (timezone.now() - (weather.observed_at or weather.timestamp)).total_seconds() > settings.WEATHER_MAX_INPUT_AGE)),
                 "assumption": None if weather else "Neutral travel multiplier; weather unavailable"},
             "incidents": incidents, "pois": pois,
-            "travel_time_model": {"speed_kmh": "max(8, 28 * (1 - TSI))", "missing_officer_location_distance_km": 3.0},
+            "travel_time_model": starting_location_model(),
             "captured_at": captured_at, "operational_date": params.get("operational_date"),
             "mode": params.get("mode", "operational"), "session_id": params.get("session_id", ""),
             "schema_version": 4, "engine_version": settings.BACKEND_VERSION, "seed": seed,

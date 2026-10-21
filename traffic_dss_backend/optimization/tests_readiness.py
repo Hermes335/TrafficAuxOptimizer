@@ -50,10 +50,11 @@ def test_readiness_is_supervisor_only_and_does_not_create_runs(inputs):
     response = inputs.client.post("/api/optimization/readiness/", inputs.params, format="json")
     assert response.status_code == 200, response.data
     assert response.data["ready"] is True
-    assert response.data["warnings"] == [] and response.data["blockers"] == []
+    assert response.data["blockers"] == []
+    assert len(response.data["warnings"]) == 1 and "TTMO HQ" in response.data["warnings"][0]
     assert response.data["checked_at"] == NOW.isoformat()
     assert response.data["summary"] == {
-        "active_locations": 1, "eligible_officers": 1, "missing_officer_locations": 0,
+        "active_locations": 1, "eligible_officers": 1, "missing_officer_locations": 1, "assumed_hq_origins": 1,
         "peak_required_officers": 1, "max_staffing_shortage": 0,
     }
     assert response.data["traffic"][0]["age_seconds"] == 0
@@ -77,7 +78,7 @@ def test_worker_readiness_uses_the_exact_captured_inputs(inputs):
         readiness = build_readiness(inputs.params, now=NOW, captured=captured)
     assert readiness["traffic"][0]["age_seconds"] == 0
     assert readiness["summary"]["peak_required_officers"] == 1
-    assert readiness["warnings"] == []
+    assert len(readiness["warnings"]) == 1 and "TTMO HQ" in readiness["warnings"][0]
 
 
 def test_stale_live_labels_and_missing_locations_are_warnings_not_start_blockers(inputs):
@@ -165,6 +166,13 @@ def test_zero_demand_remains_valid_without_any_officers(inputs):
         response = inputs.client.post("/api/optimization/start/", inputs.params, format="json")
     assert response.status_code == 202
     enqueue.assert_called_once()
+
+
+def test_legacy_working_light_profile_with_zero_capacity_blocks_a_run(inputs):
+    Bottleneck.objects.filter(pk=inputs.node.pk).update(signal_status="working", min_officers_required=0, max_officers_allowed=0)
+    readiness = build_readiness(inputs.params)
+    assert readiness["ready"] is False
+    assert any("capacity for at least 1 officer" in blocker for blocker in readiness["blockers"])
 
 
 def test_ended_shadow_shift_remains_runnable_with_full_shift_comparison(inputs):

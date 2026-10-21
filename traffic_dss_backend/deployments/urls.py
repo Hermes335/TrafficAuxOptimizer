@@ -9,6 +9,7 @@ from .views import (
     DeploymentUpdateView,
     OfficerDeploymentView,
     ScheduleRevisionView,
+    ScheduleProvenanceView,
 )
 
 urlpatterns = [
@@ -16,6 +17,7 @@ urlpatterns = [
     path("time-blocks/", TimeBlockView.as_view()),
     path("observations/", ObservationView.as_view()),
     path("revisions/", ScheduleRevisionView.as_view(), name="schedule-revisions"),
+    path("provenance/", ScheduleProvenanceView.as_view(), name="schedule-provenance"),
     path("preview-optimization/", DeploymentPreviewView.as_view(), name="deployment-preview"),
     path("schedule/", DeploymentScheduleView.as_view(), name="deployment-schedule"),
     path("assign/", DeploymentAssignView.as_view(), name="deployment-assign"),

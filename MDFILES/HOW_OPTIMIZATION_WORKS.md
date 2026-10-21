@@ -58,6 +58,8 @@ score = max(0, 100 - (avg_travel_time x 2))
 
 Goal: Minimize average travel time from officers to their assigned bottlenecks.
 
+For new runs, the initial origin is a recent recorded post on the selected Manila operational date, otherwise valid officer coordinates recorded that day, otherwise assumed TTMO HQ at **10.689327, 122.581486**. Previous-day locations are not carried forward. Distance is straight-line; this does not measure an officer's actual journey or arrival. Each run saves its origin assumptions, so historical runs retain their original model. See [daily starting locations](TTMO_HQ_ORIGINS_2026-10-21.md).
+
 ### Objective 3 — Road Priority Coverage
 
 ```

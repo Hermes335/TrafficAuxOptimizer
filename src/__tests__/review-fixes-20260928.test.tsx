@@ -110,15 +110,15 @@ it("a history failure does not block loading the schedule", async () => {
   expect(screen.getByText(/Run history: History unavailable/)).toBeTruthy();
 });
 it("a run changing outside an open publication review cannot change that review", async () => {
-  const {rerender} = render(<PublishScheduleButton runId="run-A" date={day} />);
+  const {rerender} = render(<MemoryRouter><PublishScheduleButton runId="run-A" date={day} /></MemoryRouter>);
   fireEvent.click(screen.getByText("Preview publication")); await screen.findByText("morning");
-  rerender(<PublishScheduleButton runId="run-B" date={day} />);
+  rerender(<MemoryRouter><PublishScheduleButton runId="run-B" date={day} /></MemoryRouter>);
   fireEvent.click(screen.getByText("Confirm publication"));
   await waitFor(() => expect(backend.publishDeploymentsFromOptimization).toHaveBeenCalledWith(expect.objectContaining({run_id:"run-A",expected_revision:"version-A"})));
 });
 it("retries a lost publication response using the same request key", async () => {
   vi.mocked(backend.publishDeploymentsFromOptimization).mockRejectedValueOnce(new Error("Connection lost"));
-  render(<PublishScheduleButton runId="run-A" date={day} />);
+  render(<MemoryRouter><PublishScheduleButton runId="run-A" date={day} /></MemoryRouter>);
   fireEvent.click(screen.getByText("Preview publication")); await screen.findByText("morning");
   fireEvent.click(screen.getByText("Confirm publication")); await screen.findByText("Retry publication");
   const first = vi.mocked(backend.publishDeploymentsFromOptimization).mock.calls[0][0];
@@ -127,7 +127,7 @@ it("retries a lost publication response using the same request key", async () =>
   expect(vi.mocked(backend.publishDeploymentsFromOptimization).mock.calls[1][0]).toEqual(first);
 });
 it("a shadow recommendation cannot open a publication review", () => {
-  render(<PublishScheduleButton runId="run-A" mode="shadow" />);
+  render(<MemoryRouter><PublishScheduleButton runId="run-A" mode="shadow" /></MemoryRouter>);
   expect(screen.getByText("Preview publication")).toHaveProperty("disabled", true);
   expect(screen.getByRole("status").textContent).toContain("Shadow recommendation");
 });

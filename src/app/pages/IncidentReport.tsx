@@ -95,6 +95,8 @@ export function IncidentReport() {
   const [uncertain, setUncertain] = usePageState(`incident.${editId ?? "new"}.uncertain`, false);
   const [editedAfterRetry, setEditedAfterRetry] = usePageState(`incident.${editId ?? "new"}.editedAfterRetry`, false);
   const [linkCopied, setLinkCopied] = useState(false);
+  const [referenceCopied, setReferenceCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
   const [attemptedPayload] = usePageState(`incident.${editId ?? "new"}.attempt`, () => ({current: null as ReportPayload | null}));
   const [key] = usePageState(`incident.${editId ?? "new"}.key`, () => ({current: submissionKey()}));
   const [initialized] = usePageState(`incident.${editId ?? "new"}.initialized`, () => ({current: false}));
@@ -183,7 +185,7 @@ export function IncidentReport() {
       } else {
         attemptedPayload.current = payload;
         const received = await submitIncidentReport(payload);
-        setReceipt(received); setUncertain(false); attemptedPayload.current = null;
+        setReceipt(received); setReferenceCopied(false); setCopyError(null); setUncertain(false); attemptedPayload.current = null;
         setDescription(""); setPhoto(null); setPoint(null); key.current = submissionKey();
       }
     } catch (failure: unknown) {
@@ -212,16 +214,17 @@ export function IncidentReport() {
     return values.description;
   };
 
-  return <main className="min-h-screen bg-slate-50 text-slate-900">
-    <header className="border-b border-slate-200 bg-white">
+  const PageContainer = isEditing ? "div" : "main";
+  return <PageContainer className="min-h-screen bg-slate-50 text-slate-900">
+    {!isEditing && <header className="border-b border-slate-200 bg-white">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
-        <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-400 text-slate-950"><MapPin size={22} /></span><div><p className="text-sm font-bold tracking-tight">TrafficOffOptimizer</p><p className="text-xs text-slate-500">Community incident reporting</p></div></div>
+        <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-amber-400 text-slate-950"><MapPin size={22} /></span><div><p className="text-sm font-bold tracking-tight">TrafficOffOptimizer</p><p className="text-xs text-slate-500">{isAuthenticated ? "Staff incident reporting" : "Community incident reporting"}</p></div></div>
         {isAuthenticated && <Link to="/" className="inline-flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 sm:text-sm"><ArrowLeft size={16} />Dashboard</Link>}
       </div>
-    </header>
+    </header>}
     <div className="mx-auto max-w-6xl px-4 py-7 sm:px-6 sm:py-10">
       <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
-        <div><p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-amber-700">{isEditing ? "Staff incident management" : "Safer roads start with you"}</p><h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{isEditing ? "Edit incident report" : "Report a road incident"}</h1><p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-600">{isEditing ? "Keep the location and details accurate for the operations team." : "Mark the location, tell us what happened, and add a photo if you can."}</p></div>
+        <div><p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-amber-700">{isAuthenticated ? "Staff incident management" : "Safer roads start with you"}</p><h1 className="text-3xl font-bold tracking-tight sm:text-4xl">{isEditing ? "Edit incident report" : "Report a road incident"}</h1><p className="mt-3 max-w-xl text-sm leading-relaxed text-slate-600">{isEditing ? "Keep the location and details accurate for the operations team." : "Mark the location, tell us what happened, and add a photo if you can."}</p>{!isEditing && <p className="mt-3 rounded-lg bg-sky-50 p-3 text-sm font-medium text-sky-950">{isAuthenticated ? "Staff report — becomes active immediately after submission." : "Public report — staff review it before it becomes an active incident. No account needed."}</p>}</div>
         {isAuthenticated && !isEditing && <Link to="/incident-review" className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-semibold text-slate-700"><ClipboardList size={17} />Review public reports</Link>}
       </div>
 
@@ -231,6 +234,12 @@ export function IncidentReport() {
         <p role="status" className="mt-3 text-sm leading-relaxed text-slate-600">{receipt.status === "active" ? "Your incident is now available to the operations team on the dashboard." : receipt.status === "pending" ? "Thank you. The operations team will review your report before it appears as an active incident."
           : reviewedStatusLabels[receipt.status] ? `This report has already been reviewed. Current status: ${reviewedStatusLabels[receipt.status]}.` : "Your report is already recorded. Keep the reference below for your records."}</p>
         <div className="my-6 rounded-2xl bg-slate-50 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Your report reference</p><p className="mt-2 break-all font-mono text-lg font-semibold text-slate-900">{receipt.reference}</p></div>
+        <button type="button" onClick={async () => {
+          try { await navigator.clipboard.writeText(receipt.reference); setReferenceCopied(true); setCopyError(null); }
+          catch { setCopyError("Copy failed. Select the reference text above to copy it manually."); }
+        }} className="mb-3 min-h-11 rounded-lg border border-slate-300 px-4 text-sm font-semibold text-slate-700">{referenceCopied ? "Reference copied" : "Copy reference"}</button>
+        {referenceCopied && <p role="status" className="mb-3 text-xs text-emerald-800">Report reference copied.</p>}
+        {copyError && <p role="alert" className="mb-3 text-xs text-red-800">{copyError}</p>}
         <p className="mb-6 text-xs text-slate-500">You can keep this reference and close the page.</p>
         <button type="button" onClick={() => { setReceipt(null); setError(null); setEditedAfterRetry(false); }} className="min-h-12 w-full rounded-xl bg-amber-400 px-4 font-semibold text-slate-950 hover:bg-amber-300">Report another incident</button>
         {isAuthenticated && <Link to="/" className="mt-4 inline-flex min-h-10 items-center text-sm font-semibold text-slate-700">Return to dashboard</Link>}
@@ -280,7 +289,7 @@ export function IncidentReport() {
             {editedAfterRetry && <p className="mb-4 text-sm text-amber-800">The earlier report may already have arrived. Sending a changed report could create a duplicate.</p>}
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <p className="max-w-xl text-xs leading-relaxed text-slate-500">{isEditing ? "Changes update the incident location and details for the operations team." : isAuthenticated ? "You are reporting as staff. Your incident will become active immediately." : "No account needed. Public reports are reviewed by staff before becoming active incidents."}</p>
-              <button type="submit" disabled={saving || loading || !loaded || !!editDraft?.conflicts.length} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-400 px-6 text-sm font-bold text-slate-950 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"><Send size={17} />{saving ? "Sending..." : isEditing ? "Update report" : uncertain ? "Retry same report" : "Submit report"}</button>
+              <button type="submit" disabled={saving || loading || !loaded || !!editDraft?.conflicts.length} className="inline-flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-400 px-6 text-sm font-bold text-slate-950 hover:bg-amber-300 disabled:cursor-not-allowed disabled:opacity-50"><Send size={17} />{saving ? "Sending..." : isEditing ? "Update report" : uncertain ? "Retry same report" : isAuthenticated ? "Create active incident" : "Submit report"}</button>
             </div>
             {uncertain && <button type="button" disabled={saving} onClick={() => { setUncertain(false); setEditedAfterRetry(true); attemptedPayload.current = null; key.current = submissionKey(); setError(null); }} className="mt-4 min-h-11 text-sm font-semibold text-slate-600 underline underline-offset-4">Edit report before trying again</button>}
           </div>
@@ -291,5 +300,5 @@ export function IncidentReport() {
         catch { setLinkCopied(false); }
       }} className="inline-flex min-h-10 items-center gap-1.5 rounded-lg px-2 font-medium text-slate-600 hover:bg-slate-100"><Link2 size={15} />{linkCopied ? "Link copied" : "Copy report link"}</button>}</footer>
     </div>
-  </main>;
+  </PageContainer>;
 }

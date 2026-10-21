@@ -28,9 +28,11 @@ export function OptimizationReadinessSummary({ readiness, error, loading, refres
           ["Eligible officers", readiness.summary.eligible_officers],
           ["Peak officers required", readiness.summary.peak_required_officers],
           ["Maximum shortage", readiness.summary.max_staffing_shortage],
-          ["Missing officer locations", readiness.summary.missing_officer_locations],
+          ["Missing recorded locations", readiness.summary.missing_officer_locations],
+          ...(readiness.summary.assumed_hq_origins != null ? [["Assumed HQ origins", readiness.summary.assumed_hq_origins]] : []),
         ].map(([label, value]) => <div key={label} className="min-w-0 rounded-lg bg-white p-2"><dt className="text-slate-500">{label}</dt><dd className="mt-0.5 font-semibold text-slate-900">{value}</dd></div>)}
       </dl>
+      {!!readiness.summary.assumed_hq_origins && <p className="text-slate-600">HQ starting locations are planning assumptions, not confirmed GPS positions.</p>}
       {!!readiness.warnings.length && <details className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-amber-900" open>
         <summary className="cursor-pointer font-medium">Advisory notes ({readiness.warnings.length})</summary>
         <ul className="mt-2 list-disc space-y-1 pl-4">{readiness.warnings.map((message, index) => <li key={index}>{message}</li>)}</ul>
