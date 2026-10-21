@@ -505,19 +505,9 @@ def test_dashboard_data_quality_report_flags_placeholder_records():
 
 
 @pytest.mark.django_db
-def test_active_officer_cap_blocks_roster_expansion():
+def test_active_officer_roster_can_expand_beyond_sixty():
     user = get_user_model().objects.create_user(username="capcheck", password="pass12345")
     user.groups.add(Group.objects.get(name="supervisor"))
-    bottleneck = Bottleneck.objects.create(
-        id="B-007",
-        name="Capacity Check Bottleneck",
-        district="Iloilo",
-        road_priority_weight=1.0,
-        bottleneck_type="intersection",
-        latitude=10.7202,
-        longitude=122.5621,
-    )
-
     for index in range(60):
         Officer.objects.create(
             name=f"Officer {index}",
@@ -533,9 +523,37 @@ def test_active_officer_cap_blocks_roster_expansion():
         "shift": "morning", "status": "available",
     }, format="json")
 
-    assert response.status_code == 400, response.json()
-    assert "60" in response.json()["status"][0]
-    assert Officer.objects.filter(is_deleted=False).count() == 60
+    assert response.status_code == 201, response.json()
+    assert response.json()["status"] == "available"
+    assert Officer.objects.filter(is_deleted=False, status="available").count() == 61
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("previous_status", ["unavailable", "off_duty"])
+@pytest.mark.parametrize("shift", ["morning", "afternoon"])
+def test_officer_can_be_reactivated_when_imported_roster_already_exceeds_sixty(previous_status, shift):
+    user = get_user_model().objects.create_user(username="reactivate", password="pass12345")
+    user.groups.add(Group.objects.get(name="supervisor"))
+    Officer.objects.bulk_create([
+        Officer(name=f"Imported Officer {index}", badge_number=f"IMPORTED-{index}",
+                shift="morning" if index % 2 == 0 else "afternoon", status="available")
+        for index in range(215)
+    ])
+    officer = Officer.objects.create(name="Reactivated officer", badge_number="RETURNING-1",
+                                     shift=shift, status=previous_status)
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.put(f"/api/dashboard/officers/manage/{officer.pk}/",
+                          {"status": "available"}, format="json")
+    assert response.status_code == 200, response.json()
+    officer.refresh_from_db()
+    assert officer.status == "available" and officer.shift == shift
+    assert Officer.objects.filter(is_deleted=False, status="available").count() == 216
+
+    from optimization.tasks import capture_inputs
+    captured, _, _ = capture_inputs({"shift": shift, "mode": "operational",
+                                    "operational_date": str(operational_date() + timedelta(days=1))})
+    assert officer.pk in {row["id"] for row in captured}
 
 
 

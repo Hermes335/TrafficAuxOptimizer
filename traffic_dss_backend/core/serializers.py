@@ -116,12 +116,6 @@ class OfficerSerializer(serializers.ModelSerializer):
         eligible = {"available", "deployed"}
         if status == "deployed" and (not self.instance or self.instance.status != "deployed"):
             raise serializers.ValidationError({"status": "Deployed status is managed by the schedule."})
-        if status in eligible and (not self.instance or self.instance.status not in eligible):
-            roster = Officer.objects.filter(is_deleted=False, status__in=eligible)
-            if self.instance:
-                roster = roster.exclude(pk=self.instance.pk)
-            if roster.count() >= 60:
-                raise serializers.ValidationError({"status": "The active roster is limited to 60 officers."})
         if self.instance and (status not in eligible or data.get("shift", self.instance.shift) != self.instance.shift):
             if self.instance.deployments.filter(is_deleted=False, status="assigned", end_time__gt=timezone.now()).exists():
                 raise serializers.ValidationError({"status": "Cancel outstanding assignments before changing eligibility or shift."})
