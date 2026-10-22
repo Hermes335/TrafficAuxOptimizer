@@ -1,11 +1,9 @@
-"""Shared planning coordinates; HQ is an assumption, never a measured position."""
+"""Shared validation for recorded planning coordinates; unknown origins stay unknown."""
 from collections.abc import Mapping
 from math import isfinite
 
 
-TTMO_HQ_LATITUDE = 10.689327
-TTMO_HQ_LONGITUDE = 122.581486
-TTMO_HQ_NAME = "TTMO HQ"
+MISSING_LOCATION_DISTANCE_KM = 3.0
 
 
 def valid_coordinates(latitude, longitude):
@@ -23,11 +21,11 @@ def valid_coordinates(latitude, longitude):
 
 
 def officer_coordinates(officer):
-    """Use an officer's valid planning coordinates, otherwise assume TTMO HQ.
+    """Return valid recorded coordinates, or None when no position is known.
 
     Both captured dictionaries and roster-like objects are supported. The caller
-    remains responsible for selecting a served post or daily initial position.
-    No coordinate or departure-time record is created here.
+    selects any served post before scoring. No position or departure record is
+    created when coordinates are missing.
     """
     if isinstance(officer, Mapping):
         latitude = officer.get("current_latitude")
@@ -37,4 +35,4 @@ def officer_coordinates(officer):
         longitude = getattr(officer, "current_longitude", None)
     if valid_coordinates(latitude, longitude):
         return float(latitude), float(longitude)
-    return TTMO_HQ_LATITUDE, TTMO_HQ_LONGITUDE
+    return None

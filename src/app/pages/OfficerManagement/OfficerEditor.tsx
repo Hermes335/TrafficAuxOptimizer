@@ -125,7 +125,7 @@ export function OfficerEditor({ management, onClose, returnFocusRef }: OfficerEd
 
                 <section aria-labelledby={`${id}-location-heading`} className="space-y-3 border-t border-slate-100 pt-5">
                   <h3 id={`${id}-location-heading`} className="text-xs font-semibold uppercase tracking-wide text-slate-500">Starting location</h3>
-                  <p className="text-xs leading-relaxed text-slate-600">Confirm a location only when it represents where this officer is now. Planning uses recent posts or a location confirmed on the same Manila operational day; otherwise it assumes HQ.</p>
+                  <p className="text-xs leading-relaxed text-slate-600">Planning uses recent recorded posts or saved officer coordinates until updated. When no location is recorded, travel estimates use an assumed 3 km distance.</p>
                   {management.officerLatitude && management.officerLongitude && management.locationAction === "unchanged" && <p className="text-xs text-slate-600">Saved coordinates: {management.officerLatitude}, {management.officerLongitude}. {management.locationRecordedAt && Number.isFinite(Date.parse(management.locationRecordedAt))
                     ? `Last confirmed ${operationalDate(new Date(management.locationRecordedAt))} ${operationalTime(management.locationRecordedAt)} Manila.`
                     : "No confirmation time is recorded."}</p>}
@@ -148,9 +148,9 @@ export function OfficerEditor({ management, onClose, returnFocusRef }: OfficerEd
                       <input id={`${id}-longitude`} type="number" min={-180} max={180} step="any" required value={management.officerLongitude} onChange={event => management.setOfficerLongitude(event.target.value)} className={inputClass} {...fieldProps("longitude")} />
                       {visibleError("longitude") && <p id={`${id}-longitude-error`} className="mt-1 text-xs text-rose-700">{visibleError("longitude")}</p>}
                     </div>
-                    <p className="text-xs text-slate-600">Saving explicitly confirms these coordinates now. They will not carry over automatically to the next operational day.</p>
+                    <p className="text-xs text-slate-600">Saving records these coordinates and their confirmation time. Planning keeps using them until you update or clear them.</p>
                   </>}
-                  {management.locationAction === "clear" && <p className="text-xs text-amber-800">Saving removes the recorded coordinates. Planning will use a recent recorded post or assume HQ.</p>}
+                  {management.locationAction === "clear" && <p className="text-xs text-amber-800">Saving removes the recorded coordinates. Planning will use a recent recorded post or the 3 km distance estimate.</p>}
                 </section>
 
                 <section aria-labelledby={`${id}-skills-heading`} className="border-t border-slate-100 pt-5">

@@ -94,6 +94,21 @@ it("retains the recorded legacy distance assumption instead of applying today's 
   expect(description.textContent).not.toContain("TTMO HQ");
 });
 
+it("explains the restored saved-coordinate policy without a daily reset or HQ assumption", async () => {
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",
+    top_solutions: [{assignments: []}],
+    input_snapshot: {
+      captured_at: "2026-10-22T06:00:00+08:00", bottlenecks: [],
+      weather: {source: "live", data_status: "live", is_stale: false, is_synthetic: false},
+      travel_time_model: {initial_location_policy: "recorded_coordinates_then_distance_estimate", origin_reset: "none", missing_officer_location_distance_km: 3},
+    },
+  });
+  renderEngine();
+  const description = await screen.findByText(/This run uses recorded previous posts or saved officer coordinates until they are updated/);
+  expect(description.textContent).toContain("Missing locations use an assumed 3 km travel distance");
+  expect(description.textContent).not.toContain("HQ");
+});
+
 it("uses saved skill explanations and distinguishes unmatched from locations without a preference", async () => {
   const match = {policy_version: "skills-v1", preferred_skills: ["school_crossing"], matched_skills: ["school_crossing"], status: "matched" as const, explanation: "Saved school crossing match."};
   vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "staffing-test", status: "completed",

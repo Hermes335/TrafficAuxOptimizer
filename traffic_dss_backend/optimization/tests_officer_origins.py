@@ -11,9 +11,9 @@ HQ = (10.689327, 122.581486)
 
 
 @pytest.mark.parametrize("officer,origin", [
-    ({"id": 1}, HQ),
-    ({"id": 1, "current_latitude": 10.75, "current_longitude": None}, HQ),
-    ({"id": 1, "current_latitude": float("nan"), "current_longitude": 122.56}, HQ),
+    ({"id": 1}, None),
+    ({"id": 1, "current_latitude": 10.75, "current_longitude": None}, None),
+    ({"id": 1, "current_latitude": float("nan"), "current_longitude": 122.56}, None),
     ({"id": 1, "current_latitude": 10.72, "current_longitude": 122.56}, (10.72, 122.56)),
 ])
 def test_scalar_and_matrix_distances_share_the_origin_without_mutating_inputs(officer, origin):
@@ -25,19 +25,20 @@ def test_scalar_and_matrix_distances_share_the_origin_without_mutating_inputs(of
     original_keys = set(officer)
     distances = engine._precompute_distance_matrix([officer], nodes)
     for node, measured in zip(nodes, distances[0]):
-        expected = geodesic(origin, (node["latitude"], node["longitude"])).km
+        expected = 3.0 if origin is None else geodesic(origin, (node["latitude"], node["longitude"])).km
         assert measured == pytest.approx(expected)
         assert engine._distance_km(officer, node) == pytest.approx(expected)
     assert set(officer) == original_keys
     assert "initial_position" not in officer
 
 
-def test_default_origin_has_zero_travel_to_hq_and_destination_specific_travel():
+def test_missing_origin_uses_a_distance_estimate_instead_of_hq_coordinates():
     engine = GeneticDeploymentOptimizer(seed=3)
     nearby = {"latitude": HQ[0], "longitude": HQ[1]}
     farther = {"latitude": 10.75, "longitude": 122.56}
-    assert engine._distance_km({}, nearby) == 0
-    assert engine._distance_km({}, farther) > 1
+    assert engine._distance_km({}, nearby) == 3.0
+    assert engine._distance_km({}, farther) == 3.0
+    assert engine._distance_km({"current_latitude": HQ[0], "current_longitude": HQ[1]}, nearby) == 0
 
 
 def test_objective_evaluation_agrees_with_and_without_the_distance_cache():

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 from geopy.distance import geodesic
 
-from core.officer_locations import TTMO_HQ_LATITUDE, TTMO_HQ_LONGITUDE
+from core.officer_locations import MISSING_LOCATION_DISTANCE_KM
 from optimization.scheduling import run_schedule
 
 
@@ -13,9 +13,8 @@ START = datetime.fromisoformat("2099-01-01T06:00:00+08:00")
 PARAMETERS = {"population_size": 50, "generations": 50}
 
 
-def hq_travel_minutes(node):
-    return geodesic((TTMO_HQ_LATITUDE, TTMO_HQ_LONGITUDE),
-                    (node["latitude"], node["longitude"])).km/28*60
+def estimated_travel_minutes():
+    return MISSING_LOCATION_DISTANCE_KM/28*60
 
 
 def person():
@@ -68,7 +67,7 @@ def test_identical_continuous_assignment_has_the_same_score_with_an_extra_bounda
             assert row["score"] == pytest.approx(expected["score"])
             assert row["weight"] == expected["weight"]
             assert row["contribution"] == pytest.approx(expected["contribution"])
-        assert actual["avg_response_time"] == pytest.approx(hq_travel_minutes(location("A", [])), abs=0.001)
+        assert actual["avg_response_time"] == pytest.approx(estimated_travel_minutes(), abs=0.001)
 
 
 def test_a_real_post_change_uses_the_last_post_as_its_arrival_origin():
@@ -79,7 +78,7 @@ def test_a_real_post_change_uses_the_last_post_as_its_arrival_origin():
     result = run([person()], nodes)
     transfer_minutes = geodesic((nodes[0]["latitude"], nodes[0]["longitude"]),
                                (nodes[1]["latitude"], nodes[1]["longitude"])).km/28*60
-    expected = round(hq_travel_minutes(nodes[0]), 3)*(60/180) + round(transfer_minutes, 3)*(105/180)
+    expected = round(estimated_travel_minutes(), 3)*(60/180) + round(transfer_minutes, 3)*(105/180)
     for solution in result.top_solutions:
         assert [(row["bottleneck_id"], row["start_time"], row["end_time"]) for row in solution["assignments"]] == [
             ("A", START.isoformat(), (START+timedelta(hours=1)).isoformat()),
@@ -108,5 +107,5 @@ def test_a_new_assignment_episode_resets_its_arrival_origin_after_a_gap(gap):
         ]
         # Initial arrival retains its estimate through 06:30. Returning after the
         # gap starts a new episode from the known last post, with zero travel.
-        assert solution["avg_response_time"] == pytest.approx(round(hq_travel_minutes(location("A", [])), 3)/3)
+        assert solution["avg_response_time"] == pytest.approx(round(estimated_travel_minutes(), 3)/3)
         assert solution["constraints_violated"] is (gap == "break")

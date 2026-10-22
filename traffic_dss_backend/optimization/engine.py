@@ -7,7 +7,7 @@ from random import Random, randint
 from math import inf
 
 from geopy.distance import geodesic
-from core.officer_locations import officer_coordinates
+from core.officer_locations import officer_coordinates, MISSING_LOCATION_DISTANCE_KM
 from core.skills import preferred_skills_for, skill_match
 from .matching import match_officers
 from .scoring import score_breakdown
@@ -61,7 +61,9 @@ class GeneticDeploymentOptimizer:
         }
 
     def _distance_km(self, officer: dict, bottleneck: dict) -> float:
-        return geodesic(officer_coordinates(officer), (bottleneck["latitude"], bottleneck["longitude"])).km
+        origin = officer_coordinates(officer)
+        return (MISSING_LOCATION_DISTANCE_KM if origin is None else
+                geodesic(origin, (bottleneck["latitude"], bottleneck["longitude"])).km)
 
     @staticmethod
     def _precompute_distance_matrix(officers: list[dict], bottlenecks: list[dict]) -> list[list[float]]:
@@ -71,6 +73,7 @@ class GeneticDeploymentOptimizer:
         for officer in officers:
             origin = officer_coordinates(officer)
             matrix.append([
+                MISSING_LOCATION_DISTANCE_KM if origin is None else
                 geodesic(origin, (bn["latitude"], bn["longitude"])).km
                 for bn in bottlenecks
             ])

@@ -5,9 +5,8 @@ from math import floor, inf
 from random import Random
 
 import pytest
-from geopy.distance import geodesic
 
-from core.officer_locations import TTMO_HQ_LATITUDE, TTMO_HQ_LONGITUDE
+from core.officer_locations import MISSING_LOCATION_DISTANCE_KM
 from core.skills import preferred_skills_for, skill_preference_score
 from optimization.engine import GeneticDeploymentOptimizer
 from optimization.matching import match_officers
@@ -162,8 +161,7 @@ def test_timed_metrics_keep_the_arrival_estimate_for_a_continuous_assignment():
         "end_time": (START+timedelta(minutes=(i+1)*30)).isoformat(), "required": 1, "reason": "School"} for i in range(2)]
     result = run_schedule(officers=[officer(1, ["school_crossing"])], bottlenecks=[location],
                           parameters={"population_size": 50, "generations": 50})
-    expected_minutes = geodesic((TTMO_HQ_LATITUDE, TTMO_HQ_LONGITUDE),
-                               (location["latitude"], location["longitude"])).km/28*60
+    expected_minutes = MISSING_LOCATION_DISTANCE_KM/28*60
     assert result.top_solutions[0]["avg_response_time"] == pytest.approx(expected_minutes, abs=0.001)
     assert result.best_fitness == result.top_solutions[0]["fitness"]
     assert result.pareto_curve_data[0]["inverse_response_time"] == pytest.approx(100-result.top_solutions[0]["avg_response_time"]*2)

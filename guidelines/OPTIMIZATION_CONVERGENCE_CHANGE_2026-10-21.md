@@ -1,5 +1,8 @@
 # Optimization convergence change — 2026-10-21
 
+The HQ origin policy described in this release was subsequently replaced at the
+user's request; see [the recorded-origin restoration](RECORDED_STARTING_LOCATIONS_2026-10-21.md).
+
 Constant generation scores previously produced tiny floating-point differences in
 their running mean. An automatically expanded chart axis magnified those differences
 into visible steps while rounding all labels to the same value. Both optimization

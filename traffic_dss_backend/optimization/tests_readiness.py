@@ -51,10 +51,10 @@ def test_readiness_is_supervisor_only_and_does_not_create_runs(inputs):
     assert response.status_code == 200, response.data
     assert response.data["ready"] is True
     assert response.data["blockers"] == []
-    assert len(response.data["warnings"]) == 1 and "TTMO HQ" in response.data["warnings"][0]
+    assert response.data["warnings"] == []
     assert response.data["checked_at"] == NOW.isoformat()
     assert response.data["summary"] == {
-        "active_locations": 1, "eligible_officers": 1, "missing_officer_locations": 1, "assumed_hq_origins": 1,
+        "active_locations": 1, "eligible_officers": 1, "missing_officer_locations": 0, "assumed_distance_origins": 0,
         "peak_required_officers": 1, "max_staffing_shortage": 0,
     }
     assert response.data["traffic"][0]["age_seconds"] == 0
@@ -78,7 +78,7 @@ def test_worker_readiness_uses_the_exact_captured_inputs(inputs):
         readiness = build_readiness(inputs.params, now=NOW, captured=captured)
     assert readiness["traffic"][0]["age_seconds"] == 0
     assert readiness["summary"]["peak_required_officers"] == 1
-    assert len(readiness["warnings"]) == 1 and "TTMO HQ" in readiness["warnings"][0]
+    assert readiness["warnings"] == []
 
 
 def test_stale_live_labels_and_missing_locations_are_warnings_not_start_blockers(inputs):

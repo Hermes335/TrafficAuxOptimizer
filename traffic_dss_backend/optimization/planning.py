@@ -7,7 +7,7 @@ from django.utils.dateparse import parse_datetime
 
 from core.models import Deployment
 from core.operational_time import MANILA, operational_date, shift_window
-from core.officer_locations import TTMO_HQ_LATITUDE, TTMO_HQ_LONGITUDE, TTMO_HQ_NAME, valid_coordinates
+from core.officer_locations import MISSING_LOCATION_DISTANCE_KM, valid_coordinates
 
 
 def review_lead_seconds():
@@ -44,7 +44,7 @@ def capture_origins(officers, params, start, now):
         if row.officer_id in seen:
             continue
         seen.add(row.officer_id)
-        # Very old posts are not reliable current positions. Same-day saved coordinates or HQ are used instead.
+        # Very old posts are not reliable current positions. Use saved coordinates or the distance estimate instead.
         if row.end_time < now-timedelta(hours=2):
             continue
         release = row.end_time if row.status == "completed" or row.end_time <= now else min(row.end_time, start)
@@ -56,13 +56,13 @@ def capture_origins(officers, params, start, now):
 
 
 def starting_location_model():
-    return {"speed_kmh": "max(8, 28 * (1 - TSI))", "initial_location_policy": "known_coordinates_then_hq",
-            "origin_reset": "daily", "default_origin": {"name": TTMO_HQ_NAME,
-                "latitude": TTMO_HQ_LATITUDE, "longitude": TTMO_HQ_LONGITUDE, "assumed": True}}
+    return {"speed_kmh": "max(8, 28 * (1 - TSI))",
+            "initial_location_policy": "recorded_coordinates_then_distance_estimate",
+            "origin_reset": "none", "missing_officer_location_distance_km": MISSING_LOCATION_DISTANCE_KM}
 
 
 def capture_starting_locations(officers, params, now):
-    """Resolve daily planning origins in memory without changing the officer roster."""
+    """Use recorded posts or saved coordinates until updated, without rewriting the roster."""
     day = date.fromisoformat(str(params.get("operational_date") or operational_date(now)))
     for officer in officers:
         recorded = officer.get("current_location_recorded_at")
@@ -73,19 +73,19 @@ def capture_starting_locations(officers, params, now):
                 recorded = None
         valid_time = isinstance(recorded, datetime) and timezone.is_aware(recorded)
         recorded_at = recorded.isoformat() if valid_time else None
-        saved_today = (valid_time and recorded <= now and recorded.astimezone(MANILA).date() == day
-                       and valid_coordinates(officer.get("current_latitude"), officer.get("current_longitude")))
+        saved_valid = valid_coordinates(officer.get("current_latitude"), officer.get("current_longitude"))
         officer["recorded_location"] = {"latitude": officer.get("current_latitude"),
-            "longitude": officer.get("current_longitude"), "recorded_at": recorded_at, "usable_today": bool(saved_today)}
+            "longitude": officer.get("current_longitude"), "recorded_at": recorded_at, "usable_for_planning": saved_valid}
         prior = officer.get("initial_position")
         if isinstance(prior, dict) and valid_coordinates(prior.get("latitude"), prior.get("longitude")):
             origin = {"source": prior["source"], "name": "Recorded post", "latitude": prior["latitude"],
                 "longitude": prior["longitude"], "assumed": False, "deployment_id": prior.get("deployment_id")}
-        elif saved_today:
+        elif saved_valid:
             origin = {"source": "saved_coordinates", "name": "Saved officer location",
                 "latitude": officer["current_latitude"], "longitude": officer["current_longitude"], "assumed": False}
         else:
-            origin = {"source": "ttmo_hq", **starting_location_model()["default_origin"]}
+            origin = {"source": "distance_estimate", "name": "Unknown starting location",
+                "latitude": None, "longitude": None, "assumed": True, "distance_km": MISSING_LOCATION_DISTANCE_KM}
         officer["starting_location"] = {**origin, "operational_date": str(day)}
         officer["current_latitude"], officer["current_longitude"] = origin["latitude"], origin["longitude"]
         officer["current_location_recorded_at"] = recorded_at

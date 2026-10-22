@@ -23,6 +23,9 @@ export function describeTravelOrigin(model?: TravelTimeModel): string {
   }
   const distance = model?.missing_officer_location_distance_km;
   if (typeof distance === "number" && Number.isFinite(distance) && distance >= 0) {
+    if (model?.initial_location_policy === "recorded_coordinates_then_distance_estimate") {
+      return `This run uses recorded previous posts or saved officer coordinates until they are updated. Missing locations use an assumed ${distance} km travel distance. These are planning estimates, not live GPS tracking.`;
+    }
     return `This saved run assumed ${distance} km when officer coordinates were missing. This is a planning assumption, not live GPS tracking.`;
   }
   return "Starting-location assumptions were not recorded for this run. Travel estimates do not confirm officers' physical locations.";

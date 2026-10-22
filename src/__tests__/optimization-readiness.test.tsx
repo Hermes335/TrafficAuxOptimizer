@@ -82,6 +82,20 @@ it.each([0, 3])("shows %i assumed HQ origins only when reported by readiness", a
   else expect(summary.queryByText(/planning assumptions, not confirmed GPS positions/)).toBeNull();
 });
 
+it("shows the restored missing-location distance estimate without an HQ starting point", async () => {
+  vi.mocked(backend.fetchOptimizationReadiness).mockImplementation(async request => {
+    const value = readiness(request);
+    return {...value, summary: {...value.summary, missing_officer_locations: 3, assumed_distance_origins: 3},
+      warnings: ["3 eligible officers have no recorded starting location. Travel estimates use an assumed 3 km distance for each trip."]};
+  });
+  renderPage();
+  await screen.findByText("Ready to generate a recommendation.");
+  const summary = within(screen.getByRole("region", {name: "Run readiness"}));
+  expect(summary.getByText("Officers using 3 km estimate").parentElement?.textContent).toBe("Officers using 3 km estimate3");
+  expect(summary.queryByText("Assumed HQ origins")).toBeNull();
+  expect(summary.getByText(/Travel estimates use an assumed 3 km/)).toBeTruthy();
+});
+
 it("identifies saved runs by planning context and does not compare unrelated run scores", async () => {
   const savedRun = (id: number, parameters: Record<string, unknown>, fitness: number): backend.OptimizationHistoryItem => ({
     id, run_id: `saved-${id}`, timestamp: "2026-10-21T00:00:00+08:00", parameters,

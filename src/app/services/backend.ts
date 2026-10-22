@@ -458,6 +458,7 @@ export interface OptimizationReadiness {
     eligible_officers: number;
     missing_officer_locations: number;
     assumed_hq_origins?: number;
+    assumed_distance_origins?: number;
     peak_required_officers: number;
     max_staffing_shortage: number;
   };
@@ -534,8 +535,8 @@ export interface ParetoPoint {
 export interface TravelTimeModel {
   speed_kmh?: string;
   missing_officer_location_distance_km?: number;
-  initial_location_policy?: "hq_for_initial_deployment" | "known_coordinates_then_hq";
-  origin_reset?: "daily";
+  initial_location_policy?: "hq_for_initial_deployment" | "known_coordinates_then_hq" | "recorded_coordinates_then_distance_estimate";
+  origin_reset?: "daily" | "none";
   default_origin?: { name: string; latitude: number; longitude: number; assumed: boolean };
 }
 
