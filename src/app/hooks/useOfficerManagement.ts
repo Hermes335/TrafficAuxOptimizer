@@ -12,8 +12,11 @@ interface UseOfficerManagementOptions {
   reloadOfficers: () => Promise<void>;
 }
 
-function officerFormSnapshot(name: string, badge: string, shift: string, status: string, skills: string[]): string {
-  return JSON.stringify([name.trim(), badge.trim(), shift, status, uniqueOfficerSkills(skills).sort()]);
+type LocationAction = "unchanged" | "confirm" | "clear";
+function officerFormSnapshot(name: string, badge: string, shift: string, status: string, skills: string[],
+  locationAction: LocationAction = "unchanged", latitude = "", longitude = ""): string {
+  return JSON.stringify([name.trim(), badge.trim(), shift, status, uniqueOfficerSkills(skills).sort(),
+    locationAction, ...(locationAction === "confirm" ? [latitude.trim(), longitude.trim()] : [])]);
 }
 
 const blankOfficerForm = officerFormSnapshot("", "", "afternoon", "available", []);
@@ -24,6 +27,10 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
   const [officerShift, setOfficerShift] = usePageState<"morning" | "afternoon">("rosterForm.officerShift", "afternoon");
   const [officerStatus, setOfficerStatus] = usePageState<"available" | "deployed" | "off_duty" | "unavailable">("rosterForm.officerStatus", "available");
   const [officerSkills, setOfficerSkills] = usePageState<string[]>("rosterForm.officerSkills", []);
+  const [locationAction, setLocationAction] = usePageState<LocationAction>("rosterForm.locationAction", "unchanged");
+  const [officerLatitude, setOfficerLatitude] = usePageState("rosterForm.latitude", "");
+  const [officerLongitude, setOfficerLongitude] = usePageState("rosterForm.longitude", "");
+  const [locationRecordedAt, setLocationRecordedAt] = usePageState<string | null>("rosterForm.locationRecordedAt", null);
   const [addingOfficer, setAddingOfficer] = usePageState("rosterForm.addingOfficer", false);
   const [editingOfficerId, setEditingOfficerId] = usePageState<number | null>("rosterForm.editingOfficerId", null);
   const [savingOfficer, setSavingOfficer] = usePageState("rosterForm.savingOfficer", false);
@@ -33,12 +40,21 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
   const [addedOfficer, setAddedOfficer] = usePageState<{name: string; badge: string} | null>("rosterForm.addedOfficer", null);
   const [editBaseline, setEditBaseline] = usePageState("rosterForm.editBaseline", blankOfficerForm);
   const officerFormDirty = (addingOfficer || editingOfficerId !== null)
-    && officerFormSnapshot(officerName, officerBadge, officerShift, officerStatus, officerSkills) !== editBaseline;
-  const officerFieldErrors: { name?: string; badge?: string } = {};
+    && officerFormSnapshot(officerName, officerBadge, officerShift, officerStatus, officerSkills, locationAction, officerLatitude, officerLongitude) !== editBaseline;
+  const officerFieldErrors: { name?: string; badge?: string; latitude?: string; longitude?: string } = {};
   if (!officerName.trim()) officerFieldErrors.name = "Enter the officer's name.";
   else if (officerName.trim().length > 255) officerFieldErrors.name = "Use 255 characters or fewer.";
   if (!officerBadge.trim()) officerFieldErrors.badge = "Enter a badge number.";
   else if (officerBadge.trim().length > 40) officerFieldErrors.badge = "Use 40 characters or fewer.";
+  if (locationAction === "confirm") {
+    if (!officerLatitude.trim() || !Number.isFinite(Number(officerLatitude)) || Math.abs(Number(officerLatitude)) > 90)
+      officerFieldErrors.latitude = "Enter a latitude between -90 and 90.";
+    if (!officerLongitude.trim() || !Number.isFinite(Number(officerLongitude)) || Math.abs(Number(officerLongitude)) > 180)
+      officerFieldErrors.longitude = "Enter a longitude between -180 and 180.";
+  }
+  const locationPayload = locationAction === "confirm"
+    ? {current_latitude: Number(officerLatitude), current_longitude: Number(officerLongitude)}
+    : locationAction === "clear" ? {current_latitude: null, current_longitude: null} : {};
   // The lock outlives the page and also blocks two submissions in the same render.
   const [operation] = usePageState("rosterForm.operation", () => ({
     pending: false, reload: null as (() => Promise<void>) | null,
@@ -54,6 +70,10 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
     setOfficerShift("afternoon");
     setOfficerStatus("available");
     setOfficerSkills([]);
+    setLocationAction("unchanged");
+    setOfficerLatitude("");
+    setOfficerLongitude("");
+    setLocationRecordedAt(null);
     setEditBaseline(blankOfficerForm);
   };
 
@@ -77,7 +97,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
   const onAddOfficer = async () => {
     if (operation.pending) return;
     if (Object.keys(officerFieldErrors).length) {
-      setOfficerError("Check the officer name and badge number before saving.");
+      setOfficerError("Check the highlighted officer details before saving.");
       return;
     }
     const skills = uniqueOfficerSkills(officerSkills);
@@ -92,6 +112,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
         shift: officerShift,
         status: officerStatus,
         skills,
+        ...locationPayload,
       });
       setAddedOfficer({name: officerName.trim(), badge: officerBadge.trim()});
       resetOfficerForm();
@@ -116,6 +137,10 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
     setOfficerShift(officer.shift);
     setOfficerStatus(officer.status);
     setOfficerSkills(skills);
+    setLocationAction("unchanged");
+    setOfficerLatitude(officer.current_latitude == null ? "" : String(officer.current_latitude));
+    setOfficerLongitude(officer.current_longitude == null ? "" : String(officer.current_longitude));
+    setLocationRecordedAt(officer.current_location_recorded_at ?? null);
     setEditBaseline(officerFormSnapshot(officer.name, officer.badge_number, officer.shift, officer.status, skills));
     setAddingOfficer(false);
     setOfficerError(null);
@@ -126,7 +151,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
     if (operation.pending) return;
     if (editingOfficerId === null || !officerFormDirty) return;
     if (Object.keys(officerFieldErrors).length) {
-      setOfficerError("Check the officer name and badge number before saving.");
+      setOfficerError("Check the highlighted officer details before saving.");
       return;
     }
     const skills = uniqueOfficerSkills(officerSkills);
@@ -141,6 +166,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
         shift: officerShift,
         status: officerStatus,
         skills,
+        ...locationPayload,
       });
       // A later edit may change the saved badge used by the creation shortcut.
       setAddedOfficer(null);
@@ -189,6 +215,7 @@ export function useOfficerManagement({ reloadOfficers }: UseOfficerManagementOpt
     officerShift, setOfficerShift,
     officerStatus, setOfficerStatus,
     officerSkills, setOfficerSkills,
+    locationAction, setLocationAction, officerLatitude, setOfficerLatitude, officerLongitude, setOfficerLongitude, locationRecordedAt,
     addingOfficer, setAddingOfficer: (...args: Parameters<typeof setAddingOfficer>) => { if (!operation.pending) setAddingOfficer(...args); },
     editingOfficerId, setEditingOfficerId: (...args: Parameters<typeof setEditingOfficerId>) => { if (!operation.pending) setEditingOfficerId(...args); },
     savingOfficer,

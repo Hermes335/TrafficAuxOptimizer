@@ -3,6 +3,7 @@ import { UserRound, X } from "lucide-react";
 import { useEffect, useId, useRef, useState, type RefObject } from "react";
 import type { useOfficerManagement } from "../../hooks/useOfficerManagement";
 import { OfficerSkillSelector } from "../../components/OfficerSkillSelector";
+import { operationalDate, operationalTime } from "../../services/operationalTime";
 
 interface OfficerEditorProps {
   management: ReturnType<typeof useOfficerManagement>;
@@ -16,15 +17,15 @@ export function OfficerEditor({ management, onClose, returnFocusRef }: OfficerEd
   const contentRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const [validationAttempt, setValidationAttempt] = useState(0);
-  const [touched, setTouched] = useState<{ name?: boolean; badge?: boolean }>({});
+  const [touched, setTouched] = useState<{ name?: boolean; badge?: boolean; latitude?: boolean; longitude?: boolean }>({});
   const editing = management.editingOfficerId !== null;
   const busy = management.savingOfficer || management.deletingOfficerId !== null;
   const hasErrors = Object.keys(management.officerFieldErrors).length > 0;
-  const visibleError = (field: "name" | "badge") => validationAttempt || touched[field]
+  const visibleError = (field: "name" | "badge" | "latitude" | "longitude") => validationAttempt || touched[field]
     ? management.officerFieldErrors[field] : undefined;
   const inputClass = "mt-1.5 w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-100 aria-invalid:border-rose-500 disabled:bg-slate-50 disabled:text-slate-500";
   const labelClass = "text-sm font-medium text-slate-700";
-  const fieldProps = (field: "name" | "badge") => ({
+  const fieldProps = (field: "name" | "badge" | "latitude" | "longitude") => ({
     "aria-invalid": !!visibleError(field),
     "aria-describedby": visibleError(field) ? `${id}-${field}-error` : undefined,
     onBlur: () => setTouched(current => ({ ...current, [field]: true })),
@@ -120,6 +121,36 @@ export function OfficerEditor({ management, onClose, returnFocusRef }: OfficerEd
                     <p id={`${id}-status-help`} className="mt-1.5 text-xs text-slate-500">The schedule manages Deployed status.</p>
                   </div>
                   <p id={`${id}-eligibility-help`} className="rounded-lg bg-slate-50 px-3 py-2.5 text-xs leading-relaxed text-slate-600">Cancel outstanding assignments before changing shift or marking an officer off duty or unavailable.</p>
+                </section>
+
+                <section aria-labelledby={`${id}-location-heading`} className="space-y-3 border-t border-slate-100 pt-5">
+                  <h3 id={`${id}-location-heading`} className="text-xs font-semibold uppercase tracking-wide text-slate-500">Starting location</h3>
+                  <p className="text-xs leading-relaxed text-slate-600">Confirm a location only when it represents where this officer is now. Planning uses recent posts or a location confirmed on the same Manila operational day; otherwise it assumes HQ.</p>
+                  {management.officerLatitude && management.officerLongitude && management.locationAction === "unchanged" && <p className="text-xs text-slate-600">Saved coordinates: {management.officerLatitude}, {management.officerLongitude}. {management.locationRecordedAt && Number.isFinite(Date.parse(management.locationRecordedAt))
+                    ? `Last confirmed ${operationalDate(new Date(management.locationRecordedAt))} ${operationalTime(management.locationRecordedAt)} Manila.`
+                    : "No confirmation time is recorded."}</p>}
+                  <div>
+                    <label htmlFor={`${id}-location-action`} className={labelClass}>Location update</label>
+                    <select id={`${id}-location-action`} value={management.locationAction} onChange={event => management.setLocationAction(event.target.value as "unchanged" | "confirm" | "clear")} className={inputClass}>
+                      <option value="unchanged">Leave location unchanged</option>
+                      <option value="confirm">Confirm starting coordinates now</option>
+                      <option value="clear">Clear saved location</option>
+                    </select>
+                  </div>
+                  {management.locationAction === "confirm" && <>
+                    <div>
+                      <label htmlFor={`${id}-latitude`} className={labelClass}>Starting latitude</label>
+                      <input id={`${id}-latitude`} type="number" min={-90} max={90} step="any" required value={management.officerLatitude} onChange={event => management.setOfficerLatitude(event.target.value)} className={inputClass} {...fieldProps("latitude")} />
+                      {visibleError("latitude") && <p id={`${id}-latitude-error`} className="mt-1 text-xs text-rose-700">{visibleError("latitude")}</p>}
+                    </div>
+                    <div>
+                      <label htmlFor={`${id}-longitude`} className={labelClass}>Starting longitude</label>
+                      <input id={`${id}-longitude`} type="number" min={-180} max={180} step="any" required value={management.officerLongitude} onChange={event => management.setOfficerLongitude(event.target.value)} className={inputClass} {...fieldProps("longitude")} />
+                      {visibleError("longitude") && <p id={`${id}-longitude-error`} className="mt-1 text-xs text-rose-700">{visibleError("longitude")}</p>}
+                    </div>
+                    <p className="text-xs text-slate-600">Saving explicitly confirms these coordinates now. They will not carry over automatically to the next operational day.</p>
+                  </>}
+                  {management.locationAction === "clear" && <p className="text-xs text-amber-800">Saving removes the recorded coordinates. Planning will use a recent recorded post or assume HQ.</p>}
                 </section>
 
                 <section aria-labelledby={`${id}-skills-heading`} className="border-t border-slate-100 pt-5">

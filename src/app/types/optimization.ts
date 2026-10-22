@@ -5,6 +5,30 @@ export interface ConvergencePoint {
   avgFitness: number;
 }
 
+export function withRunningMean(points: ConvergencePoint[]): ConvergencePoint[] {
+  let mean = 0;
+  return points.map((point, index) => {
+    mean += (point.bestFitness - mean) / (index + 1);
+    return {...point, avgFitness: mean};
+  });
+}
+
+export function buildConvergenceFromScores(scores: number[]): ConvergencePoint[] {
+  return withRunningMean(scores.map((score, index) => ({
+    id: `saved-${index + 1}`, generation: index + 1, bestFitness: score, avgFitness: 0,
+  })));
+}
+
+export function recommendationWarning(solution?: {
+  constraints_violated?: boolean; staffing_shortages?: Record<string, number>;
+}): string | null {
+  const shortage = Object.values(solution?.staffing_shortages ?? {}).reduce((sum, count) => sum + Math.max(0, count), 0);
+  if (shortage) return `Completed with staffing shortages. Up to ${shortage} required post${shortage === 1 ? " is" : "s are"} unfilled. Review staffing and rerun optimization before publication.`;
+  return solution?.constraints_violated
+    ? "Completed with constraint violations. Review the recommendation and resolve the issues before publication."
+    : null;
+}
+
 export function upsertConvergencePoint(prev: ConvergencePoint[], next: ConvergencePoint): ConvergencePoint[] {
   const index = prev.findIndex((p) => p.generation === next.generation);
   if (index >= 0) {
@@ -38,7 +62,7 @@ export function getOptimizationProgress(status: GenerationStatus | null): number
 export function getOptimizationCompletionSummary(status: GenerationStatus | null): string | null {
   if (status?.status !== "completed") return null;
   return status.converged_early
-    ? `Converged early after ${status.current_generation} generations (limit ${status.total_generations}). The search results stabilized.`
+    ? `Stopped early after ${status.current_generation} generations (limit ${status.total_generations}). No material improvement was detected by the stopping check.`
     : `Completed ${status.current_generation} generations (limit ${status.total_generations}).`;
 }
 

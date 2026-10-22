@@ -14,8 +14,9 @@ import {
   runOptimization,
   subscribeToOptimizationStream,
   type OptimizationStatus,
+  type OptimizationResults,
 } from "../services/backend";
-import { type ConvergencePoint, upsertConvergencePoint, getRunStatusToneClass, getOptimizationProgress, getOptimizationCompletionSummary } from "../types/optimization";
+import { type ConvergencePoint, upsertConvergencePoint, getRunStatusToneClass, getOptimizationProgress, getOptimizationCompletionSummary, withRunningMean, buildConvergenceFromScores, recommendationWarning } from "../types/optimization";
 
 type RunEvent = {
   label: string;
@@ -34,6 +35,8 @@ export function OptimizationRunning() {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
+  const [completedSolution, setCompletedSolution] = useState<OptimizationResults["top_solutions"][number]>();
+  const qualityWarning = recommendationWarning(completedSolution);
   const [runEvents, setRunEvents] = useState<RunEvent[]>([]);
   const startPromise = useRef<ReturnType<typeof runOptimization> | null>(null);
   const acceptedStatus = useRef<OptimizationStatus | null>(null);
@@ -85,7 +88,7 @@ export function OptimizationRunning() {
       return "Waiting for backend run";
     }
     if (status.status === "completed") {
-      return "Completed successfully";
+      return qualityWarning ? "Completed with staffing or constraint issues" : "Completed successfully";
     }
     if (status.status === "failed") {
       return "Run failed";
@@ -94,29 +97,29 @@ export function OptimizationRunning() {
       return "Run cancelled";
     }
     return "Processing generations";
-  }, [status]);
+  }, [status, qualityWarning]);
 
   const latestEventLabel = runEvents[runEvents.length - 1]?.label ?? "Waiting for optimization events...";
 
-  const statusToneClass = getRunStatusToneClass(status?.status);
+  const statusToneClass = qualityWarning ? "bg-amber-100 text-amber-800" : getRunStatusToneClass(status?.status);
 
   const currentEventIcon = useMemo(() => {
     if (!status) {
       return Activity;
     }
     if (status.status === "completed") {
-      return CheckCircle2;
+      return qualityWarning ? AlertTriangle : CheckCircle2;
     }
     if (status.status === "failed" || status.status === "cancelled") {
       return XCircle;
     }
     return Clock;
-  }, [status]);
+  }, [status, qualityWarning]);
 
   const isRunActive = status?.status !== "completed" && status?.status !== "failed" && status?.status !== "cancelled";
   const ProgressStatusIcon = currentEventIcon;
   const progressIconClass =
-    status?.status === "completed"
+    qualityWarning ? "text-amber-800" : status?.status === "completed"
       ? "text-green-700"
       : status?.status === "failed"
         ? "text-red-700"
@@ -156,8 +159,7 @@ export function OptimizationRunning() {
             id: `point-${latest.current_generation}`, generation: latest.current_generation,
             bestFitness: latest.current_fitness ?? 0, avgFitness: 0,
           }).sort((left, right) => left.generation - right.generation);
-          let total = 0;
-          return next.map((point, index) => { total += point.bestFitness; return {...point, avgFitness: total / (index + 1)}; });
+          return withRunningMean(next);
         });
       }
       setRunEvents(previous => [...previous, {
@@ -208,21 +210,19 @@ export function OptimizationRunning() {
     setHistoryLoading(true);
     setHistoryLoaded(false);
     setHistoryError(null);
+    setCompletedSolution(undefined);
     // StrictMode's replacement effect subscribes to the same request.
     if (historyRequest.current?.runId !== runId) {
       historyRequest.current = {runId, promise: fetchOptimizationResults(runId)};
     }
     historyRequest.current.promise.then(results => {
       if (!active) return;
+      setCompletedSolution(results.top_solutions?.[0]);
       const scores = results.fitness_scores;
       if (!Array.isArray(scores) || !scores.length || scores.some(score => typeof score !== "number" || !Number.isFinite(score))) {
         throw new Error("Saved search history is missing or invalid.");
       }
-      let total = 0;
-      setConvergenceData(scores.map((score, index) => {
-        total += score;
-        return {id: `saved-${index + 1}`, generation: index + 1, bestFitness: score, avgFitness: total / (index + 1)};
-      }));
+      setConvergenceData(buildConvergenceFromScores(scores));
       setHistoryLoaded(true);
     }).catch(() => {
       if (active) setHistoryError("Saved search history is unavailable. Any received search points are shown below.");
@@ -245,18 +245,18 @@ export function OptimizationRunning() {
               <div className="min-w-0">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <h1 className="break-words text-xl font-bold sm:text-2xl">{progress}% Optimization Progress</h1>
-                  <StatusBadge status={status?.status || "queued"} size="md" />
+                  {qualityWarning ? <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">Completed with issues</span> : <StatusBadge status={status?.status || "queued"} size="md" />}
                 </div>
                 <p className="text-gray-600">
                   {status?.status === "completed"
-                    ? "Optimization complete."
+                    ? qualityWarning ? "Calculation complete; recommendation needs review." : "Optimization complete."
                     : status?.status === "failed"
                       ? "Optimization failed. Check backend logs and retry."
                       : status?.status === "cancelled"
                         ? "Optimization cancelled."
                         : latestFitnessLabel}
                 </p>
-                {completionSummary && <p className="mt-1 text-sm text-green-700">{completionSummary}</p>}
+                {completionSummary && <p className={`mt-1 text-sm ${qualityWarning ? "text-amber-800" : "text-green-700"}`}>{completionSummary}</p>}
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -304,6 +304,8 @@ export function OptimizationRunning() {
             />
           </div>
         </div>
+
+        {qualityWarning && <p role="status" aria-label="Recommendation warning" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{qualityWarning}</p>}
 
         {/* Fitness Convergence Curve */}
         {error && <p role="alert" className="mb-4 rounded border border-red-300 bg-red-50 p-3 text-red-800">{error}</p>}

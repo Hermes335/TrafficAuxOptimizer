@@ -21,20 +21,7 @@ import {
   type OptimizationResults,
   type OptimizationStatus,
 } from "../services/backend";
-import { type ConvergencePoint, upsertConvergencePoint, getOptimizationProgress, getOptimizationCompletionSummary } from "../types/optimization";
-
-function buildConvergenceFromScores(scores: number[]): ConvergencePoint[] {
-  let runningTotal = 0;
-  return scores.map((score, index) => {
-    runningTotal += score;
-    return {
-      id: `result-${index + 1}`,
-      generation: index + 1,
-      bestFitness: score,
-      avgFitness: runningTotal / (index + 1),
-    };
-  });
-}
+import { type ConvergencePoint, upsertConvergencePoint, getOptimizationProgress, getOptimizationCompletionSummary, withRunningMean, buildConvergenceFromScores, recommendationWarning } from "../types/optimization";
 
 export function OptimizationEngine() {
   const { user } = useAuth();
@@ -88,11 +75,7 @@ export function OptimizationEngine() {
               bestFitness: latestStatus.current_fitness,
               avgFitness: 0,
             }).sort((left, right) => left.generation - right.generation);
-            let total = 0;
-            return next.map((point, index) => {
-              total += point.bestFitness;
-              return {...point, avgFitness: total / (index + 1)};
-            });
+            return withRunningMean(next);
           });
         }
 
@@ -154,6 +137,7 @@ export function OptimizationEngine() {
   const completionSummary = getOptimizationCompletionSummary(status);
 
   const bestSolution = results?.top_solutions?.[0];
+  const qualityWarning = recommendationWarning(bestSolution);
   const assignments = bestSolution?.assignments ?? [];
   const planningWindow = results?.input_snapshot?.planning_window;
   const shiftStart = results?.parameters?.operational_date && results.parameters.shift
@@ -198,10 +182,12 @@ export function OptimizationEngine() {
 
         <div className="mb-6 flex min-w-0 flex-wrap items-center gap-2">
           <div className="flex-shrink-0">
-            <StatusBadge status={status?.status || "queued"} size="md" />
+            {qualityWarning ? <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">Completed with issues</span> : <StatusBadge status={status?.status || "queued"} size="md" />}
           </div>
           <span className="min-w-0 break-all text-xs text-gray-600 sm:text-sm">Run ID: <code className="font-mono font-semibold">{runId ?? "Pending"}</code></span>
         </div>
+
+        {qualityWarning && <p role="status" aria-label="Recommendation warning" className="mb-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{qualityWarning}</p>}
 
         <section aria-label="Recommendation overview" className="mb-6 rounded-xl border border-slate-200 bg-white p-4 sm:p-6">
           <h2 className="mb-3 text-lg font-semibold">Saved recommendation</h2>
@@ -407,7 +393,6 @@ export function OptimizationEngine() {
                 secondaryValues={convergenceData.map((p) => p.avgFitness)}
                 color="#facc15"
                 colorSecondary="#9ca3af"
-                yAxisFormatter={(v) => v.toFixed(1)}
               />
             </MeasuredResultChart>
           </div>
@@ -504,8 +489,8 @@ export function OptimizationEngine() {
                   );
                 })}
                 {results.converged_early && (
-                  <div className="mt-3 rounded-lg bg-green-50 p-2 text-xs text-green-700">
-                    Converged early — hypervolume stabilized, no further improvement detected.
+                  <div className={`mt-3 rounded-lg p-2 text-xs ${qualityWarning ? "bg-amber-50 text-amber-800" : "bg-green-50 text-green-700"}`}>
+                    Stopped early after the configured progress check detected no material improvement. This does not prove global optimality.
                   </div>
                 )}
                 {results.synthetic_data_used && results.synthetic_data_used.length > 0 && (

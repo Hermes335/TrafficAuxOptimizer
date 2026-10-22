@@ -23,6 +23,29 @@ const chartValues = () => JSON.parse(screen.getByTestId("search-values").textCon
 const chartMeans = () => JSON.parse(screen.getByTestId("search-means").textContent ?? "[]") as number[];
 const savedSearch = Array.from({length: 89}, (_, index) => index === 88 ? 89.9713 : 89.6 + index * 0.004);
 const completedSchedule = {...status, current_generation: 89, total_generations: 300, current_fitness: 92.295125, converged_early: true};
+
+it("shows shortages separately from calculation completion and preserves a flat saved history", async () => {
+  window.history.replaceState(null, "", "/optimization-running?run_id=existing");
+  vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue({...completedSchedule, current_generation: 22});
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "existing", status: "completed", fitness_scores: Array(22).fill(94.4404), top_solutions: [{fitness: 94.4404, constraints_violated: true, staffing_shortages: {"B-1": 1}}]});
+  render(<MemoryRouter><OptimizationRunning /></MemoryRouter>);
+  await screen.findByText("Completed with issues");
+  expect(screen.getByLabelText("Recommendation warning").textContent).toContain("1 required post is unfilled");
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("100");
+  expect(chartValues()).toEqual(Array(22).fill(94.4404));
+  expect(chartMeans()).toEqual(Array(22).fill(94.4404));
+  expect(backend.runOptimization).not.toHaveBeenCalled();
+});
+
+it("does not add a shortage warning to a feasible recommendation", async () => {
+  window.history.replaceState(null, "", "/optimization-running?run_id=existing");
+  vi.mocked(backend.fetchOptimizationStatus).mockResolvedValue(status);
+  vi.mocked(backend.fetchOptimizationResults).mockResolvedValue({run_id: "existing", status: "completed", fitness_scores: [12], top_solutions: [{fitness: 12, constraints_violated: false, staffing_shortages: {}}]});
+  render(<MemoryRouter><OptimizationRunning /></MemoryRouter>);
+  await waitFor(() => expect(chartValues()).toEqual([12]));
+  expect(screen.queryByLabelText("Recommendation warning")).toBeNull();
+  expect(screen.getByText("Optimization complete.")).toBeTruthy();
+});
 function deferred<T>() {
   let resolve!: (value: T) => void, reject!: (error: Error) => void;
   const promise = new Promise<T>((yes, no) => {resolve = yes; reject = no;});
@@ -55,7 +78,7 @@ it("shows early completion at 100% while retaining 48 executed generations and t
   render(<MemoryRouter><OptimizationRunning /></MemoryRouter>);
   await screen.findByRole("heading",{name:"100% Optimization Progress"});
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("100");
-  expect(screen.getByText(/Converged early after 48 generations \(limit 300\)/)).toBeTruthy();
+  expect(screen.getByText(/Stopped early after 48 generations \(limit 300\)/)).toBeTruthy();
   expect(screen.getByText("GEN 48 · LIMIT 300")).toBeTruthy();
   expect(screen.getByText("Generations completed").parentElement?.textContent).toContain("48of 300 max");
   expect(screen.queryByText(/16%/)).toBeNull();

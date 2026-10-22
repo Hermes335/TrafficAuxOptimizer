@@ -3,6 +3,20 @@ import pytest
 from optimization.engine import GeneticDeploymentOptimizer
 
 
+@pytest.mark.parametrize("enabled,limit,expected,early", [(True, 80, 50, True), (False, 80, 80, False), (True, 50, 50, False)])
+def test_flat_feasible_search_respects_stop_policy_and_explicit_full_run(enabled, limit, expected, early):
+    result = GeneticDeploymentOptimizer(seed=7).run(
+        officers=[{"id": 1, "current_latitude": 10.72, "current_longitude": 122.56}],
+        bottlenecks=[{"id": "ONLY", "latitude": 10.72, "longitude": 122.56,
+                      "min_officers_required": 1, "max_officers_allowed": 1}],
+        parameters={"population_size": 20, "generations": limit, "enable_early_stopping": enabled},
+    )
+    assert result.status == "completed"
+    assert len(result.generation_fitness) == expected
+    assert result.converged_early is early
+    assert not result.top_solutions[0]["constraints_violated"]
+
+
 @pytest.mark.parametrize(
     "parameters",
     [

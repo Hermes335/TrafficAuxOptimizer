@@ -2,9 +2,11 @@ import type { ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import PrettyCurve from "../app/components/PrettyCurve";
+import { buildConvergenceFromScores } from "../app/types/optimization";
 
 type PlotPoint = {x: number; y: number; y2?: number};
-const plot = vi.hoisted(() => ({data: [] as PlotPoint[]}));
+type Axis = {domain: [number, number]; ticks: number[]; tickFormatter: (value: number) => string};
+const plot = vi.hoisted(() => ({data: [] as PlotPoint[], axis: {} as Axis}));
 vi.mock("recharts", () => ({
   ResponsiveContainer: ({children}: {children: ReactNode}) => children,
   ComposedChart: ({data, children}: {data: PlotPoint[]; children: ReactNode}) => {
@@ -12,7 +14,7 @@ vi.mock("recharts", () => ({
     return <><output aria-label="Plotted generations">{JSON.stringify(data.map(point => point.x))}</output><svg>{children}</svg></>;
   },
   Tooltip: ({content}: {content: (props: {active: boolean; payload: Array<{payload: PlotPoint}>}) => ReactNode}) => <foreignObject>{content({active: true, payload: [{payload: plot.data[plot.data.length - 1]}]})}</foreignObject>,
-  XAxis: () => null, YAxis: () => null, Line: () => null, Area: () => null, CartesianGrid: () => null,
+  XAxis: () => null, YAxis: (props: Axis) => {plot.axis = props; return null;}, Line: () => null, Area: () => null, CartesianGrid: () => null,
 }));
 
 it("uses actual sparse generation numbers for chart data and tooltip labels", () => {
@@ -37,4 +39,22 @@ it("keeps one-based defaults and updates labels when generation coordinates chan
   rerender(<PrettyCurve values={values} generations={[88, 89]} />);
   expect(screen.getByLabelText("Plotted generations").textContent).toBe("[88,89]");
   expect(screen.getByText("Gen 89")).toBeTruthy();
+});
+
+it.each([94.4404, 94.5922])("keeps a constant %s history and its running mean flat with distinct axis labels", score => {
+  const points = buildConvergenceFromScores(Array(22).fill(score));
+  render(<PrettyCurve values={points.map(point => point.bestFitness)} secondaryValues={points.map(point => point.avgFitness)} />);
+  expect(plot.data.every(point => point.y === score && point.y2 === score)).toBe(true);
+  expect(screen.getByText("No recorded change across these generations.")).toBeTruthy();
+  expect(plot.axis.domain[1] - plot.axis.domain[0]).toBeGreaterThanOrEqual(0.1);
+  const labels = plot.axis.ticks.map(plot.axis.tickFormatter);
+  expect(new Set(labels).size).toBe(labels.length);
+});
+
+it("preserves real improvements and calculates their running mean without fabricating changes", () => {
+  const points = buildConvergenceFromScores([89.6855, 89.8, 89.9718]);
+  render(<PrettyCurve values={points.map(point => point.bestFitness)} secondaryValues={points.map(point => point.avgFitness)} />);
+  expect(plot.data.map(point => point.y)).toEqual([89.6855, 89.8, 89.9718]);
+  expect(plot.data[2].y2).toBeCloseTo((89.6855 + 89.8 + 89.9718) / 3, 12);
+  expect(screen.queryByText("No recorded change across these generations.")).toBeNull();
 });

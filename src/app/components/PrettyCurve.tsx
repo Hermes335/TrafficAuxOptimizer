@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { ResponsiveContainer, ComposedChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, Area } from "recharts";
+import { chartScale } from "../types/chartScale";
 
 export default function PrettyCurve({
   values,
@@ -28,12 +29,15 @@ export default function PrettyCurve({
       y2: secondaryValues ? secondaryValues[i] : undefined,
     }));
   }, [values, secondaryValues, generations]);
+  const scale = useMemo(() => chartScale([...values, ...(secondaryValues ?? [])]), [values, secondaryValues]);
 
   if (data.length === 0) {
     return <div className="h-60 flex items-center justify-center text-sm text-gray-500">No data</div>;
   }
 
   return (
+    <div>
+    {scale.flat && <p className="mb-2 text-xs text-slate-600">No recorded change across these generations.</p>}
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart data={data} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
         <defs>
@@ -45,17 +49,18 @@ export default function PrettyCurve({
         <CartesianGrid strokeDasharray="3 3" stroke="#eef2ff" vertical={false} />
         <XAxis dataKey="x" type="number" domain={["dataMin", "dataMax"]} allowDecimals={false} tick={{ fontSize: 11 }} axisLine={false} />
         <YAxis 
-          domain={['auto', 'auto']}
-          tickFormatter={yAxisFormatter ? yAxisFormatter : (v) => (Number.isInteger(v) ? v.toString() : v.toFixed(1))} 
+          domain={scale.domain}
+          ticks={scale.ticks}
+          tickFormatter={yAxisFormatter ?? scale.format}
           tick={{ fontSize: 11 }} 
           axisLine={false} 
-          width={45} 
+          width={60}
         />
         <Tooltip
           formatter={() => null}
           content={({ active, payload }) => {
             if (!active || !payload || payload.length === 0) return null;
-            const p = payload[0].payload as any;
+            const p = payload[0].payload as {x: number; y: number; y2?: number};
             return (
               <div className="rounded border bg-white p-2 text-sm shadow">
                 <div className="font-medium">Gen {p.x}</div>
@@ -70,5 +75,6 @@ export default function PrettyCurve({
         {secondaryValues && <Line type="monotone" dataKey="y2" stroke={colorSecondary} strokeWidth={2} dot={false} isAnimationActive={false} />}
       </ComposedChart>
     </ResponsiveContainer>
+    </div>
   );
 }

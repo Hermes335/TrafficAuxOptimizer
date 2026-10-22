@@ -11,6 +11,7 @@ from core.officer_locations import officer_coordinates
 from core.skills import preferred_skills_for, skill_match
 from .matching import match_officers
 from .scoring import score_breakdown
+from .convergence import ConvergenceTracker
 
 
 @dataclass
@@ -729,8 +730,7 @@ class GeneticDeploymentOptimizer:
         for chromosome in pop:
             self._repair_staffing(chromosome, bottlenecks)
         generation_fitness: list[float] = []
-        hypervolume_history: list[float] = []
-        no_improvement_count = 0
+        convergence = ConvergenceTracker()
 
         for generation in range(config["generations"]):
             if cancel_check and cancel_check():
@@ -773,32 +773,19 @@ class GeneticDeploymentOptimizer:
             best_score = scored[0][1]["fitness"]
             generation_fitness.append(best_score)
 
-            # Convergence detection via hypervolume
+            # Check every scored objective and weighted fitness after warmup.
             if config["enable_early_stopping"]:
-                pareto_front = [s[1] for s in scored if not s[1]["constraints_violated"]][:10]
-                hv = self._compute_hypervolume_2d(pareto_front)
-                hypervolume_history.append(hv)
-
-                if len(hypervolume_history) >= 20:
-                    recent = hypervolume_history[-20:]
-                    improvement = abs(recent[-1] - recent[0]) / max(abs(recent[0]), 1e-10)
-                    if improvement < 1e-4:
-                        no_improvement_count += 1
-                        if no_improvement_count >= 3:
-                            # Early stop
-                            best_population = scored
-                            top_solutions, pareto_data = self._finalize_solutions(
-                                best_population[:3], officers, bottlenecks, weather_impact_factor, config, incident_boosts)
-                            return GARunResult(
-                                best_fitness=top_solutions[0]["fitness"] if top_solutions else best_score,
-                                top_solutions=top_solutions,
-                                generation_fitness=[round(item, 4) for item in generation_fitness],
-                                status="completed",
-                                pareto_curve_data=pareto_data,
-                                converged_early=True,
-                            )
-                    else:
-                        no_improvement_count = 0
+                if convergence.observe(generation + 1, [metrics for _, metrics in scored]):
+                    top_solutions, pareto_data = self._finalize_solutions(
+                        scored[:3], officers, bottlenecks, weather_impact_factor, config, incident_boosts)
+                    return GARunResult(
+                        best_fitness=top_solutions[0]["fitness"] if top_solutions else best_score,
+                        top_solutions=top_solutions,
+                        generation_fitness=[round(item, 4) for item in generation_fitness],
+                        status="completed",
+                        pareto_curve_data=pareto_data,
+                        converged_early=generation + 1 < config["generations"],
+                    )
 
             if progress_callback:
                 progress_callback(generation + 1, config["generations"], best_score)

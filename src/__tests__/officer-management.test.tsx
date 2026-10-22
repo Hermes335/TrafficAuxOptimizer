@@ -43,6 +43,54 @@ beforeEach(() => {
   ]});
 });
 
+it("leaves saved coordinates and their confirmation time out of ordinary roster edits", async () => {
+  vi.mocked(backend.fetchOfficersPage).mockResolvedValue(page([{...alpha, current_latitude: 10.72, current_longitude: 122.56, current_location_recorded_at: "2026-10-20T23:00:00Z"}]));
+  await roster();
+  fireEvent.click(screen.getByRole("button", {name: "Edit Officer Alpha"}));
+  expect(screen.getByLabelText("Location update")).toHaveProperty("value", "unchanged");
+  fireEvent.change(screen.getByLabelText(/^Officer name/), {target: {value: "Updated name"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(backend.updateDashboardOfficer).toHaveBeenCalledWith(1, {
+    name: "Updated name", badge_number: "ALPHA", shift: "morning", status: "available", skills: ["first_aid"],
+  }));
+});
+
+it("explicitly reconfirms existing coordinates without sending a client timestamp", async () => {
+  vi.mocked(backend.fetchOfficersPage).mockResolvedValue(page([{...alpha, current_latitude: 10.72, current_longitude: 122.56}]));
+  await roster();
+  fireEvent.click(screen.getByRole("button", {name: "Edit Officer Alpha"}));
+  fireEvent.change(screen.getByLabelText("Location update"), {target: {value: "confirm"}});
+  expect(screen.getByLabelText("Starting latitude")).toHaveProperty("value", "10.72");
+  expect(screen.getByRole("button", {name: "Save changes"})).toHaveProperty("disabled", false);
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(backend.updateDashboardOfficer).toHaveBeenCalledWith(1, {
+    name: "Officer Alpha", badge_number: "ALPHA", shift: "morning", status: "available", skills: ["first_aid"],
+    current_latitude: 10.72, current_longitude: 122.56,
+  }));
+});
+
+it("requires both valid coordinates before confirming a location", async () => {
+  await roster();
+  fireEvent.click(screen.getByRole("button", {name: "Edit Officer Alpha"}));
+  fireEvent.change(screen.getByLabelText("Location update"), {target: {value: "confirm"}});
+  fireEvent.change(screen.getByLabelText("Starting latitude"), {target: {value: "91"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  expect(screen.getByLabelText("Starting latitude").getAttribute("aria-invalid")).toBe("true");
+  expect(screen.getByLabelText("Starting longitude").getAttribute("aria-invalid")).toBe("true");
+  expect(backend.updateDashboardOfficer).not.toHaveBeenCalled();
+  await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("Starting latitude")));
+});
+
+it("clears both coordinates only after an explicit location action", async () => {
+  await roster();
+  fireEvent.click(screen.getByRole("button", {name: "Edit Officer Alpha"}));
+  fireEvent.change(screen.getByLabelText("Location update"), {target: {value: "clear"}});
+  fireEvent.click(screen.getByRole("button", {name: "Save changes"}));
+  await waitFor(() => expect(backend.updateDashboardOfficer).toHaveBeenCalledWith(1, expect.objectContaining({
+    current_latitude: null, current_longitude: null,
+  })));
+});
+
 it("keeps search and filters together, resets pagination, and clears all filters", async () => {
   vi.mocked(backend.fetchOfficersPage).mockResolvedValue(page([alpha, beta], 26));
   await roster();

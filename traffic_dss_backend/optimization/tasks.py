@@ -14,6 +14,7 @@ from core.staffing import required_staffing, staffing_windows
 from core.operational_time import shift_window, operational_date
 from core.skills import SKILL_POLICY_VERSION, normalize_skills, preferred_skills_for
 from .engine import GeneticDeploymentOptimizer
+from .convergence import CONVERGENCE_POLICY_VERSION, MINIMUM_GENERATIONS, PATIENCE, TOLERANCE
 from .scheduling import run_schedule, plan_periods, search_count
 from .progress_store import save_progress
 from .planning import planning_window, capture_origins, capture_starting_locations, starting_location_model, add_transfer_boundaries, review_lead_seconds
@@ -107,6 +108,9 @@ def run_optimization(self, run_id):
             "captured_at": captured_at, "operational_date": params.get("operational_date"),
             "mode": params.get("mode", "operational"), "session_id": params.get("session_id", ""),
             "schema_version": 4, "engine_version": settings.BACKEND_VERSION, "seed": seed,
+            "convergence_policy": {"version": CONVERGENCE_POLICY_VERSION, "minimum_generations": MINIMUM_GENERATIONS,
+                                   "patience": PATIENCE, "tolerance": TOLERANCE,
+                                   "enabled": bool(params.get("enable_early_stopping", True))},
             "skill_policy_version": SKILL_POLICY_VERSION,
             "readiness": readiness,
             "planning_window": {"start_time": planning_start.isoformat(), "end_time": planning_end.isoformat(),
